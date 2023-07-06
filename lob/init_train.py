@@ -20,6 +20,7 @@ from s5.ssm import init_S5SSM
 from s5.ssm_init import make_DPLR_HiPPO
 from s5.dataloading import make_data_loader
 from lob.lobster_dataloader import LOBSTER_Dataset, LOBSTER
+from lob.encoding import Message_Tokenizer
 
 import lob.validation_helpers as valh
 
@@ -76,8 +77,9 @@ def init_train_state(
         book_seq_len,
         print_shapes=False
     ) -> Tuple[TrainState, Union[partial[BatchLobPredModel], partial[FullLobPredModel]]]:
-
-    in_dim = n_classes
+    
+    # dimension of one-hot token + one-hot msk_pos
+    in_dim = n_classes + Message_Tokenizer.MSG_LEN 
 
     ssm_size = args.ssm_size_base
     ssm_lr = args.ssm_lr_base

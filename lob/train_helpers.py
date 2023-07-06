@@ -10,6 +10,7 @@ import optax
 from typing import Any, Dict, Optional, Tuple, Union
 
 from lob.lob_seq_model import LobPredModel
+from lob.encoding import Message_Tokenizer
 
 
 # LR schedulers
@@ -313,10 +314,11 @@ def cross_entropy_loss(logits, label):
 def compute_accuracy(logits, label):
     return np.argmax(logits) == label
 
+@partial(jax.jit, static_argnums=(1, 2, 3))
 def prep_batch(
         batch: Union[
-            Tuple[onp.ndarray, onp.ndarray, Dict[str, onp.ndarray]],
-            Tuple[onp.ndarray, onp.ndarray]],
+            Tuple[np.ndarray, np.ndarray, Dict[str, np.ndarray]],
+            Tuple[np.ndarray, np.ndarray]],
         seq_len: int,
         in_dim: int,
         num_devices: int,
@@ -324,9 +326,10 @@ def prep_batch(
 
     if len(batch) == 2:
         inputs, targets = batch
-        book_data, timestep_msg, timestep_book = None, None, None
+        book_data, msk_pos, timestep_msg, timestep_book = None, None, None, None
     elif len(batch) == 3:
         inputs, targets, aux_data = batch
+        msk_pos = aux_data.get("msk_pos", None)
         book_data = aux_data.get("book_data", None)
         timestep_msg = aux_data.get("timesteps_msg", None)
         timestep_book = aux_data.get("timesteps_book", None)            
@@ -334,9 +337,10 @@ def prep_batch(
         raise RuntimeError("Err... not sure what I should do... Unhandled data type. ")
 
     # reshape from large batch to multiple device batches
-    inputs, targets, book_data, timestep_msg, timestep_book = device_reshape(
+    inputs, msk_pos, targets, book_data, timestep_msg, timestep_book = device_reshape(
         num_devices,
         inputs,
+        msk_pos,
         targets,
         book_data,
         timestep_msg,
@@ -346,6 +350,7 @@ def prep_batch(
     # split large batch into smaller device batches on the GPUs
     inputs, labels, integration_times = _prep_batch_par(
         inputs,
+        msk_pos,
         targets,
         seq_len,
         in_dim,
@@ -360,11 +365,12 @@ def prep_batch(
 #    jax.vmap,
     jax.pmap,
     axis_name="batch_devices",
-    static_broadcasted_argnums=(2, 3),
-    in_axes=(0, 0, None, None, 0, 0, 0),
+    static_broadcasted_argnums=(3, 4),
+    in_axes=(0, 0, 0, None, None, 0, 0, 0),
     out_axes=(0, 0, 0))
 def _prep_batch_par(
         inputs: jax.Array,
+        msk_pos: jax.Array,
         targets: jax.Array,
         seq_len: int,
         in_dim: int,
@@ -383,6 +389,18 @@ def _prep_batch_par(
 
     assert inputs.shape[1] == seq_len, f'inputs: {inputs.shape} seq_len {seq_len}'
     inputs = one_hot(inputs, in_dim)
+
+    msk_pos = one_hot(msk_pos, Message_Tokenizer.MSG_LEN)
+    # repeat the mask position for each input token
+    msk_pos = np.repeat(
+        np.expand_dims(msk_pos, 1),
+        inputs.shape[1],
+        axis=1
+    )
+    inputs = np.concatenate(
+        (msk_pos, inputs),
+        axis=-1
+    )
 
     # If there is an aux channel containing the integration times, then add that.
     if timestep_msg is not None:
@@ -409,6 +427,7 @@ def _prep_batch_par(
 def device_reshape(
         num_devices: int,
         inputs: jax.Array,
+        msk_pos: jax.Array,
         targets: jax.Array,
         book_data: Optional[jax.Array] = None,
         timestep_msg: Optional[jax.Array] = None,
@@ -417,6 +436,7 @@ def device_reshape(
     """ 
     """
     inputs = np.reshape(inputs, (num_devices, -1, *inputs.shape[1:]))
+    msk_pos = np.reshape(msk_pos, (num_devices, -1, *msk_pos.shape[1:]))
     targets = np.reshape(targets, (num_devices, -1, *targets.shape[1:]))
     if book_data is not None:
         book_data = np.reshape(book_data, (num_devices, -1, *book_data.shape[1:]))
@@ -424,7 +444,7 @@ def device_reshape(
         timestep_msg = np.reshape(timestep_msg, (num_devices, -1, *timestep_msg.shape[1:]))
     if timestep_book is not None:
         timestep_book = np.reshape(timestep_book, (num_devices, -1, *timestep_book.shape[1:]))
-    return inputs, targets, book_data, timestep_msg, timestep_book
+    return inputs, msk_pos, targets, book_data, timestep_msg, timestep_book
 
 
 def train_epoch(

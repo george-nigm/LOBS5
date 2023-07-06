@@ -125,7 +125,7 @@ class LOBSTER_Dataset(Dataset):
         y = seq[-1, msk_pos]
         seq[-1, msk_pos] = Vocab.MASK_TOK
         seq[-1, hid_pos] = Vocab.HIDDEN_TOK
-        return seq, y
+        return seq, y, msk_pos
 
     @staticmethod
     def causal_mask(seq, rng):
@@ -143,20 +143,20 @@ class LOBSTER_Dataset(Dataset):
         hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
 
         i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
-        msk_i = rng.integers(i_start, i_end)
+        msk_pos = rng.integers(i_start, i_end)
         # select random token from last message from selected field
-        y = seq[-1][msk_i]
+        y = seq[-1][msk_pos]
         # seq[-1][msk_i] = Vocab.MASK_TOK
-        seq = seq.at[-1, msk_i].set(Vocab.MASK_TOK)
+        seq = seq.at[-1, msk_pos].set(Vocab.MASK_TOK)
         # set tokens after MSK token to HIDDEN for masked field
-        if msk_i < (i_end - 1):
+        if msk_pos < (i_end - 1):
             # seq[-1][msk_i + 1: i_end] = Vocab.HIDDEN_TOK
-            seq = seq.at[-1, msk_i + 1: i_end].set(Vocab.HIDDEN_TOK)
+            seq = seq.at[-1, msk_pos + 1: i_end].set(Vocab.HIDDEN_TOK)
         # set all hidden_fields to HIDDEN
         for f in hidden_fields:
             # seq[-1][slice(*LOBSTER_Dataset._get_tok_slice_i(f))] = Vocab.HIDDEN_TOK
             seq = seq.at[-1, slice(*LOBSTER_Dataset._get_tok_slice_i(f))].set(Vocab.HIDDEN_TOK)
-        return seq, y
+        return seq, y, msk_pos
     
     #@jax.jit
     # @staticmethod
@@ -380,7 +380,7 @@ class LOBSTER_Dataset(Dataset):
         X = encoding.encode_msgs(X_raw, self.vocab.ENCODING)
 
         # apply mask and extract prediction target token
-        X, y = self.mask_fn(X, self.rng)
+        X, y, msk_pos = self.mask_fn(X, self.rng)
         #X, y = self.mask_fn(X, self.rng_jax)
         X, y = X.reshape(-1), y.reshape(-1)
         # TODO: look into aux_data (could we still use time when available?)
@@ -408,9 +408,9 @@ class LOBSTER_Dataset(Dataset):
                 #book[:, 2::2] = book[:, 2::2] / 100
                 pass
 
-            ret_tuple = X, y, book
+            ret_tuple = X, y, msk_pos, book
         else:
-            ret_tuple = X, y
+            ret_tuple = X, y, msk_pos
 
         if self.return_raw_msgs:
             if self.use_book_data:
@@ -567,7 +567,7 @@ class LOBSTER(SequenceDataset):
     l_output = 0
     #n_messages = 500
 
-    _collate_arg_names = ['book_data'] #['book_data'] #['timesteps']
+    _collate_arg_names = ['msk_pos', 'book_data'] #['book_data'] #['timesteps']
 
     @classmethod
     def _collate_fn(cls, batch, *args, **kwargs):
