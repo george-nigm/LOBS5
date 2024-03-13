@@ -176,6 +176,7 @@ def process_book_files(
             messages, book = filter_by_lvl(messages, book, filter_above_lvl)
 
         # convert to n_price_series separate volume time series (each tick is a price level)
+        # NOTE: this conversion can now be done fast in the data loader, so we can skip this step
         if not use_raw_book_repr:
             book = process_book(book, price_levels=n_price_series)
         else:
@@ -214,7 +215,7 @@ def process_book(
             if price >= 0 and price < price_levels:
                 mybook[i, price] = vol_book.values[i, j]
 
-    # prepend column with best bid changes (in ticks)
+    # prepend column with reference price changes (in ticks)
     mid_diff = p_ref.div(100).diff().fillna(0).astype(int).values
     return np.concatenate([mid_diff[:, None], mybook], axis=1)
 

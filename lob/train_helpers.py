@@ -142,15 +142,17 @@ def create_train_state(model_cls,
     else:
         if use_book_data:
             dummy_input = (
-                np.ones((bsz, seq_len, in_dim)),
-                np.ones((bsz, book_seq_len, book_dim)),
+                # np.ones((bsz, seq_len, in_dim), dtype=np.int32),  # messages
+                np.ones((bsz, seq_len, ), dtype=np.int32),  # messages
+                np.ones((bsz, book_seq_len, book_dim)),  # books
             )
             integration_timesteps = (
                 np.ones((bsz, seq_len, )),
                 np.ones((bsz, book_seq_len, )),
             )
         else:
-            dummy_input = (np.ones((bsz, seq_len, in_dim)) , )
+            # dummy_input = (np.ones((bsz, seq_len, in_dim), dtype=np.int32) , )
+            dummy_input = (np.ones((bsz, seq_len, ), dtype=np.int32) , )
             integration_timesteps = (np.ones((bsz, seq_len, )), )
 
     model = model_cls(training=True)
@@ -303,10 +305,14 @@ def get_slices(dims):
     return slices
 
 # Train and eval steps
+# @partial(np.vectorize, signature="(c),()->()")
+# def cross_entropy_loss(logits, label):
+#     one_hot_label = jax.nn.one_hot(label, num_classes=logits.shape[-1])
+#     return -np.sum(one_hot_label * logits)
+
 @partial(np.vectorize, signature="(c),()->()")
 def cross_entropy_loss(logits, label):
-    one_hot_label = jax.nn.one_hot(label, num_classes=logits.shape[-1])
-    return -np.sum(one_hot_label * logits)
+    return -np.sum(logits[label])
 
 @partial(np.vectorize, signature="(c),()->()")
 def compute_accuracy(logits, label):
@@ -380,7 +386,7 @@ def _prep_batch_par(
     """
 
     assert inputs.shape[1] == seq_len, f'inputs: {inputs.shape} seq_len {seq_len}'
-    inputs = one_hot(inputs, in_dim)
+    # inputs = one_hot(inputs, in_dim)
 
     # If there is an aux channel containing the integration times, then add that.
     if timestep_msg is not None:
@@ -391,17 +397,17 @@ def _prep_batch_par(
 
     if book_data is not None:
         #book_data = jax.device_put(book_data, jax.devices()[0])
-        full_inputs = (inputs.astype(np.float32), book_data)
+        full_inputs = (inputs.astype(np.int32), book_data)
         if timestep_book is not None:
             #timestep_book = jax.device_put(timestep_book, jax.devices()[0])
             integration_timesteps += (np.diff(timestep_book), )
         else:
             integration_timesteps += (np.ones((len(inputs), seq_len)), )
     else:
-        full_inputs = (inputs.astype(np.float32), )
+        full_inputs = (inputs.astype(np.int32), )
 
     # CAVE: squeeze very important for training!
-    return full_inputs, np.squeeze(targets.astype(np.float32)), integration_timesteps
+    return full_inputs, np.squeeze(targets.astype(np.int32)), integration_timesteps
 
 @partial(jax.jit, static_argnums=(0,), backend='gpu')# backend='cpu')
 def device_reshape(

@@ -1,6 +1,14 @@
 # CAVE: only for debugging purposes
-#import os
-#os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=48'
+import os
+# os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=48'
+# no GPU use at all
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
+# allocate and de-allocate memory as needed (SLOW)
+# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
 import argparse
 from s5.utils.util import str2bool
@@ -19,11 +27,7 @@ if __name__ == "__main__":
 	#tf.config.experimental.set_memory_growth(physical_devices[0], True)
 	#tf.config.experimental.set_visible_devices([], "GPU")
 
-	# no GPU use at all
-	#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
-	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
-	#os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".8"
+	
 
 	torch.multiprocessing.set_start_method('spawn')
 

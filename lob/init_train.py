@@ -187,7 +187,7 @@ def init_train_state(
         padded,
         retrieval,
         use_book_data=args.use_book_data,
-        in_dim=in_dim,
+        in_dim=1, # in_dim,
         book_dim=book_dim,
         book_seq_len=book_seq_len,
         bsz=args.bsz,
