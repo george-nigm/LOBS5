@@ -35,6 +35,8 @@ from gymnax_exchange.jaxob.jorderbook import OrderBook, LobState
 import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 # from gym_exchange.environment.base_env.assets.action import OrderIdGenerator
 
+REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
+
 ORDER_ID_i = 0
 EVENT_TYPE_i = 1
 DIRECTION_i = 2
@@ -331,6 +333,8 @@ def get_sim_msg_new(
         time_s: int,
         time_ns: int,
         new_order_id: int,
+        sim: OrderBook,
+        sim_state: LobState,
         tick_size: int,
         encoder: Dict[str, Tuple[jax.Array, jax.Array]],
     ) -> Tuple[Optional[jax.Array], Optional[jax.Array], Optional[jax.Array]]:
@@ -370,13 +374,31 @@ def get_sim_msg_new(
 
         # create raw message to update raw data sequence
         msg_raw = encoding.decode_msg(msg_corr, encoder)
-        ORDER_ID_i = 0
-        PRICE_ABS_i = 3
+        # ORDER_ID_i = 0
+        # PRICE_ABS_i = 3
         msg_raw = msg_raw.at[ORDER_ID_i].set(new_order_id)
         msg_raw = msg_raw.at[PRICE_ABS_i].set(price)
         debug(encoding.repr_raw_msg(msg_raw))
 
-        return sim_msg, msg_corr, msg_raw
+        # invalid if immediately marketable
+        price_abs = sim_msg[PRICE_ABS_i]
+        # message is invalid if immediately marketable
+        is_marketable = (
+            (side == 0 and price_abs <= sim.get_best_bid(sim_state)) or
+            (side == 1 and price_abs >= sim.get_best_ask(sim_state)))
+        return jax.lax.cond(
+            is_marketable,
+            lambda a, b, c: (None, None, None),
+            lambda sim_msg, msg_corr, msg_raw: (sim_msg, msg_corr, msg_raw),
+            sim_msg, msg_corr, msg_raw
+        )
+        # if ((side == 0 and price_abs <= sim.get_best_bid(sim_state)) or
+        #     (side == 1 and price_abs >= sim.get_best_ask(sim_state))):
+        #     #sim.get_best_price(1 - side) == price_abs:
+        #     debug('Invalid new order at', price_abs, 'side', side)
+        #     return None, None, None
+
+        # return sim_msg, msg_corr, msg_raw
 
 @jax.jit
 def rel_to_abs_price(
@@ -428,6 +450,60 @@ def convert_msg_to_ref(
         pred_msg_enc[slice(*valh.get_idx_from_field('time_ns'))],
     ])
 
+def mod_init_order(sim, sim_state, side, p_mod_raw):
+    debug('NaN ref value found')
+    init_vol = sim.get_volume_at_price(sim_state, side, p_mod_raw, True)
+    debug('remaining init vol at price', init_vol, p_mod_raw)
+    # if no init volume remains at price, discard current message
+    ret_none = (init_vol==0)
+    order_id = job.INITID
+    orig_msg_found = jnp.array(REF_LEN * [Vocab.NA_TOK])
+    return ret_none, order_id, orig_msg_found
+
+def search_orig_msg(
+        sim, sim_state, side, p_mod_raw, m_seq, pred_msg_enc, encoder, m_seq_raw
+    ):
+    vol = sim.get_volume_at_price(sim_state, side, p_mod_raw)
+    ret_none = (vol==0)
+    
+    # if sim.get_volume_at_price(sim_state, side, p_mod_raw) == 0:
+    #     debug('No volume at given price, discarding...')
+    #     return None, None, None
+
+    m_seq = m_seq.copy().reshape((-1, Message_Tokenizer.MSG_LEN))
+    # ref part is only needed to match to an order ID
+    # find original msg index location in the sequence (if it exists)
+    orig_enc = construct_orig_msg_enc(pred_msg_enc, encoder)
+    debug('reconstruct. orig_enc \n', orig_enc)
+
+    sim_ids = sim.get_side_ids(sim_state, side)
+    debug('sim IDs', sim_ids[sim_ids > 1])
+    mask = get_invalid_ref_mask(m_seq_raw, p_mod_raw, sim_ids)
+    orig_i, n_fields_removed = valh.try_find_msg(orig_enc, m_seq, mask)
+    
+    # didn't find matching original message
+    if orig_i is None:
+        if sim.get_volume_at_price(sim_state, side, p_mod_raw, True) == 0:
+            debug('No init volume found', side, p_mod_raw)
+            return None, None, None
+        order_id = job.INITID
+        # keep generated ref part, which we cannot validate
+        orig_msg_found = orig_enc[-REF_LEN: ]
+    
+    # found matching original message
+    else:
+        # get order ID from raw data for simulator
+        ORDER_ID_i = 0
+        order_id = m_seq_raw[orig_i, ORDER_ID_i]
+        # found original message: convert to ref part
+        EVENT_TYPE_i = 1
+        if m_seq_raw[orig_i, EVENT_TYPE_i] == 1:
+            orig_msg_found = convert_msg_to_ref(m_seq[orig_i])
+        # found reference to original message
+        else:
+            # take ref fields from matching message
+            orig_msg_found = jnp.array(m_seq[orig_i, -REF_LEN: ])
+
 # TODO: resolve control flow to be able to jit function
 #@jax.jit
 def get_sim_msg_mod(
@@ -455,8 +531,10 @@ def get_sim_msg_mod(
         encoder: Dict[str, Tuple[jax.Array, jax.Array]],
     ) -> Tuple[Optional[jax.Array], Optional[jax.Array], Optional[jax.Array]]:
 
+    
+
     debug('ORDER CANCEL / DELETE')
-    REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
+    
 
     # the actual price of the order to be modified
     p_mod_raw = mid_price + rel_price * tick_size
@@ -467,7 +545,19 @@ def get_sim_msg_mod(
     debug(f'total liquidity at price {p_mod_raw}', sim.get_volume_at_price(sim_state, side, p_mod_raw))
     debug('event_type:', event_type)
 
+    debug('rel_price_ref', rel_price_ref, 'quantity_ref', quantity_ref, 'time_s_ref', time_s_ref, 'time_ns_ref', time_ns_ref)
     # orig order not referenced (no ref given or part missing)
+    # incorr_ref = encoding.is_special_val(rel_price_ref) \
+    #         or encoding.is_special_val(quantity_ref) \
+    #         or encoding.is_special_val(time_s_ref) \
+    #         or encoding.is_special_val(time_ns_ref)
+    
+    # jax.lax.cond(
+    #     incorr_ref,
+    #     mod_init_order,
+    #     lambda x: x,
+    #     sim, sim_state, side, p_mod_raw, removed_quantity
+    # )
     if encoding.is_special_val(rel_price_ref) \
             or encoding.is_special_val(quantity_ref) \
             or encoding.is_special_val(time_s_ref) \
@@ -481,7 +571,7 @@ def get_sim_msg_mod(
             return None, None, None
         order_id = job.INITID
         #orig_msg_found = onp.array((Message_Tokenizer.MSG_LEN // 2) * [Vocab.NA_TOK])
-        orig_msg_found = onp.array(REF_LEN * [Vocab.NA_TOK])
+        orig_msg_found = jnp.array(REF_LEN * [Vocab.NA_TOK])
     
     # search for original order to get correct ID
     else:
@@ -521,7 +611,7 @@ def get_sim_msg_mod(
             # found reference to original message
             else:
                 # take ref fields from matching message
-                orig_msg_found = onp.array(m_seq[orig_i, -REF_LEN: ])
+                orig_msg_found = jnp.array(m_seq[orig_i, -REF_LEN: ])
 
     # get remaining quantity in book for given order ID
     debug('looking for order', order_id, 'at price', p_mod_raw)
@@ -534,7 +624,7 @@ def get_sim_msg_mod(
         if remaining_quantity == 0:
             return None, None, None
         order_id = job.INITID
-        orig_msg_found = onp.array(REF_LEN * [Vocab.NA_TOK])
+        orig_msg_found = jnp.array(REF_LEN * [Vocab.NA_TOK])
 
     # removing more than remaining quantity --> scale down to remaining
     if removed_quantity >= remaining_quantity:
@@ -574,7 +664,7 @@ def get_sim_msg_mod(
 
     # encode corrected message
     msg_corr = encoding.encode_msg(msg_corr, encoder)[: Message_Tokenizer.NEW_MSG_LEN]
-    msg_corr = onp.concatenate([msg_corr, orig_msg_found])
+    msg_corr = jnp.concatenate([msg_corr, orig_msg_found])
 
     # create raw message to update raw data sequence
     msg_raw = encoding.decode_msg(msg_corr, encoder)
@@ -1492,8 +1582,7 @@ def generate_impact_rollout(
                 m_seq,
                 m_seq_raw_inp,
                 new_order_id,
-                sim,
-                sim_state,
+                sim, sim_state,
                 tick_size,
                 encoder,
             )
@@ -1504,6 +1593,7 @@ def generate_impact_rollout(
                 p_mid_old,
                 event_type, quantity, side, rel_price, delta_t_s, delta_t_ns, time_s, time_ns,
                 new_order_id,
+                sim, sim_state,
                 tick_size,
                 encoder,
             )
