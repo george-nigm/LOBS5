@@ -2,7 +2,7 @@
 ## A Token-Level Autoregressive Generative Model of Message Flow Using a Deep State Space Network
 
 This repository provides the implementation for the
-paper: Generative AI for End-to-End Limit Order Book Modelling. The preprint is available [here](https://arxiv.org/abs/xxxx.xxxxx).
+paper: Generative AI for End-to-End Limit Order Book Modelling. The preprint is available [here](https://arxiv.org/abs/2309.00638).
 
 The repository is a fork of [the original S5 repository](https://github.com/lindermanlab/S5).
 
