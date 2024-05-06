@@ -177,13 +177,16 @@ def process_book_files(
 
         # convert to n_price_series separate volume time series (each tick is a price level)
         # NOTE: this conversion can now be done fast in the data loader, so we can skip this step
-        if not use_raw_book_repr:
-            book = process_book(book, price_levels=n_price_series)
-        else:
-            # prepend delta mid price column to book data
-            p_ref = ((book.iloc[:, 0] + book.iloc[:, 2]) / 2).round(-2).astype(int)
+        if use_raw_book_repr:
+            # make sure reference price is never none --> forward fill most recent price
+            best_ask = book.iloc[:, 0].replace({9999999999: np.nan}).ffill().astype(int)
+            best_bid = book.iloc[:, 2].replace({-9999999999: np.nan}).ffill().astype(int)
+            p_ref = ((best_ask + best_bid) / 2).round(-2).astype(int)
             mid_diff = p_ref.div(100).diff().fillna(0).astype(int)
+            # prepend delta mid price column to book data
             book = np.concatenate((mid_diff.values.reshape(-1,1), book.values), axis=1)
+        else:
+            book = process_book(book, price_levels=n_price_series)
 
         np.save(b_path, book, allow_pickle=True)
 
@@ -221,9 +224,9 @@ def process_book(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/nfs/home/peern/LOBS5/data/raw/',
+    parser.add_argument("--data_dir", type=str, default='/nfs/home/peern/LOBS5/data/GOOG/raw/',
 		     			help="where to load data from")
-    parser.add_argument("--save_dir", type=str, default='/nfs/home/peern/LOBS5/data/',
+    parser.add_argument("--save_dir", type=str, default='/nfs/home/peern/LOBS5/data/GOOG/',
 		     			help="where to save processed data")
     parser.add_argument("--filter_above_lvl", type=int,
                         help="filters down from levels present in the data to specified number of price levels")
@@ -232,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument("--skip_existing", action='store_true', default=False)
     parser.add_argument("--messages_only", action='store_true', default=False)
     parser.add_argument("--book_only", action='store_true', default=False)
-    parser.add_argument("--use_raw_book_repr", action='store_true', default=False)
+    parser.add_argument("--use_raw_book_repr", action='store_true', default=True)
     args = parser.parse_args()
 
     assert not (args.messages_only and args.book_only)

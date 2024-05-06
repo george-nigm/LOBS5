@@ -130,7 +130,7 @@ def train(args):
                                               #train_model,
                                               trainloader,
                                               seq_len,
-                                              in_dim,
+                                              #in_dim,
                                               args.batchnorm,
                                               lr_params,
                                               args.num_devices)

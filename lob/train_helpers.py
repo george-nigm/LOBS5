@@ -12,6 +12,10 @@ from typing import Any, Dict, Optional, Tuple, Union
 from lob.lob_seq_model import LobPredModel
 
 
+num_devices_global = 1
+global_devices = jax.local_devices()[0: num_devices_global]
+
+
 # LR schedulers
 def linear_warmup(step, base_lr, end_step, lr_min=None):
     return base_lr * (step + 1) / end_step
@@ -293,7 +297,7 @@ def create_train_state(model_cls,
         state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
     # keep copy of state on each device
-    state = jax_utils.replicate(state)
+    state = jax_utils.replicate(state, devices=global_devices)
     return state
 
 def get_slices(dims):
@@ -323,7 +327,7 @@ def prep_batch(
             Tuple[onp.ndarray, onp.ndarray, Dict[str, onp.ndarray]],
             Tuple[onp.ndarray, onp.ndarray]],
         seq_len: int,
-        in_dim: int,
+        # in_dim: int,
         num_devices: int,
     ) -> Tuple[Tuple, np.ndarray, Tuple]:
 
@@ -347,17 +351,19 @@ def prep_batch(
         timestep_msg,
         timestep_book,
     )
+    print('inputs shape (device_reshape):', inputs.shape)
 
     # split large batch into smaller device batches on the GPUs
     inputs, labels, integration_times = _prep_batch_par(
         inputs,
         targets,
         seq_len,
-        in_dim,
+        # in_dim,
         book_data,
         timestep_msg,
         timestep_book,
     )
+    print('inputs (targets) shape (_prep_batch_par):', inputs[1].shape)
 
     return inputs, labels, integration_times
 
@@ -365,14 +371,16 @@ def prep_batch(
 #    jax.vmap,
     jax.pmap,
     axis_name="batch_devices",
-    static_broadcasted_argnums=(2, 3),
-    in_axes=(0, 0, None, None, 0, 0, 0),
-    out_axes=(0, 0, 0))
+    static_broadcasted_argnums=(2,),
+    # in_axes=(0, 0, None, None, 0, 0, 0),
+    in_axes=(0, 0, None, 0, 0, 0),
+    # out_axes=(0, 0, 0),
+    devices=global_devices)
 def _prep_batch_par(
         inputs: jax.Array,
         targets: jax.Array,
         seq_len: int,
-        in_dim: int,
+        # in_dim: int,
         book_data: Optional[jax.Array] = None,
         timestep_msg: Optional[jax.Array] = None,
         timestep_book: Optional[jax.Array] = None,
@@ -437,7 +445,7 @@ def train_epoch(
         #model,
         trainloader,
         seq_len,
-        in_dim,
+        # in_dim,
         batchnorm,
         lr_params,
         num_devices,
@@ -452,7 +460,8 @@ def train_epoch(
 
     #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
     for batch_idx, batch in enumerate(tqdm(trainloader)):
-        inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim, num_devices)
+        # inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim, num_devices)
+        inputs, labels, integration_times = prep_batch(batch, seq_len, num_devices)
 
         rng, drop_rng = jax.random.split(rng)
         state, loss = train_step(
@@ -473,11 +482,12 @@ def train_epoch(
     return state, np.mean(np.array(batch_losses)), step
 
 @partial(
-    jax.pmap, backend='gpu',
+    jax.pmap,
     axis_name="batch_devices",
     static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
     in_axes=(0, None, 0, 0, 0, None),
-    out_axes=(0, 0))
+    # out_axes=(0, 0),
+    devices=global_devices)
 def train_step(
         state: train_state.TrainState,
         rng: jax.random.PRNGKeyArray,  # 3
@@ -526,22 +536,26 @@ def train_step(
 
 def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, step_rescale=1.0):
     """Validation function that loops over batches"""
-    losses, accuracies, preds = np.array([]), np.array([]), np.array([])
+    # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
+    losses, accuracies, preds = [], [], []
     for batch_idx, batch in enumerate(tqdm(testloader)):
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim, num_devices)
         loss, acc, pred = eval_step(
             inputs, labels, integration_timesteps, state, apply_fn, batchnorm)
-        losses = np.append(losses, loss)
-        accuracies = np.append(accuracies, acc)
+        # losses = np.append(losses, loss)
+        # accuracies = np.append(accuracies, acc)
+        losses.append(loss)
+        accuracies.append(acc)
 
-    aveloss, aveaccu = np.mean(losses), np.mean(accuracies)
+    aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
     return aveloss, aveaccu
 
 @partial(
     jax.pmap,
     axis_name="batch_devices",
     static_broadcasted_argnums=(4,5),
-    in_axes=(0, 0, 0, 0, None, None))
+    in_axes=(0, 0, 0, 0, None, None),
+    devices=global_devices)
 def eval_step(
         batch_inputs,
         batch_labels,

@@ -5,9 +5,9 @@ import os
 #os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 # allocate and de-allocate memory as needed (SLOW)
-# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
 import argparse
