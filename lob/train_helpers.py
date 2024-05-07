@@ -2,14 +2,14 @@ from functools import partial
 import numpy as onp
 import jax
 import jax.numpy as np
-from jax.nn import one_hot
+# from jax.nn import one_hot
 from tqdm import tqdm
 from flax.training import train_state
 from flax import jax_utils
 import optax
 from typing import Any, Dict, Optional, Tuple, Union
 
-from lob.lob_seq_model import LobPredModel
+# from lob.lob_seq_model import LobPredModel
 
 
 num_devices_global = 1
@@ -166,10 +166,10 @@ def create_train_state(model_cls,
                            *dummy_input, *integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        params = variables["params"]#.unfreeze()
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
+        params = variables["params"]#.unfreeze()
         # Note: `unfreeze()` is for using Optax.
 
     if opt_config in ["standard"]:
@@ -351,7 +351,7 @@ def prep_batch(
         timestep_msg,
         timestep_book,
     )
-    print('inputs shape (device_reshape):', inputs.shape)
+    # print('inputs shape (device_reshape):', inputs.shape)
 
     # split large batch into smaller device batches on the GPUs
     inputs, labels, integration_times = _prep_batch_par(
@@ -363,7 +363,7 @@ def prep_batch(
         timestep_msg,
         timestep_book,
     )
-    print('inputs (targets) shape (_prep_batch_par):', inputs[1].shape)
+    # print('inputs (targets) shape (_prep_batch_par):', inputs[1].shape)
 
     return inputs, labels, integration_times
 
@@ -490,7 +490,7 @@ def train_epoch(
     devices=global_devices)
 def train_step(
         state: train_state.TrainState,
-        rng: jax.random.PRNGKeyArray,  # 3
+        rng: jax.dtypes.prng_key,  # 3
         batch_inputs: Tuple[jax.Array, jax.Array], # 4
         batch_labels: jax.Array, # 5
         batch_integration_timesteps: Tuple[jax.Array, jax.Array], # 6
@@ -539,7 +539,7 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
     # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     losses, accuracies, preds = [], [], []
     for batch_idx, batch in enumerate(tqdm(testloader)):
-        inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim, num_devices)
+        inputs, labels, integration_timesteps = prep_batch(batch, seq_len, num_devices)
         loss, acc, pred = eval_step(
             inputs, labels, integration_timesteps, state, apply_fn, batchnorm)
         # losses = np.append(losses, loss)

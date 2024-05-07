@@ -1,19 +1,19 @@
-from functools import partial
+# from functools import partial
 from jax import random
-import jax.numpy as np
-from jax.scipy.linalg import block_diag
+import jax.numpy as jnp
+# from jax.scipy.linalg import block_diag
 from flax.training import checkpoints
 import orbax.checkpoint
-from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel
+# from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel
 import wandb
 
 from lob.init_train import init_train_state, load_checkpoint
-from lob.dataloading import Datasets, create_lobster_prediction_dataset, create_lobster_train_loader
-from lob.lobster_dataloader import LOBSTER, LOBSTER_Dataset
-from lob.train_helpers import create_train_state, reduce_lr_on_plateau,\
-    linear_warmup, cosine_annealing, constant_lr, train_epoch, validate
-from s5.ssm import init_S5SSM
-from s5.ssm_init import make_DPLR_HiPPO
+from lob.dataloading import create_lobster_prediction_dataset, create_lobster_train_loader#, Datasets
+from lob.lobster_dataloader import LOBSTER_Dataset#, LOBSTER,
+from lob.train_helpers import reduce_lr_on_plateau, linear_warmup, \
+    cosine_annealing, constant_lr, train_epoch, validate#, create_train_state
+# from s5.ssm import init_S5SSM
+# from s5.ssm_init import make_DPLR_HiPPO
 
 
 def train(args):
@@ -139,7 +139,7 @@ def train(args):
         # different offsets
         trainloader = create_lobster_train_loader(
             lobster_dataset,
-            int(random.randint(skey, (1,), 0, 100000)),
+            int(random.randint(skey, (1,), 0, 100000)[0]),
             args.bsz,
             num_workers=args.n_data_workers,
             reset_train_offsets=True)
