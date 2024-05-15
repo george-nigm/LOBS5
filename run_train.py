@@ -7,18 +7,14 @@ import os
 # allocate and de-allocate memory as needed (SLOW)
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
+# TODO: change this if num_devices changes (is less than all of the available ones)
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
 import argparse
 from s5.utils.util import str2bool
-from lob.train import train
 from lob.dataloading import Datasets
-#import tensorflow as tf
-import os
-import jax
-import torch
-# import cProfile
 
 
 if __name__ == "__main__":
@@ -26,10 +22,6 @@ if __name__ == "__main__":
 	#physical_devices = tf.config.list_physical_devices('GPU')
 	#tf.config.experimental.set_memory_growth(physical_devices[0], True)
 	#tf.config.experimental.set_visible_devices([], "GPU")
-
-	
-
-	torch.multiprocessing.set_start_method('spawn')
 
 	parser = argparse.ArgumentParser()
 
@@ -112,7 +104,7 @@ if __name__ == "__main__":
 						help="batchnorm momentum")
 	parser.add_argument("--bsz", type=int, default=16, #64, (max 16 with full size)
 						help="batch size")
-	parser.add_argument("--num_devices", type=int, default=jax.device_count(),
+	parser.add_argument("--num_devices", type=int, default=1,
 		     			help="number of devices (GPUs) to use")
 	parser.add_argument("--epochs", type=int, default=100,  #100, 20
 						help="max number of epochs")
@@ -150,6 +142,18 @@ if __name__ == "__main__":
 	parser.add_argument("--jax_seed", type=int, default=1919,
 						help="seed randomness")
 
+	args = parser.parse_args()
+
+
+	import torch
+	torch.multiprocessing.set_start_method('spawn')
+
+	from lob.train import train
+	#import tensorflow as tf
+	# import jax
+	
+	# import cProfile
+
 	#with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
-	train(parser.parse_args())
+	train(args)
 	#cProfile.run('train(parser.parse_args())')

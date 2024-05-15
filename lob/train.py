@@ -1,19 +1,16 @@
-# from functools import partial
+import os
+import jax
 from jax import random
 import jax.numpy as jnp
-# from jax.scipy.linalg import block_diag
-from flax.training import checkpoints
-import orbax.checkpoint
-# from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel
+import flax
+import orbax.checkpoint as ocp
 import wandb
 
-from lob.init_train import init_train_state, load_checkpoint
+from lob.init_train import init_train_state, load_checkpoint, save_checkpoint, deduplicate_trainstate
 from lob.dataloading import create_lobster_prediction_dataset, create_lobster_train_loader#, Datasets
-from lob.lobster_dataloader import LOBSTER_Dataset#, LOBSTER,
+from lob.lobster_dataloader import LOBSTER_Dataset
 from lob.train_helpers import reduce_lr_on_plateau, linear_warmup, \
-    cosine_annealing, constant_lr, train_epoch, validate#, create_train_state
-# from s5.ssm import init_S5SSM
-# from s5.ssm_init import make_DPLR_HiPPO
+    cosine_annealing, constant_lr, train_epoch, validate
 
 
 def train(args):
@@ -86,11 +83,11 @@ def train(args):
         ckpt = load_checkpoint(
             state,
             args.restore,
-            args.__dict__,
+            # args.__dict__,
             step=args.restore_step,
         )
         state = ckpt['model']
-
+    
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
     count, best_val_loss = 0, 100000000  # This line is for early stopping purposes
@@ -99,6 +96,23 @@ def train(args):
     steps_per_epoch = int(train_size/args.bsz)
 
     val_model = model_cls(training=False, step_rescale=1)
+
+    mgr_options = ocp.CheckpointManagerOptions(
+        save_interval_steps=10,
+        create=True,
+        max_to_keep=2,
+        # keep_period=2,
+        # step_prefix=f'{run.name}_{run.id}',
+        enable_async_checkpointing=False,
+    )
+    ckpt_mgr = ocp.CheckpointManager(
+        os.path.abspath(f'checkpoints/{run.name}_{run.id}/'),
+        # ocp.Checkpointer(ocp.PyTreeCheckpointHandler()),
+        # ocp.Checkpointer(ocp.StandardCheckpointHandler()),
+        item_names=('state', 'metadata'),
+        options=mgr_options,
+        metadata=vars(args)
+    )
 
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
@@ -176,11 +190,13 @@ def train(args):
             # else use test set as validation set (e.g. IMDB)
             print(f"[*] Running Epoch {epoch + 1} Test...")
             val_loss, val_acc = validate(state,
-                                         model_cls,
+                                         #model_cls,
+                                         val_model.apply,
                                          testloader,
                                          seq_len,
                                          in_dim,
-                                         args.batchnorm)
+                                         args.batchnorm,
+                                         args.num_devices)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -190,26 +206,17 @@ def train(args):
 
         # save checkpoint
         ckpt = {
-            'model': state,
+            'model': deduplicate_trainstate(state),
             'config': vars(args),
             'metrics': {
-                'loss_train': train_loss,
-                'loss_val': val_loss,
-                'loss_test': test_loss,
-                'acc_val': val_acc,
-                'acc_test': test_acc,
+                'loss_train': float(train_loss),
+                'loss_val': float(val_loss),
+                'loss_test': float(test_loss),
+                'acc_val': float(val_acc),
+                'acc_test': float(test_acc),
             }
         }
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        checkpoints.save_checkpoint(
-            ckpt_dir=f'checkpoints/{run.name}_{run.id}',
-            target=ckpt,
-            step=epoch,
-            overwrite=True,
-            keep=2,
-            keep_every_n_steps=10,
-            orbax_checkpointer=orbax_checkpointer
-        )
+        save_checkpoint(ckpt_mgr, ckpt, epoch)
 
         # For early stopping purposes
         if val_loss < best_val_loss:

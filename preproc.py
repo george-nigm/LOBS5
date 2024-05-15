@@ -104,7 +104,7 @@ def process_message_files(
             index_col=False,
             header=None
         )
-        assert len(messages) == len(book)
+        assert len(messages) == len(book), f'messages: {m_f} orderbook: {b_f} ;{len(messages)} != {len(book)}'
 
         if filter_above_lvl:
             book = book.iloc[:, :filter_above_lvl * 4]

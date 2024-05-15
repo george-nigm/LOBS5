@@ -12,8 +12,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 # from lob.lob_seq_model import LobPredModel
 
 
-num_devices_global = 1
-global_devices = jax.local_devices()[0: num_devices_global]
+# num_devices_global = 2
+# global_devices = jax.local_devices()[0: num_devices_global]
 
 
 # LR schedulers
@@ -297,7 +297,7 @@ def create_train_state(model_cls,
         state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
     # keep copy of state on each device
-    state = jax_utils.replicate(state, devices=global_devices)
+    state = jax_utils.replicate(state)#, devices=global_devices)
     return state
 
 def get_slices(dims):
@@ -375,7 +375,8 @@ def prep_batch(
     # in_axes=(0, 0, None, None, 0, 0, 0),
     in_axes=(0, 0, None, 0, 0, 0),
     # out_axes=(0, 0, 0),
-    devices=global_devices)
+    # devices=global_devices
+)
 def _prep_batch_par(
         inputs: jax.Array,
         targets: jax.Array,
@@ -460,6 +461,9 @@ def train_epoch(
 
     #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
     for batch_idx, batch in enumerate(tqdm(trainloader)):
+        # # CAVE TODO: REMOVE!
+        # if batch_idx > 10:
+        #     break
         # inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim, num_devices)
         inputs, labels, integration_times = prep_batch(batch, seq_len, num_devices)
 
@@ -487,7 +491,8 @@ def train_epoch(
     static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
     in_axes=(0, None, 0, 0, 0, None),
     # out_axes=(0, 0),
-    devices=global_devices)
+    # devices=global_devices
+)
 def train_step(
         state: train_state.TrainState,
         rng: jax.dtypes.prng_key,  # 3
@@ -555,7 +560,8 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
     axis_name="batch_devices",
     static_broadcasted_argnums=(4,5),
     in_axes=(0, 0, 0, 0, None, None),
-    devices=global_devices)
+    # devices=global_devices
+)
 def eval_step(
         batch_inputs,
         batch_labels,
