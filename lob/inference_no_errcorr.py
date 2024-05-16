@@ -158,12 +158,12 @@ def get_sim(
     # reset simulator : args are (nOrders, nTrades)
     sim = OrderBook()
     # init simulator at the start of the sequence
-    sim_state, rng = sim.reset(init_l2_book)
+    sim_state = sim.reset(init_l2_book)
     # return sim, sim_state
     # replay sequence in simulator (actual)
     # so that sim is at the same state as the model
     replay = msgs_to_jnp(replay_msgs_raw)
-    sim_state, _ = sim.process_orders_array(sim_state, replay, rng)
+    sim_state = sim.process_orders_array(sim_state, replay)
     return sim, sim_state
 
 get_sims_vmap = jax.jit(
@@ -835,7 +835,7 @@ def _generate_msg(
     )
 
     # feed message to simulator, updating book state
-    sim_state, rng = sim.process_order_array(sim_state, sim_msg, rng)
+    sim_state = sim.process_order_array(sim_state, sim_msg)
 
     # debug('trades', _trades)
 
