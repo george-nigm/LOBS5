@@ -697,7 +697,7 @@ def _generate_token(
     valid_mask = valh.get_valid_mask(valid_mask_array, mask_i)
     m_seq, _ = valh.mask_last_msg_in_seq(m_seq, mask_i)
     input = (
-        jnp.expand_dims(m_seq, axis=0),#).astype(float),
+        jnp.expand_dims(m_seq, axis=0),
         jnp.expand_dims(b_seq, axis=0)
     )
     integration_timesteps = (
@@ -789,7 +789,7 @@ def _generate_msg(
     # generate tokens until time is reached
     mask_i = 0
     gen_token_carry = (m_seq, b_seq, mask_i, rng_)
-    gen_token_carry, _ = jax.lax.scan(
+    (m_seq, b_seq, mask_i, rng_), _ = jax.lax.scan(
         generate_token_scannable,
         gen_token_carry,
         xs=None,
@@ -809,6 +809,10 @@ def _generate_msg(
         delta_t_ns_start_i,
         delta_t_ns_end_i,
     )
+    # update mask index to skip time token positions
+    mask_i = TIME_END_I
+    gen_token_carry = (m_seq, b_seq, mask_i, rng_)
+
     # finish message generation
     gen_token_carry, _ = jax.lax.scan(
         generate_token_scannable,
