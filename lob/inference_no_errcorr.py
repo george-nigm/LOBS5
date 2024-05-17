@@ -264,22 +264,45 @@ def get_sim_msg(
     time_s_ref = msg_decoded[TIMEs_REF_i]
     time_ns_ref = msg_decoded[TIMEns_REF_i]
 
+    p_abs = mid_price + rel_price * tick_size
+
     # get message for jax lob simulator
-    sim_msg = switch(
-        (event_type == 1, (event_type == 2) | (event_type == 3), event_type == 4),
-        (get_sim_msg_new, get_sim_msg_mod, get_sim_msg_exec, construct_dummy_sim_msg),
-        (event_type, quantity, side, rel_price, time_s, time_ns, 
-                rel_price_ref, quantity_ref, time_s_ref, time_ns_ref,
-                mid_price, new_order_id,
-                sim, sim_state, tick_size
-        )
+    # sim_msg = switch(
+    #     (event_type == 1, (event_type == 2) | (event_type == 3), event_type == 4),
+    #     (get_sim_msg_new, get_sim_msg_mod, get_sim_msg_exec, construct_dummy_sim_msg),
+    #     (event_type, quantity, side, p_abs, time_s, time_ns, 
+    #             rel_price_ref, quantity_ref, time_s_ref, time_ns_ref,
+    #             new_order_id, sim, sim_state,
+    #     )
+    # )
+    orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
+    order_id_ref = orig_order[ORDER_ID_i]
+
+    order_id = jax.lax.cond(
+        (event_type == 2) | (event_type == 3),
+        lambda new_id, ref_id: ref_id,
+        lambda new_id, ref_id: new_id,
+        new_order_id, order_id_ref
     )
+
+    sim_msg = construct_sim_msg(
+        event_type,  # type: execution
+        side,  # side of execution
+        quantity,
+        p_abs,
+        order_id,
+        time_s,
+        time_ns,
+    )
+
+    msg_decoded = msg_decoded.at[PRICE_ABS_i].set(p_abs)
 
     # return dummy message instead if new_part contains NaNs
     return jax.lax.cond(
         jnp.isnan(new_part).any(),
-        lambda: (construct_dummy_sim_msg(), msg_decoded),
-        lambda: (sim_msg, msg_decoded)
+        lambda sim_msg, msg_decoded: (construct_dummy_sim_msg(), msg_decoded),
+        lambda sim_msg, msg_decoded: (sim_msg, msg_decoded),
+        sim_msg, msg_decoded
     )
 
 # event_type, side, quantity, price, trade(r)_id, order_id, time_s, time_ns
@@ -345,41 +368,39 @@ def construct_raw_msg(
     ])
     return msg_raw
 
-@jax.jit
-def get_sim_msg_new(
-        event_type: int,
-        quantity: int,
-        side: int,
-        rel_price: int,
-        time_s: int,
-        time_ns: int, 
-        rel_price_ref: int,
-        quantity_ref: int,
-        time_s_ref: int,
-        time_ns_ref: int,
-        mid_price: int,
-        new_order_id: int,
-        sim: OrderBook,
-        sim_state: LobState,
-        tick_size: int
-    ) -> jax.Array:
+# @jax.jit
+# def get_sim_msg_new(
+#         event_type: int,
+#         quantity: int,
+#         side: int,
+#         p_raw: int,
+#         time_s: int,
+#         time_ns: int, 
+#         rel_price_ref: int,
+#         quantity_ref: int,
+#         time_s_ref: int,
+#         time_ns_ref: int,
+#         new_order_id: int,
+#         sim: OrderBook,
+#         sim_state: LobState,
+#     ) -> jax.Array:
  
-        # new limit order
-        # debug('NEW LIMIT ORDER')
-        # convert relative to absolute price
-        price = mid_price + rel_price * tick_size
+#         # new limit order
+#         # debug('NEW LIMIT ORDER')
+#         # convert relative to absolute price
+#         # price = mid_price + rel_price * tick_size
 
-        sim_msg = construct_sim_msg(
-            1,
-            side,
-            quantity,
-            price,
-            new_order_id,
-            time_s,
-            time_ns,
-        )
+#         sim_msg = construct_sim_msg(
+#             1,
+#             side,
+#             quantity,
+#             p_raw,
+#             new_order_id,
+#             time_s,
+#             time_ns,
+#         )
 
-        return sim_msg#, msg_corr, msg_raw
+#         return sim_msg#, msg_corr, msg_raw
 
 @jax.jit
 def rel_to_abs_price(
@@ -475,92 +496,88 @@ def search_orig_msg(
             # take ref fields from matching message
             orig_msg_found = jnp.array(m_seq[orig_i, -REF_LEN: ])
 
-# TODO: resolve control flow to be able to jit function
-#@jax.jit
-def get_sim_msg_mod(
-        event_type: int,
-        removed_quantity: int,
-        side: int,
-        rel_price: int,
-        time_s: int,
-        time_ns: int, 
-        rel_price_ref: int,
-        quantity_ref: int,
-        time_s_ref: int,
-        time_ns_ref: int,
-        mid_price: int,
-        new_order_id: int,
-        sim: OrderBook,
-        sim_state: LobState,
-        tick_size: int
-    ) -> jax.Array:
+# def get_sim_msg_mod(
+#         event_type: int,
+#         removed_quantity: int,
+#         side: int,
+#         p_mod_raw: int,
+#         time_s: int,
+#         time_ns: int, 
+#         rel_price_ref: int,
+#         quantity_ref: int,
+#         time_s_ref: int,
+#         time_ns_ref: int,
+#         # mid_price: int,
+#         new_order_id: int,
+#         sim: OrderBook,
+#         sim_state: LobState,
+#         # tick_size: int
+#     ) -> jax.Array:
 
-    # debug('ORDER CANCEL / DELETE')
+#     # debug('ORDER CANCEL / DELETE')
 
-    # the actual price of the order to be modified
-    p_mod_raw = mid_price + rel_price * tick_size
+#     # the actual price of the order to be modified
+#     # p_mod_raw = mid_price + rel_price * tick_size
 
-    # TODO: get order ID from simulator if time matches exactly,
-    #       otherwise modify random order at the given price
-    # TODO: get message with exact timestamp from simulator instead of relying on raw sequence
-    # orig_enc = construct_orig_msg_enc(pred_msg_enc, encoder)
+#     # TODO: get order ID from simulator if time matches exactly,
+#     #       otherwise modify random order at the given price
+#     # TODO: get message with exact timestamp from simulator instead of relying on raw sequence
+#     # orig_enc = construct_orig_msg_enc(pred_msg_enc, encoder)
 
-    # get limit order by timestamp
-    orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
-    order_id = orig_order[ORDER_ID_i]
+#     # get limit order by timestamp
+#     orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
+#     order_id = orig_order[ORDER_ID_i]
 
-    # debug(f'(event_type={event_type}) -{removed_quantity} from {remaining_quantity} '
-    #       + f'@{p_mod_raw} --> {remaining_quantity-removed_quantity}')
+#     # debug(f'(event_type={event_type}) -{removed_quantity} from {remaining_quantity} '
+#     #       + f'@{p_mod_raw} --> {remaining_quantity-removed_quantity}')
 
-    # if order is not found (-1) cancel random order at the given price
-    sim_msg = construct_sim_msg(
-        event_type,
-        side,
-        removed_quantity,
-        p_mod_raw,
-        order_id, # exact match or -1
-        time_s,
-        time_ns,
-    )
+#     # if order is not found (-1) cancel random order at the given price
+#     sim_msg = construct_sim_msg(
+#         event_type,
+#         side,
+#         removed_quantity,
+#         p_mod_raw,
+#         order_id, # exact match or -1
+#         time_s,
+#         time_ns,
+#     )
 
-    return sim_msg
+#     return sim_msg
 
 
-def get_sim_msg_exec(
-        event_type: int,
-        removed_quantity: int,
-        side: int,
-        rel_price: int,
-        time_s: int,
-        time_ns: int, 
-        rel_price_ref: int,
-        quantity_ref: int,
-        time_s_ref: int,
-        time_ns_ref: int,
-        mid_price: int,
-        new_order_id: int,
-        sim: OrderBook,
-        sim_state: LobState,
-        tick_size: int
-    ) -> jax.Array:
+# def get_sim_msg_exec(
+#         event_type: int,
+#         removed_quantity: int,
+#         side: int,
+#         p_mod_raw: int,
+#         time_s: int,
+#         time_ns: int, 
+#         rel_price_ref: int,
+#         quantity_ref: int,
+#         time_s_ref: int,
+#         time_ns_ref: int,
+#         new_order_id: int,
+#         sim: OrderBook,
+#         sim_state: LobState,
+#     ) -> jax.Array:
 
-    # debug('ORDER EXECUTION')
-    REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
+#     # debug('ORDER EXECUTION')
+#     # REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
 
-    # the actual price of the order to be modified
-    p_mod_raw = mid_price + rel_price * tick_size
+#     # the actual price of the order to be modified
+#     # p_mod_raw = mid_price + rel_price * tick_size
 
-    sim_msg = construct_sim_msg(
-        4,  # type: execution
-        side,  # side of execution
-        removed_quantity,
-        p_mod_raw,
-        new_order_id,
-        time_s,
-        time_ns,
-    )
+#     sim_msg = construct_sim_msg(
+#         4,  # type: execution
+#         side,  # side of execution
+#         removed_quantity,
+#         p_mod_raw,
+#         new_order_id,
+#         time_s,
+#         time_ns,
+#     )
 
-    return sim_msg
+#     return sim_msg
 
 @jax.jit
 def get_invalid_ref_mask(
@@ -626,20 +643,23 @@ def _get_safe_mid_price(
     p_mid = (p_mid // tick_size) * tick_size
     return p_mid
 
+@partial(jax.jit, static_argnums=(0,))
 def _get_new_mid_price(
         sim: OrderBook,
         sim_state: LobState,
-        p_mid_old: int,
+        p_mid_old: jax.Array,
         tick_size: int,
     ) -> jax.Array:
     """
     """
     ask = sim.get_best_ask(sim_state)
     bid = sim.get_best_bid(sim_state)
+    mid = ((((ask + bid) // 2) // tick_size) * tick_size)
     return jax.lax.cond(
-        ((ask <= 0) | (bid <= 0)),
-        lambda: p_mid_old,
-        lambda: (((ask + bid) // 2) // tick_size) * tick_size
+        (ask <= 0) | (bid <= 0),
+        lambda new, old: old,
+        lambda new, old: new,
+        mid, p_mid_old
     )
 
 def _add_time_tokens(
@@ -752,10 +772,10 @@ def _generate_msg(
         m_seq: jax.Array,
         b_seq: jax.Array,
         n_msg_todo: int,
-        p_mid: int,
+        p_mid: jax.Array,
         sim_state: LobState,
         rng: jax.dtypes.prng_key,
-    ) -> Tuple[jax.Array, LobState, jax.Array, jax.Array, jax.Array, int, int]:
+    ) -> Tuple[jax.Array, LobState, jax.Array, jax.Array, jax.Array, jax.Array, int]:
     """
     """
     rng, rng_ = jax.random.split(rng)
@@ -814,13 +834,12 @@ def _generate_msg(
     gen_token_carry = (m_seq, b_seq, mask_i, rng_)
 
     # finish message generation
-    gen_token_carry, _ = jax.lax.scan(
+    (m_seq, b_seq, mask_i, rng_), _ = jax.lax.scan(
         generate_token_scannable,
         gen_token_carry,
         xs=None,
         length=l-TIME_END_I
     )
-    (m_seq, b_seq, mask_i, rng_) = gen_token_carry
 
     # order_id = id_gen.step()  # no order ID generator any more in v3 sim?
     order_id = n_msg_todo
@@ -838,6 +857,8 @@ def _generate_msg(
         encoder = encoder,
     )
 
+    jax.debug.print('sim_msg {}', sim_msg)
+
     # feed message to simulator, updating book state
     sim_state = sim.process_order_array(sim_state, sim_msg)
 
@@ -845,6 +866,7 @@ def _generate_msg(
 
     # get current mid price from simulator
     p_mid_new = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
+    jax.debug.print('p_mid_new {}', p_mid_new)
 
     # price change in ticks
     p_change = ((p_mid_new - p_mid) // tick_size)#.astype(jnp.int32)
@@ -866,7 +888,7 @@ def _generate_msg(
 
     n_msg_todo -= 1
 
-    return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid, n_msg_todo
+    return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid_new, n_msg_todo
 
     
 def _make_generate_msg_scannable(
@@ -882,7 +904,7 @@ def _make_generate_msg_scannable(
     """
     """
     __generate_msg = jax.jit(functools.partial(
-        _generate_msg, sim, train_state, model,batchnorm,
+        _generate_msg, sim, train_state, model, batchnorm,
         encoder, valid_mask_array, sample_top_n, tick_size,
     ))
 
@@ -890,9 +912,11 @@ def _make_generate_msg_scannable(
         """ Wrapper for _generate_msg to be used with jax.lax.scan
         """
         m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng = gen_state
+        rng, rng_ = jax.random.split(rng)
         
-        msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid, n_msg_todo = __generate_msg(*gen_state)
-
+        msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid, n_msg_todo = __generate_msg(
+            m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng_
+        )
         return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng), (msg_decoded, book_l2)
     return _generate_msg_scannable
 
@@ -931,13 +955,14 @@ def generate(
 
     # get current mid price from simulator
     p_mid = _get_safe_mid_price(sim, sim_state, tick_size)
+    jax.debug.print('generate - p_mid {}', p_mid)
 
-    # while n_msg_todo > 0:
+    generate_msg_scannable = _make_generate_msg_scannable(
+        sim, train_state, model, batchnorm, 
+        encoder, valid_mask_array, sample_top_n, tick_size
+    )
     gen_state, (msgs_decoded, l2_book_states) = jax.lax.scan(
-        _make_generate_msg_scannable(
-            sim, train_state, model, batchnorm, 
-            encoder, valid_mask_array, sample_top_n, tick_size
-        ),
+        generate_msg_scannable,
         (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng),
         length=n_msg_todo,
         xs=None,
