@@ -39,6 +39,7 @@ import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 
 REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
 
+# indices for DECODED message fields
 ORDER_ID_i = 0
 EVENT_TYPE_i = 1
 DIRECTION_i = 2
@@ -56,6 +57,7 @@ TIMEns_REF_i = 13
 
 l2_state_n = 20
 
+# ENCODED TOKEN INDICES
 # time tokens aren't generated but calculated using delta_t
 # hence, skip generation from TIME_START_I (inclusive) to TIME_END_I (exclusive)
 TIME_START_I, _ = valh.get_idx_from_field('time_s')
@@ -276,7 +278,8 @@ def get_sim_msg(
     #     )
     # )
     orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
-    order_id_ref = orig_order[ORDER_ID_i]
+    # jax.debug.print('orig_order {}', orig_order)
+    order_id_ref = orig_order[2]
 
     order_id = jax.lax.cond(
         (event_type == 2) | (event_type == 3),
@@ -295,7 +298,8 @@ def get_sim_msg(
         time_ns,
     )
 
-    msg_decoded = msg_decoded.at[PRICE_ABS_i].set(p_abs)
+    msg_decoded = msg_decoded.at[PRICE_ABS_i].set(p_abs) \
+                             .at[ORDER_ID_i].set(order_id)
 
     # return dummy message instead if new_part contains NaNs
     return jax.lax.cond(
@@ -857,7 +861,7 @@ def _generate_msg(
         encoder = encoder,
     )
 
-    jax.debug.print('sim_msg {}', sim_msg)
+    # jax.debug.print('sim_msg {}', sim_msg)
 
     # feed message to simulator, updating book state
     sim_state = sim.process_order_array(sim_state, sim_msg)
@@ -866,7 +870,7 @@ def _generate_msg(
 
     # get current mid price from simulator
     p_mid_new = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
-    jax.debug.print('p_mid_new {}', p_mid_new)
+    # jax.debug.print('p_mid_new {}', p_mid_new)
 
     # price change in ticks
     p_change = ((p_mid_new - p_mid) // tick_size)#.astype(jnp.int32)
@@ -955,7 +959,7 @@ def generate(
 
     # get current mid price from simulator
     p_mid = _get_safe_mid_price(sim, sim_state, tick_size)
-    jax.debug.print('generate - p_mid {}', p_mid)
+    # jax.debug.print('generate - p_mid {}', p_mid)
 
     generate_msg_scannable = _make_generate_msg_scannable(
         sim, train_state, model, batchnorm, 
@@ -1387,17 +1391,17 @@ def sample_new(
         b_seq = transform_L2_state_batch(b_seq_pv, n_vol_series, tick_size)
 
         # encoded data
-        m_seq_inp = m_seq[..., : seq_len]
-        m_seq_eval = m_seq[..., seq_len: ]
+        m_seq_inp = m_seq[:, : seq_len]
+        m_seq_eval = m_seq[:, seq_len: ]
         b_seq_inp = b_seq[: , : n_msgs]
         b_seq_eval = b_seq[:, n_msgs: ]
         # true L2 data
-        b_seq_pv_inp = onp.array(b_seq_pv[..., : n_msgs])
-        b_seq_pv_eval = onp.array(b_seq_pv[..., n_msgs: ])
+        b_seq_pv_inp = onp.array(b_seq_pv[:, : n_msgs])
+        b_seq_pv_eval = onp.array(b_seq_pv[:, n_msgs: ])
 
         # raw LOBSTER data
-        m_seq_raw_inp = msg_seq_raw[..., : n_msgs]
-        m_seq_raw_eval = msg_seq_raw[..., n_msgs: ]
+        m_seq_raw_inp = msg_seq_raw[:, : n_msgs]
+        m_seq_raw_eval = msg_seq_raw[:, n_msgs: ]
 
         # initialise simulator
         sim_init, sim_states_init = get_sims_vmap(
@@ -1453,18 +1457,93 @@ def sample_new(
                 msgs_decoded, l2_book_states
             ):
 
+            
             # input / cond data
-            jnp.save(save_folder + f'/data_cond/message_real_id_{i}.npy', cond_msg)
-            jnp.save(save_folder + f'/data_cond/orderbook_real_id_{i}.npy', cond_book)
+
+            # jnp.save(
+            #     save_folder + f'/data_cond/message_real_id_{i}.npy',
+            #     msg_to_lobster_format(cond_msg)
+            # )
+            # jnp.save(
+            #     save_folder + f'/data_cond/orderbook_real_id_{i}.npy',
+            #     book_to_lobster_format(cond_book)
+            # )
+            msg_to_lobster_format(cond_msg).to_csv(
+                save_folder + f'/data_cond/message_real_id_{i}.csv',
+                index=False, header=False
+            )
+            book_to_lobster_format(cond_book).to_csv(
+                save_folder + f'/data_cond/orderbook_real_id_{i}.csv',
+                index=False, header=False
+            )
 
             # real data
-            jnp.save(save_folder + f'/data_real/message_real_id_{i}.npy', real_msg)
-            jnp.save(save_folder + f'/data_real/orderbook_real_id_{i}.npy', real_book)
+            # jnp.save(
+            #     save_folder + f'/data_real/message_real_id_{i}.npy',
+            #     msg_to_lobster_format(real_msg)
+            # )
+            # jnp.save(
+            #     save_folder + f'/data_real/orderbook_real_id_{i}.npy',
+            #     book_to_lobster_format(real_book)
+            # )
+            msg_to_lobster_format(real_msg).to_csv(
+                save_folder + f'/data_real/message_real_id_{i}.csv',
+                index=False, header=False
+            )
+            book_to_lobster_format(real_book).to_csv(
+                save_folder + f'/data_real/orderbook_real_id_{i}.csv',
+                index=False, header=False
+            )
             
             # gen data
-            jnp.save(save_folder + f'/data_gen/message_real_id_{i}_gen_id_0.npy', gen_msg)
-            jnp.save(save_folder + f'/data_gen/orderbook_real_id_{i}_gen_id_0.npy', gen_book)
+            # jnp.save(
+            #     save_folder + f'/data_gen/message_real_id_{i}_gen_id_0.npy',
+            #     msg_to_lobster_format(gen_msg)
+            # )
+            # jnp.save(
+            #     save_folder + f'/data_gen/orderbook_real_id_{i}_gen_id_0.npy',
+            #     book_to_lobster_format(gen_book)
+            # )
+            msg_to_lobster_format(gen_msg).to_csv(
+                save_folder + f'/data_gen/message_real_id_{i}_gen_id_0.csv',
+                index=False, header=False
+            )
+            book_to_lobster_format(gen_book).to_csv(
+                save_folder + f'/data_gen/orderbook_real_id_{i}_gen_id_0.csv',
+                index=False, header=False
+            )
             
+def msg_to_lobster_format(
+        m_seq: jax.Array,
+) -> pd.DataFrame:
+    """ 
+    message format: [time, event_type, order_id, size, price, direction]
+    """
+    m_seq_ = onp.array(m_seq)[:, [TIMEs_i, TIMEns_i, EVENT_TYPE_i, ORDER_ID_i, SIZE_i, PRICE_ABS_i, DIRECTION_i]]
+    m_seq_ = pd.DataFrame(m_seq_, columns=['time_s', 'time_ns', 'event_type', 'order_id', 'size', 'price', 'direction'])
+
+    # combine time field to single field    
+    m_seq_.insert(
+        column = 'time',
+        loc = 0,
+        value = m_seq_['time_s'].astype(str) \
+              + '.' \
+              + m_seq_['time_ns'].astype(str).str.pad(width=9, side='left', fillchar='0')
+    )
+    m_seq_.drop(columns=['time_s', 'time_ns'], inplace=True)
+
+    # convert direction {0,1} to {-1,1}
+    m_seq_['direction'] = m_seq_['direction'].replace({0: -1})
+    return m_seq_
+
+def book_to_lobster_format(
+        b_seq: jax.Array,
+    ) -> pd.DataFrame:
+    """
+    """
+    b_seq_ = pd.DataFrame(b_seq[:, 1:])
+
+    return b_seq_
 
 # TODO: jaxify and jit
 def sample_messages(

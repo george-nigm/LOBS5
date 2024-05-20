@@ -65,7 +65,6 @@ def load_message_df(m_f: str) -> pd.DataFrame:
         usecols=cols,
         index_col=False,
         dtype={
-            #'time': 'float64',
             'time': str,
             'event_type': 'int32',
             'order_id': 'int32',
