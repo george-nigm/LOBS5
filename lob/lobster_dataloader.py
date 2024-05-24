@@ -1,6 +1,7 @@
 """ Datasets for core experimental results """
 from pathlib import Path
 import random
+import re
 import sys
 from typing import Sequence
 import numpy as np
@@ -380,7 +381,17 @@ class LOBSTER_Dataset(Dataset):
         file_idx = np.searchsorted(self._seqs_cumsum, idx+1) - 1
         seq_idx = idx - self._seqs_cumsum[file_idx]
         return file_idx, seq_idx
-    
+
+    def get_date(self, idx):
+        if hasattr(idx, '__len__'):
+            return [self.get_date(i) for i in idx]
+        
+        file_idx, _ = self._get_seq_location(idx)
+        file_name = self.message_files[file_idx].rsplit('/', 1)[1]
+        # file name from path -> STOCK_date_xxx
+        # date_str = self.message_files[file_idx].rsplit('/', 1)[1].split('_', 2)[1]
+        date_str = re.search("([0-9]{4}-[0-9]{2}-[0-9]{2})", file_name)[0]
+        return date_str
 
 class LOBSTER_Sampler(Sampler):
     def __init__(self, dset, n_files_shuffle, batch_size=1, seed=None):

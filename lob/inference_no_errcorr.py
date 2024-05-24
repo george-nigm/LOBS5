@@ -372,40 +372,6 @@ def construct_raw_msg(
     ])
     return msg_raw
 
-# @jax.jit
-# def get_sim_msg_new(
-#         event_type: int,
-#         quantity: int,
-#         side: int,
-#         p_raw: int,
-#         time_s: int,
-#         time_ns: int, 
-#         rel_price_ref: int,
-#         quantity_ref: int,
-#         time_s_ref: int,
-#         time_ns_ref: int,
-#         new_order_id: int,
-#         sim: OrderBook,
-#         sim_state: LobState,
-#     ) -> jax.Array:
- 
-#         # new limit order
-#         # debug('NEW LIMIT ORDER')
-#         # convert relative to absolute price
-#         # price = mid_price + rel_price * tick_size
-
-#         sim_msg = construct_sim_msg(
-#             1,
-#             side,
-#             quantity,
-#             p_raw,
-#             new_order_id,
-#             time_s,
-#             time_ns,
-#         )
-
-#         return sim_msg#, msg_corr, msg_raw
-
 @jax.jit
 def rel_to_abs_price(
         p_rel: jax.Array,
@@ -499,89 +465,6 @@ def search_orig_msg(
         else:
             # take ref fields from matching message
             orig_msg_found = jnp.array(m_seq[orig_i, -REF_LEN: ])
-
-# def get_sim_msg_mod(
-#         event_type: int,
-#         removed_quantity: int,
-#         side: int,
-#         p_mod_raw: int,
-#         time_s: int,
-#         time_ns: int, 
-#         rel_price_ref: int,
-#         quantity_ref: int,
-#         time_s_ref: int,
-#         time_ns_ref: int,
-#         # mid_price: int,
-#         new_order_id: int,
-#         sim: OrderBook,
-#         sim_state: LobState,
-#         # tick_size: int
-#     ) -> jax.Array:
-
-#     # debug('ORDER CANCEL / DELETE')
-
-#     # the actual price of the order to be modified
-#     # p_mod_raw = mid_price + rel_price * tick_size
-
-#     # TODO: get order ID from simulator if time matches exactly,
-#     #       otherwise modify random order at the given price
-#     # TODO: get message with exact timestamp from simulator instead of relying on raw sequence
-#     # orig_enc = construct_orig_msg_enc(pred_msg_enc, encoder)
-
-#     # get limit order by timestamp
-#     orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
-#     order_id = orig_order[ORDER_ID_i]
-
-#     # debug(f'(event_type={event_type}) -{removed_quantity} from {remaining_quantity} '
-#     #       + f'@{p_mod_raw} --> {remaining_quantity-removed_quantity}')
-
-#     # if order is not found (-1) cancel random order at the given price
-#     sim_msg = construct_sim_msg(
-#         event_type,
-#         side,
-#         removed_quantity,
-#         p_mod_raw,
-#         order_id, # exact match or -1
-#         time_s,
-#         time_ns,
-#     )
-
-#     return sim_msg
-
-
-# def get_sim_msg_exec(
-#         event_type: int,
-#         removed_quantity: int,
-#         side: int,
-#         p_mod_raw: int,
-#         time_s: int,
-#         time_ns: int, 
-#         rel_price_ref: int,
-#         quantity_ref: int,
-#         time_s_ref: int,
-#         time_ns_ref: int,
-#         new_order_id: int,
-#         sim: OrderBook,
-#         sim_state: LobState,
-#     ) -> jax.Array:
-
-#     # debug('ORDER EXECUTION')
-#     # REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
-
-#     # the actual price of the order to be modified
-#     # p_mod_raw = mid_price + rel_price * tick_size
-
-#     sim_msg = construct_sim_msg(
-#         4,  # type: execution
-#         side,  # side of execution
-#         removed_quantity,
-#         p_mod_raw,
-#         new_order_id,
-#         time_s,
-#         time_ns,
-#     )
-
-#     return sim_msg
 
 @jax.jit
 def get_invalid_ref_mask(
@@ -881,9 +764,6 @@ def _generate_msg(
 
     # error if the new message does not change the book state
     # is_error = (book_l2 == b_seq[-1, 1:]).all()
-    # num_errors += is_error
-
-    # TODO: count as error if book state does not change
 
     new_book_raw = jnp.concatenate([jnp.array([p_change]), book_l2]).reshape(1,-1)
     new_book = preproc.transform_L2_state(new_book_raw, 500, 100)
@@ -1139,196 +1019,6 @@ def calc_sequence_losses(
 # # sample different rollouts with different input sequences (and different rng keys)
 # generate_multiple_rollouts = jax.vmap(generate_single_rollout, in_axes=(0, 0, None, None, 0, None, None, None, None, 0))
 
-@partial(jax.jit, static_argnums=(5,))
-def calculate_rollout_metrics(
-        m_seq_raw_gen: jax.Array,
-        m_seq_raw_eval: jax.Array,
-        l2_book_states: jax.Array,
-        l2_book_states_eval: jax.Array,
-        l2_book_state_init: jax.Array,
-        data_levels: int,
-    ) -> Dict[str, jax.Array]:
-
-    # arrival times
-    delta_t_gen = m_seq_raw_gen[..., DTs_i].astype(jnp.float32) \
-                + m_seq_raw_gen[..., DTns_i].astype(jnp.float32) / 1e9
-    delta_t_gen = jnp.where(
-        delta_t_gen > 0,
-        delta_t_gen,
-        1e-9
-    )
-    delta_t_eval = m_seq_raw_eval[..., DTs_i].astype(jnp.float32) \
-                 + m_seq_raw_eval[..., DTns_i].astype(jnp.float32) / 1e9
-    delta_t_eval = jnp.where(
-        delta_t_eval > 0,
-        delta_t_eval,
-        1e-9
-    )
-
-    ## MID PRICE EVAL:
-    # mid price at start of generation
-    mid_t0 = l2_book_state_init[([0, 2],)].mean()
-
-    if l2_book_states.ndim <= 2:
-        l2_book_states = jnp.expand_dims(l2_book_states, axis=0)
-
-    # mean mid-price over J iterations
-    mid_gen = jnp.mean(
-        (l2_book_states[..., 0] + l2_book_states[..., 2]) / 2.,
-        axis=0
-    )
-    # filter out mid-prices where one side is empty
-    mid_gen = jnp.where(
-        ((l2_book_states[..., 0] < 0) | (l2_book_states[..., 2] < 0)).any(axis=0),
-        jnp.nan,
-        mid_gen
-    )
-    rets_gen = mid_gen / mid_t0 - 1
-    
-    mid_eval = (l2_book_states_eval[..., 0] + l2_book_states_eval[..., 2]) / 2.
-    # filter our mid-prices where one side is empty
-    mid_eval = jnp.where(
-        (l2_book_states_eval[..., 0] < 0) | (l2_book_states_eval[..., 2] < 0),
-        jnp.nan,
-        mid_eval
-    )
-    rets_eval = mid_eval / mid_t0 - 1
-    
-    # shape: (n_eval_messages, )
-    mid_ret_errs = eval.mid_price_ret_squ_err(
-        mid_gen, mid_eval, mid_t0)
-    # compare to squared error from const prediction
-    mid_ret_errs_const = jnp.square(rets_eval)
-    
-    ## BOOK EVAL:
-    # get loss sequence using J generations and 1 evaluation
-    book_losses_l1 = eval.book_loss_l1_batch(l2_book_states, l2_book_states_eval, data_levels)
-    book_losses_wass = eval.book_loss_wass_batch(l2_book_states, l2_book_states_eval, data_levels)
-    # compare to loss between fixed book (at t0) and actual book
-    # --> as if we were predicting with the most recent observation
-    book_losses_l1_const = eval.book_loss_l1(
-        jnp.tile(l2_book_state_init, (l2_book_states_eval.shape[0], 1)),
-        l2_book_states_eval,
-        data_levels
-    )
-    book_losses_wass_const = eval.book_loss_wass(
-        jnp.tile(l2_book_state_init, (l2_book_states_eval.shape[0], 1)),
-        l2_book_states_eval,
-        data_levels
-    )
-
-    metrics = {
-        'delta_t_gen': delta_t_gen,
-        'delta_t_eval': delta_t_eval,
-        'rets_gen': rets_gen,
-        'rets_eval': rets_eval,
-        'mid_ret_errs': mid_ret_errs,
-        'mid_ret_errs_const': mid_ret_errs_const,
-        'book_losses_l1': book_losses_l1,
-        'book_losses_l1_const': book_losses_l1_const,
-        'book_losses_wass': book_losses_wass,
-        'book_losses_wass_const': book_losses_wass_const,
-    }
-    return metrics
-
-def generate_repeated_rollouts_OLD(
-        num_repeats: int,
-        m_seq: jax.Array,
-        b_seq_pv: jax.Array,
-        msg_seq_raw: jax.Array,
-        book_l2_init: jax.Array,
-        seq_len: int,
-        n_msgs: int,
-        n_gen_msgs: int,
-        train_state: TrainState,
-        model: nn.Module,
-        batchnorm: bool,
-        encoder: Dict[str, Tuple[jax.Array, jax.Array]],
-        rng: jax.dtypes.prng_key,
-        n_vol_series: int,
-        sim_book_levels: int,
-        sim_queue_len: int,
-        data_levels: int,
-    ):
-
-    l2_book_states = jnp.zeros((num_repeats, n_gen_msgs, sim_book_levels * 4))
-    # how many messages had to be discarded
-    num_errors = jnp.zeros(num_repeats, dtype=jnp.int32)
-    event_types_gen = jnp.zeros((num_repeats, 4))
-    event_types_eval = jnp.zeros((num_repeats, 4))
-    raw_msgs_gen = jnp.zeros((num_repeats, n_gen_msgs, 14))
-
-    # transform book to volume image representation for model
-    b_seq = jnp.array(transform_L2_state(b_seq_pv, n_vol_series, 100))
-
-    # encoded data
-    m_seq_inp = m_seq[: seq_len]
-    m_seq_eval = m_seq[seq_len: ]
-    b_seq_inp = b_seq[: n_msgs]
-    b_seq_eval = b_seq[n_msgs: ]
-    # true L2 data
-    b_seq_pv_eval = jnp.array(b_seq_pv[n_msgs: ])
-
-    # raw LOBSTER data
-    m_seq_raw_inp = msg_seq_raw[: n_msgs]
-    m_seq_raw_eval = msg_seq_raw[n_msgs: ]
-
-    # initialise simulator
-    sim_init, sim_state_init = get_sim(
-        book_l2_init,  # book state before any messages
-        m_seq_raw_inp, # messages to replay to init sim
-        # TODO: consider passing nOrders, nTrades
-    )
-    # book state after initialisation (replayed messages)
-    l2_book_state_init = sim_init.get_L2_state(sim_state_init, l2_state_n)
-
-    # run actual messages on sim_eval (once) to compare
-    # convert m_seq_raw_eval to sim_msgs
-    msgs_eval = msgs_to_jnp(m_seq_raw_eval[: n_gen_msgs])
-    sim_state_eval, l2_book_states_eval, _ = sim_init.process_orders_array_l2(sim_state_init, msgs_eval, l2_state_n)
-
-    # TODO: repeat for multiple scenarios from same input to average over
-    #       --> parallelise? loaded data is the same, just different rngs
-    for i in range(num_repeats):
-        print('ITERATION', i)
-        m_seq_gen, b_seq_gen, m_seq_raw_gen, rollout_metrics = generate_single_rollout(
-            m_seq_inp,
-            b_seq_inp,
-            m_seq_raw_inp,
-            n_gen_msgs,
-            sim_init,
-            sim_state_init,
-            train_state,
-            model,
-            batchnorm,
-            encoder,
-            rng,
-            m_seq_eval
-        )
-        event_types_gen = event_types_gen.at[i].set(rollout_metrics['event_types_gen'])
-        event_types_eval = event_types_eval.at[i].set(eval.event_type_count(m_seq_raw_eval[:, 1]))
-        num_errors = num_errors.at[i].set(rollout_metrics['num_errors'])
-        l2_book_states = l2_book_states.at[i, :, :].set(rollout_metrics['l2_book_states'])
-        raw_msgs_gen = raw_msgs_gen.at[i, :, :].set(m_seq_raw_gen)
-
-    metrics = calculate_rollout_metrics(
-        m_seq_raw_gen,
-        m_seq_raw_eval,
-        l2_book_states,
-        l2_book_states_eval,
-        l2_book_state_init,
-        data_levels
-    )
-    metrics['l2_book_states'] = l2_book_states
-    metrics['l2_book_states_eval'] = l2_book_states_eval
-    metrics['num_errors'] = num_errors
-    metrics['event_types_gen'] = event_types_gen
-    metrics['event_types_eval'] = event_types_eval
-    metrics['raw_msgs_gen'] = raw_msgs_gen
-    metrics['raw_msgs_eval'] = m_seq_raw_eval
-
-    return metrics
-
 def sample_new(
         n_samples: int,  # draw n random samples from dataset for evaluation
         batch_size: int,  # how many samples to process in parallel
@@ -1341,6 +1031,7 @@ def sample_new(
         model: nn.Module,
         batchnorm: bool,
         encoder: Dict[str, Tuple[jax.Array, jax.Array]],
+        stock_symbol: str,
         n_vol_series: int = 500,
         # sim_book_levels: int = 20,
         # sim_queue_len: int = 100,
@@ -1386,8 +1077,7 @@ def sample_new(
         msg_seq_raw = jnp.array(msg_seq_raw)
         book_l2_init = jnp.array(book_l2_init)
 
-        # TODO: copy some logic from old repeated rollouts
-        #     # transform book to volume image representation for model
+        # transform book to volume image representation for model
         b_seq = transform_L2_state_batch(b_seq_pv, n_vol_series, tick_size)
 
         # encoded data
@@ -1395,9 +1085,9 @@ def sample_new(
         m_seq_eval = m_seq[:, seq_len: ]
         b_seq_inp = b_seq[: , : n_msgs]
         b_seq_eval = b_seq[:, n_msgs: ]
-        # true L2 data
-        b_seq_pv_inp = onp.array(b_seq_pv[:, : n_msgs])
-        b_seq_pv_eval = onp.array(b_seq_pv[:, n_msgs: ])
+        # true L2 data: remove price change column
+        b_seq_pv_inp = onp.array(b_seq_pv[:, : n_msgs, 1:])
+        b_seq_pv_eval = onp.array(b_seq_pv[:, n_msgs:, 1:])
 
         # raw LOBSTER data
         m_seq_raw_inp = msg_seq_raw[:, : n_msgs]
@@ -1442,9 +1132,6 @@ def sample_new(
         # TODO: save as metadata
         print('num_errors', num_errors)
 
-        # TODO: remove this - just to test for first batch
-        # return m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors
-
         # only keep actually newly generated messages
         # m_seq_raw_gen = m_seq_raw_gen[-n_gen_msgs:]
 
@@ -1457,59 +1144,36 @@ def sample_new(
                 msgs_decoded, l2_book_states
             ):
 
+            # get date from filename
+            date = ds.get_date(i)
             
             # input / cond data
-
-            # jnp.save(
-            #     save_folder + f'/data_cond/message_real_id_{i}.npy',
-            #     msg_to_lobster_format(cond_msg)
-            # )
-            # jnp.save(
-            #     save_folder + f'/data_cond/orderbook_real_id_{i}.npy',
-            #     book_to_lobster_format(cond_book)
-            # )
             msg_to_lobster_format(cond_msg).to_csv(
-                save_folder + f'/data_cond/message_real_id_{i}.csv',
+                save_folder + f'/data_cond/{stock_symbol}_{date}_message_real_id_{i}.csv',
                 index=False, header=False
             )
             book_to_lobster_format(cond_book).to_csv(
-                save_folder + f'/data_cond/orderbook_real_id_{i}.csv',
+                save_folder + f'/data_cond/{stock_symbol}_{date}_orderbook_real_id_{i}.csv',
                 index=False, header=False
             )
 
             # real data
-            # jnp.save(
-            #     save_folder + f'/data_real/message_real_id_{i}.npy',
-            #     msg_to_lobster_format(real_msg)
-            # )
-            # jnp.save(
-            #     save_folder + f'/data_real/orderbook_real_id_{i}.npy',
-            #     book_to_lobster_format(real_book)
-            # )
             msg_to_lobster_format(real_msg).to_csv(
-                save_folder + f'/data_real/message_real_id_{i}.csv',
+                save_folder + f'/data_real/{stock_symbol}_{date}_message_real_id_{i}.csv',
                 index=False, header=False
             )
             book_to_lobster_format(real_book).to_csv(
-                save_folder + f'/data_real/orderbook_real_id_{i}.csv',
+                save_folder + f'/data_real/{stock_symbol}_{date}_orderbook_real_id_{i}.csv',
                 index=False, header=False
             )
             
             # gen data
-            # jnp.save(
-            #     save_folder + f'/data_gen/message_real_id_{i}_gen_id_0.npy',
-            #     msg_to_lobster_format(gen_msg)
-            # )
-            # jnp.save(
-            #     save_folder + f'/data_gen/orderbook_real_id_{i}_gen_id_0.npy',
-            #     book_to_lobster_format(gen_book)
-            # )
             msg_to_lobster_format(gen_msg).to_csv(
-                save_folder + f'/data_gen/message_real_id_{i}_gen_id_0.csv',
+                save_folder + f'/data_gen/{stock_symbol}_{date}_message_real_id_{i}_gen_id_0.csv',
                 index=False, header=False
             )
             book_to_lobster_format(gen_book).to_csv(
-                save_folder + f'/data_gen/orderbook_real_id_{i}_gen_id_0.csv',
+                save_folder + f'/data_gen/{stock_symbol}_{date}_orderbook_real_id_{i}_gen_id_0.csv',
                 index=False, header=False
             )
             
@@ -1541,89 +1205,6 @@ def book_to_lobster_format(
     ) -> pd.DataFrame:
     """
     """
-    b_seq_ = pd.DataFrame(b_seq[:, 1:])
+    b_seq_ = pd.DataFrame(b_seq)
 
     return b_seq_
-
-# TODO: jaxify and jit
-def sample_messages(
-        n_samples: int,  # draw n random samples from dataset for evaluation
-        num_repeats: int,  # how often to repeat generation for each data sample
-        ds: LOBSTER_Dataset,
-        rng: jax.dtypes.prng_key,
-        seq_len: int,
-        n_msgs: int,
-        n_gen_msgs: int,
-        train_state: TrainState,
-        model: nn.Module,
-        batchnorm: bool,
-        encoder: Dict[str, Tuple[jax.Array, jax.Array]],
-        n_vol_series: int = 500,
-        sim_book_levels: int = 20,
-        sim_queue_len: int = 100,
-        data_levels: int = 10,
-        save_folder: str = './tmp/'
-    ):
-
-    rng, rng_ = jax.random.split(rng)
-    # use this to load data (not jitted) and do parallel inference (jitted)
-    sample_i = jax.random.choice(
-        rng_,
-        jnp.arange(len(ds), dtype=jnp.int32),
-        shape=(n_samples,),
-        replace=False)
-
-    all_metrics = []
-
-    # create folder if it doesn't exist yet
-    Path(save_folder).mkdir(parents=True, exist_ok=True)
-
-    # TODO: vmap over samples or repeats or both?
-    #       as long as there is no batched_vmap in jax, it's probably better to vmap over samples
-    #       and then call the function multiple times or scan if more should be done...
-
-    # iterate over random samples
-    for i in tqdm(sample_i):
-
-        # check if file already exists
-        if os.path.isfile(save_folder + f'tmp_inference_results_dict_{i}.pkl'):
-            print(f'Skipping existing sample {i}...')
-            continue
-        
-        print(f'Processing sample {i}...')
-
-        # 0: encoded message sequence
-        # 1: prediction targets (dummy 0 here)
-        # 2: book sequence (in Price, Volume format)
-        # 3: raw message sequence (pandas df from LOBSTER)
-        # 4: initial level 2 book state (before start of sequence)
-        m_seq, _, b_seq_pv, msg_seq_raw, book_l2_init = ds[int(i)]
-        sequence_metrics = generate_repeated_rollouts(
-            num_repeats,
-            m_seq,
-            b_seq_pv,
-            msg_seq_raw,
-            book_l2_init,
-            seq_len,
-            n_msgs,
-            n_gen_msgs,
-            train_state,
-            model,
-            batchnorm,
-            encoder,
-            rng,
-            n_vol_series,
-            sim_book_levels,
-            sim_queue_len,
-            data_levels
-        )
-        # save results dict as pickle file
-        with open(save_folder + f'/tmp_inference_results_dict_{i}.pkl', 'wb') as f:
-            pickle.dump(sequence_metrics, f)
-        all_metrics.append(sequence_metrics)
-    # combine metrics into single dict
-    all_metrics = {
-        metric: jnp.array([d[metric] for d in all_metrics])
-        for metric in all_metrics[0].keys()
-    }
-    return all_metrics
