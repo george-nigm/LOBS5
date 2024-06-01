@@ -219,10 +219,19 @@ class LOBSTER_Dataset(Dataset):
             # if given, also load and return raw sequences
             # -> used for inference (not training!)
             return_raw_msgs=False,
+            # for inference, the last message is not masked
+            # and hence the book state after the message is
+            # already available (shifts by one)
+            inference=False,
             ) -> None:
 
         assert len(message_files) > 0
         assert not (use_simple_book and book_transform)
+
+        # shift book state by 1 for inference tasks,
+        # because the most recent message is not masked (=complete)
+        # and the new book state is already available
+        self.inference = inference
 
         self.message_files = message_files #
         if book_files is not None:
@@ -272,7 +281,7 @@ class LOBSTER_Dataset(Dataset):
             self.L_book = 0
     
     def _reset_offsets(self):
-        """ drop a random number of messages from the beggining of every file
+        """ drop a random number of messages from the beginning of every file
             so that sequences don't always contain the same time periods
         """
         if self.randomize_offset:
@@ -299,7 +308,10 @@ class LOBSTER_Dataset(Dataset):
         if self.n_cache_files == 0:
             X = np.load(self.message_files[file_idx], mmap_mode='r')
             if self.use_book_data:
-                book = np.load(self.book_files[file_idx], mmap_mode='r')
+                book = np.load(
+                    self.book_files[file_idx],
+                    mmap_mode='r'
+                )
         else:
             if file_idx not in self._message_cache:
                 self._add_to_cache(file_idx)
@@ -325,7 +337,7 @@ class LOBSTER_Dataset(Dataset):
         if self.use_book_data:
             # first message is already dropped, so we can use
             # the book state with the same index (prior to the message)
-            book = book[seq_start: seq_end].copy()#.reshape(-1)
+            book = book[seq_start + self.inference: seq_end + self.inference].copy()
             if self.return_raw_msgs:
                 book_l2_init = book[0, 1:].copy()
 
@@ -335,13 +347,12 @@ class LOBSTER_Dataset(Dataset):
 
             # use raw price, volume series, rather than volume image
             # subtract initial price to start all sequences around 0
-            if self.use_simple_book:
+            # if self.use_simple_book:
                 # CAVE: first column is Delta mid price
                 # p_mid_0 = (book[0, 1] + book[0, 3]) / 2
                 # book[:, 1::2] = (book[:, 1::2] - p_mid_0)
                 # divide volume by 100
                 #book[:, 2::2] = book[:, 2::2] / 100
-                pass
 
             ret_tuple = X, y, book
         else:

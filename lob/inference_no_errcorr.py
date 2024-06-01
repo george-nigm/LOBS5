@@ -31,7 +31,8 @@ from lob.lobster_dataloader import LOBSTER_Dataset
 
 # add git submodule to path to allow imports to work
 submodule_name = 'AlphaTrade'
-(parent_folder_path, current_dir) = os.path.split(os.path.abspath(''))
+(parent_folder_path, current_dir) = os.path.split(
+    os.path.split(os.path.abspath(__file__))[0])
 sys.path.append(os.path.join(parent_folder_path, submodule_name))
 from gymnax_exchange.jaxob.jorderbook import OrderBook, LobState
 import gymnax_exchange.jaxob.JaxOrderBookArrays as job
@@ -200,6 +201,7 @@ def get_dataset(
         book_transform=False,
         book_depth=book_depth,
         return_raw_msgs=True,
+        inference=True,
     )
     return ds
 
@@ -246,7 +248,7 @@ def get_sim_msg(
     # decoded predicted message
     # pred_msg = tok.decode(pred_msg_enc, v).squeeze()
     msg_decoded = encoding.decode_msg(pred_msg_enc, encoder)
-    debug('decoded predicted message:', msg_decoded)
+    # debug('decoded predicted message:', msg_decoded)
 
     new_part = msg_decoded[: Message_Tokenizer.N_NEW_FIELDS]
     # ref part is not needed for the simulator logic
@@ -1086,6 +1088,7 @@ def sample_new(
         b_seq_inp = b_seq[: , : n_msgs]
         b_seq_eval = b_seq[:, n_msgs: ]
         # true L2 data: remove price change column
+        # shape: [batch, messages, levels]
         b_seq_pv_inp = onp.array(b_seq_pv[:, : n_msgs, 1:])
         b_seq_pv_eval = onp.array(b_seq_pv[:, n_msgs:, 1:])
 

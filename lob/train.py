@@ -98,10 +98,10 @@ def train(args):
     val_model = model_cls(training=False, step_rescale=1)
 
     mgr_options = ocp.CheckpointManagerOptions(
-        save_interval_steps=10,
+        save_interval_steps=1,
         create=True,
-        max_to_keep=2,
-        # keep_period=2,
+        max_to_keep=10,
+        keep_period=10,
         # step_prefix=f'{run.name}_{run.id}',
         enable_async_checkpointing=False,
     )
