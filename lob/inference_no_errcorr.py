@@ -590,15 +590,55 @@ def _add_time_tokens(
         jnp.hstack([time_s_toks, time_ns_toks]))
     return m_seq
 
+def _generate_token_v2(
+        train_state : TrainState,
+        model : nn.module,
+        batchnorm : bool,
+        valid_mask_array : jax.Array ,
+        sample_top_n : int,
+        hidden_state: jax.Array , #Assume 'something', probably model params. 
+        m_seq: jax.Array, #Should be needed only for 1st token.
+        b_seq: jax.Array , #Should only need for 1st token.
+        mask_i : int, #Still between 0 and message_length
+        rng 
+    ):
+
+    # syntactically valid tokens for current message position
+    valid_mask = valh.get_valid_mask(valid_mask_array, mask_i)
+
+    input = (
+        jnp.expand_dims(m_seq, axis=0),
+        jnp.expand_dims(b_seq, axis=0)
+    )
+    integration_timesteps = (
+        jnp.ones((1, len(m_seq))), 
+        jnp.ones((1, len(b_seq)))
+    )
+
+    logits = valh.predict_with_hidden(
+        input,
+        integration_timesteps, train_state, model, batchnorm)
+    
+    # filter out (syntactically) invalid tokens for current position
+    if valid_mask is not None:
+        logits = valh.filter_valid_pred(logits, valid_mask)
+
+    # update sequence
+    # NOTE: rng arg expects one element per batch element
+    rng, rng_ = jax.random.split(rng)
+    m_seq = valh.fill_predicted_toks(m_seq, logits, sample_top_n, jnp.array([rng_]))
+    
+    return m_seq, mask_i + 1, rng
+
 def _generate_token(
-        train_state,
-        model,
-        batchnorm,
-        valid_mask_array,
-        sample_top_n,
-        m_seq,
-        b_seq,
-        mask_i,
+        train_state : TrainState,
+        model : nn.module,
+        batchnorm : bool,
+        valid_mask_array : jax.Array ,
+        sample_top_n : int,
+        m_seq: jax.Array ,
+        b_seq: jax.Array ,
+        mask_i : int,
         rng 
     ):
 
@@ -647,6 +687,135 @@ def _make_generate_token_scannable(
         return (m_seq, carry[1], mask_i, rng), None
 
     return _generate_token_scannable
+
+def _generate_msg_v2(
+        sim: OrderBook,
+        train_state: TrainState,
+        model: nn.Module,
+        batchnorm: bool,
+        encoder: Dict[str, Tuple[jax.Array, jax.Array]],
+        valid_mask_array: jax.Array,
+        sample_top_n: int,
+        tick_size: int,
+        
+        m_seq: jax.Array,
+        b_seq: jax.Array,
+        n_msg_todo: int,
+        p_mid: jax.Array,
+        sim_state: LobState,
+        rng: jax.dtypes.prng_key,
+    ) -> Tuple[jax.Array, LobState, jax.Array, jax.Array, jax.Array, jax.Array, int]:
+    """
+    """
+    rng, rng_ = jax.random.split(rng)
+    # treat as compile time constants
+    with jax.ensure_compile_time_eval():
+        l = Message_Tokenizer.MSG_LEN
+        last_start_i = m_seq.shape[0] - l
+
+        time_s_start_i, time_s_end_i = valh.get_idx_from_field('time_s')
+        time_ns_start_i, time_ns_end_i = valh.get_idx_from_field('time_ns')
+        delta_t_s_start_i, delta_t_s_end_i = valh.get_idx_from_field('delta_t_s')
+        delta_t_ns_start_i, delta_t_ns_end_i = valh.get_idx_from_field('delta_t_ns')
+
+    # 
+    time_init_s, time_init_ns = encoding.decode_time(
+        m_seq[last_start_i + time_s_start_i: last_start_i + time_ns_end_i],
+        encoder
+    )
+
+    # roll sequence one step forward
+    m_seq = valh.append_hid_msg(m_seq)
+    first_message=m_seq[:Message_Tokenizer.MSG_LEN]
+
+    # TODO: calculating time in case where generation is not sequentially left to right
+    #       --> check if delta_t complete --> calc time once
+
+    generate_token_scannable = _make_generate_token_scannable(
+        train_state, model, batchnorm, valid_mask_array, sample_top_n
+    )
+
+    # get next message: generate l tokens:
+    # generate tokens until time is reached
+    mask_i = 0
+    gen_token_carry = (m_seq, b_seq, mask_i, rng_)
+    (m_seq, b_seq, mask_i, rng_), _ = jax.lax.scan(
+        generate_token_scannable,
+        gen_token_carry,
+        xs=None,
+        length=TIME_START_I
+    )
+    # fill the time tokens
+    m_seq = _add_time_tokens(
+        m_seq,
+        encoder,
+        time_init_s,
+        time_init_ns,
+        last_start_i,
+        time_s_start_i,
+        time_ns_end_i,
+        delta_t_s_start_i,
+        delta_t_s_end_i,
+        delta_t_ns_start_i,
+        delta_t_ns_end_i,
+    )
+    # update mask index to skip time token positions
+    mask_i = TIME_END_I
+    gen_token_carry = (m_seq, b_seq, mask_i, rng_)
+
+    # finish message generation
+    (m_seq, b_seq, mask_i, rng_), _ = jax.lax.scan(
+        generate_token_scannable,
+        gen_token_carry,
+        xs=None,
+        length=l-TIME_END_I
+    )
+
+    # order_id = id_gen.step()  # no order ID generator any more in v3 sim?
+    order_id = n_msg_todo
+
+    sim_msg, msg_decoded = get_sim_msg(
+        m_seq[-l:],  # the generated message
+        # m_seq[:-l],  # sequence without generated message
+        # m_seq_raw[1:],   # raw data (same length as sequence without generated message)
+        # None,
+        sim,
+        sim_state,
+        mid_price = p_mid,
+        new_order_id = order_id,
+        tick_size = tick_size,
+        encoder = encoder,
+    )
+
+    # jax.debug.print('sim_msg {}', sim_msg)
+
+    # feed message to simulator, updating book state
+    sim_state = sim.process_order_array(sim_state, sim_msg)
+
+    # debug('trades', _trades)
+
+    # get current mid price from simulator
+    p_mid_new = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
+    # jax.debug.print('p_mid_new {}', p_mid_new)
+
+    # price change in ticks
+    p_change = ((p_mid_new - p_mid) // tick_size)#.astype(jnp.int32)
+
+    # get new book state
+    book_l2 = sim.get_L2_state(sim_state, l2_state_n)
+    # l2_book_states.append(book_l2)
+
+    # error if the new message does not change the book state
+    # is_error = (book_l2 == b_seq[-1, 1:]).all()
+
+    new_book_raw = jnp.concatenate([jnp.array([p_change]), book_l2]).reshape(1,-1)
+    new_book = preproc.transform_L2_state(new_book_raw, 500, 100)
+    # update book sequence
+    b_seq = jnp.concatenate([b_seq[1:], new_book])
+
+    n_msg_todo -= 1
+
+    return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid_new, n_msg_todo
 
 def _generate_msg(
         sim: OrderBook,

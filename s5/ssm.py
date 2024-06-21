@@ -75,7 +75,7 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
     Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
-
+    
     if bidirectional:
         _, xs2 = jax.lax.associative_scan(binary_operator,
                                           (Lambda_elements, Bu_elements),

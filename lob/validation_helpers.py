@@ -212,6 +212,29 @@ def append_hid_msg(seq):
     l = Message_Tokenizer.MSG_LEN
     return np.concatenate([seq[l:], np.full((Message_Tokenizer.MSG_LEN,), Vocab.HIDDEN_TOK)])
 
+@jax.jit
+def get_to_mask_tok(
+        seq: jax.Array,
+        i: int,
+    ) -> jax.Array:
+    """ Get a message sequence that is ls-l long 
+        and ends with the masked token. 
+        ls: length of the input sequence. 
+        l: length of a single message
+        i: either the position of the masking token from the end (-ve)
+            or the position in the message 
+        
+    """
+    start = jax.lax.cond(
+        i >= 0,
+        lambda x: x,
+        lambda x: x + Message_Tokenizer.MSG_LEN,
+        i,
+    )
+    new_seq=jax.lax.dynamic_slice(seq,(start+1,),(seq.shape[0]- Message_Tokenizer.MSG_LEN,))
+    new_seq=new_seq.at[-1].set(Vocab.MASK_TOK)
+    return new_seq
+
 #@chex.chexify
 @jax.jit
 #@chex.assert_max_traces(n=1)
@@ -232,6 +255,27 @@ def mask_last_msg_in_seq(
     y = seq[i]
     return seq.at[i].set(Vocab.MASK_TOK), y
 
+
+@jax.jit
+#@chex.assert_max_traces(n=1)
+def last_token_predict(
+        seq: jax.Array,
+        i: int,
+    ) -> Tuple[jax.Array, jax.Array]:
+    
+    l = Message_Tokenizer.MSG_LEN
+    # slows down execution
+    #checkify.check((i >= -l) & (i < l), "i={} must be in [-MSG_LEN, MSG_LEN)", i)
+    i = jax.lax.cond(
+        i >= 0,
+        lambda x, ls: x + ls - l,
+        lambda x, ls: x,
+        i, seq.shape[0],
+    )
+    new_seq=jax.lax.dynamic_slice(seq,)
+    y = seq[i]
+    return seq.at[i].set(Vocab.MASK_TOK)
+
 @partial(jax.jit, static_argnums=(3, 4))
 def predict(
         batch_inputs: jax.Array,
@@ -250,6 +294,26 @@ def predict(
                              )
 
     return logits
+
+@partial(jax.jit, static_argnums=(3, 4))
+def predict_with_hidden(
+        batch_inputs: jax.Array,
+        batch_integration_timesteps: jax.Array,
+        state: TrainState,
+        model: flax.linen.Module,
+        batchnorm: bool,
+    ):
+    if batchnorm:
+        logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
+                            *batch_inputs, *batch_integration_timesteps,
+                            )
+    else:
+        logits = model.apply({"params": state.params},
+                             *batch_inputs, *batch_integration_timesteps,
+                             )
+
+    return logits
+
 
 @jax.jit
 def filter_valid_pred(
