@@ -117,6 +117,28 @@ class LOBSTER_Dataset(Dataset):
         seq[-1, msk_pos] = Vocab.MASK_TOK
         seq[-1, hid_pos] = Vocab.HIDDEN_TOK
         return seq, y
+    
+    
+    @staticmethod
+    def sliding_window_mask(seq, rng):
+        """ 
+        Generate N sequences where each sequence masks one different token 
+        in the latest message.
+        """
+        seq = seq.copy()
+        N = seq.shape[1]  # Number of tokens in a message
+        sliding_window_seqs = []
+        target_tokens = []
+
+        for i in range(N):
+            temp_seq = seq.copy()
+            y = temp_seq[-1, i]
+            temp_seq[-1, i] = Vocab.MASK_TOK
+            sliding_window_seqs.append(temp_seq)
+            target_tokens.append(y)
+        
+        return sliding_window_seqs, target_tokens
+    
 
     @staticmethod
     def causal_mask(seq, rng):

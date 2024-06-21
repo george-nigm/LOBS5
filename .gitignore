@@ -176,3 +176,4 @@ figures/
 *.pkl
 *.out
 *.prof
+.vscode/**.json
