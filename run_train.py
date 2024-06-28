@@ -8,7 +8,7 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # TODO: change this if num_devices changes (is less than all of the available ones)
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 

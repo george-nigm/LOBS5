@@ -155,7 +155,9 @@ def init_train_state(
         book_dim: int,
         book_seq_len,
         print_shapes=False
-    ) -> Tuple[TrainState, Union[partial[BatchLobPredModel], partial[FullLobPredModel]]]:
+    ) -> Tuple[TrainState, Union[partial[BatchLobPredModel],
+                                  partial[FullLobPredModel],
+                                  partial[BatchPaddedLobPredModel]]]:
 
     in_dim = n_classes
 
