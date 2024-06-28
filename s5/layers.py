@@ -88,3 +88,48 @@ class SequenceLayer(nn.Module):
         if not self.prenorm:
             x = self.norm(x)
         return x
+
+    def __call_rnn__(self,hidden, x,d):
+            """
+            Compute the LxH output of S5 layer given an LxH input.
+            Args:
+                hidden : hidden state (P,)
+                x (float32): input sequence (L, d_model)
+                d (bool): reset signal (L,)
+            Returns:
+                output sequence (float32): (L, d_model)
+            """
+            skip = x
+            if self.prenorm:
+                x = self.norm(x)
+            #hidden,x = self.seq.__call_rnn__(x)
+            hidden, x = jax.vmap(self.seq.__call_rnn__, in_axes=1, out_axes=1)(hidden, x, d)
+
+
+            if self.activation in ["full_glu"]:
+                x = self.drop(nn.gelu(x))
+                x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
+                x = self.drop(x)
+            elif self.activation in ["half_glu1"]:
+                x = self.drop(nn.gelu(x))
+                x = x * jax.nn.sigmoid(self.out2(x))
+                x = self.drop(x)
+            elif self.activation in ["half_glu2"]:
+                # Only apply GELU to the gate input
+                x1 = self.drop(nn.gelu(x))
+                x = x * jax.nn.sigmoid(self.out2(x1))
+                x = self.drop(x)
+            elif self.activation in ["gelu"]:
+                x = self.drop(nn.gelu(x))
+            else:
+                raise NotImplementedError(
+                    "Activation: {} not implemented".format(self.activation))
+
+            x = skip + x
+            if not self.prenorm:
+                x = self.norm(x)
+            return x
+    @staticmethod
+    def initialize_carry(batch_size, hidden_size):
+        # Use a dummy key since the default state init fn is just zeros.
+        return jax.numpy.zeros((1, batch_size, hidden_size), dtype=jax.numpy.complex64)

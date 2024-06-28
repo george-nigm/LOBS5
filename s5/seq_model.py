@@ -42,6 +42,9 @@ class StackedEncoderModel(nn.Module):
             self.encoder = nn.Embed(self.vocab_size, self.d_model)
         else:
             self.encoder = nn.Dense(self.d_model)
+
+        #NOTE:  popjaxrl S5 doesn't have an encoding layer, tbd if this makes a differnce. 
+
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
@@ -70,7 +73,32 @@ class StackedEncoderModel(nn.Module):
         for layer in self.layers:
             x = layer(x)
         return x
+    
+    def __call_rnn__(self, hidden, x,d, integration_timesteps):
+        """
+        Compute the LxH output of the stacked encoder given an Lxd_input
+        input sequence.
+        Args:
+             hidden : hidden state (nLayers, P)
+                list of hidden states of len(nLayers)
+             x (float32): input sequence (L, d_model)
+             d (bool): reset signal (L,)
+             integration_timesteps (): variable int timesteps, unused... 
+        Returns:
+            output sequence (float32): (L, d_model)
+        """
+        x = self.encoder(x)
+        new_hiddens = []
+        for i, layer in enumerate(self.layers):
+            new_h,x = layer.__call_rnn__(hidden[i],x,d)
+            new_hiddens.append(new_h)
 
+        return new_hiddens,x
+
+    @staticmethod
+    def initialize_carry(batch_size, hidden_size, n_layers):
+        # Use a dummy key since the default state init fn is just zeros.
+        return [SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers)]
 
 def masked_meanpool(x, lengths):
     """

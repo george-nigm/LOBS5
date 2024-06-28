@@ -93,6 +93,38 @@ class LobPredModel(nn.Module):
 
         x = self.decoder(x)
         return nn.log_softmax(x, axis=-1)
+    
+    def __call_rnn__(self,hidden, x,d, integration_timesteps):
+        """
+        Compute the size d_output log softmax output given a
+        Lxd_input input sequence.
+        Args:
+             x (float32): input sequence (L, d_input)
+        Returns:
+            output (float32): (d_output)
+        """
+        if self.padded:
+            x, length = x  # input consists of data and prepadded seq lens
+
+        x = self.encoder.__call_rnn__(hidden, x,d, integration_timesteps)
+        if self.mode in ["pool"]:
+            # Perform mean pooling across time
+            if self.padded:
+                x = masked_meanpool(x, length)
+            else:
+                x = jnp.mean(x, axis=0)
+
+        elif self.mode in ["last"]:
+            # Just take the last state
+            if self.padded:
+                raise NotImplementedError("Mode must be in ['pool'] for self.padded=True (for now...)")
+            else:
+                x = x[-1]
+        else:
+            raise NotImplementedError("Mode must be in ['pool', 'last]")
+
+        x = self.decoder(x)
+        return nn.log_softmax(x, axis=-1)
 
 # Here we call vmap to parallelize across a batch of input sequences
 BatchLobPredModel = nn.vmap(
@@ -164,6 +196,36 @@ class LobBookModel(nn.Module):
         for layer in self.layers:
             x = layer(x)
         return x
+    
+    def __call_rnn__(self, hiddens, x, d,integration_timesteps):
+        """
+        Compute the LxH output of the stacked encoder given an Lxd_input
+        input sequence.
+        Args:
+             x (float32): input sequence (L, d_input)
+        Returns:
+            output sequence (float32): (L, d_model)
+        """
+        new_hiddens = []
+        for i, layer in enumerate(self.layers):
+            if isinstance(layer,(SequenceLayer,)):
+                new_h,x = layer.__call_rnn__(hiddens[i],x,d)
+            else: 
+                x=layer(x)
+                new_h=()
+            new_hiddens.append(new_h)
+
+
+        return new_hiddens,x
+    @staticmethod
+    def initialize_carry(batch_size, hidden_size,n_layers_pre,n_layers_post,):
+        # Use a dummy key since the default state init fn is just zeros.
+        init_hidden=([SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_pre)]
+                    + []
+                    + [SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_post)])
+        return init_hidden
+    
+    
 
 class FullLobPredModel(nn.Module):
     ssm: nn.Module
@@ -265,6 +327,8 @@ class FullLobPredModel(nn.Module):
 
         x = self.decoder(x)
         return nn.log_softmax(x, axis=-1)
+    
+
 
 # Here we call vmap to parallelize across a batch of input sequences
 BatchFullLobPredModel = nn.vmap(
@@ -371,6 +435,57 @@ class PaddedLobPredModel(nn.Module):
 
         x = self.decoder(x)
         return nn.log_softmax(x, axis=-1)
+
+    def __call_rnn__(self,hiddens_tuple,
+                      x_m, x_b,
+                      d_m, d_b,
+                      d_f,
+                      message_integration_timesteps, book_integration_timesteps):
+        """
+        Compute the size d_output log softmax output given a
+        (L_m x d_input, L_b x [P+1]) input sequence tuple,
+        combining message and book inputs.
+        Args:
+             x_m: message input sequence (L_m x d_input, 
+             x_b: book state (volume series) (L_b x [P+1])
+        Returns:
+            output (float32): (d_output)
+        """
+        hiddens_m, hiddens_b,hiddens_fused = hiddens_tuple
+
+        # repeat book input to match message length
+        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+
+        hiddens_m,x_m = self.message_encoder.__call_rnn__(hiddens_m, x_m,d_m, message_integration_timesteps)
+        hiddens_b,x_b = self.book_encoder.__call_rnn__(hiddens_b,x_b,d_b ,book_integration_timesteps)
+
+        
+        x = jnp.concatenate([x_m, x_b], axis=1)
+        # TODO: again, check integration time steps make sense here
+        hiddens_fused,x = self.fused_s5.__call_rnn__(hiddens_fused, x, d_f, jnp.ones(x.shape[0]))
+
+        if self.mode in ["pool"]:
+            x = jnp.mean(x, axis=0)
+        elif self.mode in ["last"]:
+            x = x[-1]
+        else:
+            raise NotImplementedError("Mode must be in ['pool', 'last]")
+
+        x = self.decoder(x)
+        return (hiddens_m, hiddens_b,hiddens_fused),nn.log_softmax(x, axis=-1)
+    
+    @staticmethod
+    def initialize_carry(batch_size, hidden_size,
+                         n_message_layers,
+                         n_book_pre_layers,
+                         n_book_post_layers,
+                         n_fused_layers,):
+        # Use a dummy key since the default state init fn is just zeros.
+        h_tuple_init=(StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_message_layers),
+                      LobBookModel.initialize_carry(batch_size,hidden_size,n_book_pre_layers,n_book_post_layers),
+                      StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_fused_layers))
+        return h_tuple_init
+
 
 # Here we call vmap to parallelize across a batch of input sequences
 BatchPaddedLobPredModel = nn.vmap(

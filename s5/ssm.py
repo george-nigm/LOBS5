@@ -57,6 +57,24 @@ def binary_operator(q_i, q_j):
     return A_j * A_i, A_j * b_i + b_j
 
 
+@jax.vmap
+def binary_operator_reset(q_i, q_j):
+    """ Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
+        Args:
+            q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
+            q_j: tuple containing A_j and Bu_j at position j       (P,), (P,)
+        Returns:
+            new element ( A_out, Bu_out )
+    """
+    A_i, b_i, c_i = q_i
+    A_j, b_j, c_j = q_j
+    return (
+        (A_j * A_i)*(1 - c_j) + A_j * c_j,
+        (A_j * b_i + b_j)*(1 - c_j) + b_j * c_j,
+        c_i * (1 - c_j) + c_j,
+    )
+
+
 def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
     """ Compute the LxH output of discretized SSM given an LxH input.
         Args:
@@ -86,6 +104,57 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
         return jax.vmap(lambda x: 2*(C_tilde @ x).real)(xs)
     else:
         return jax.vmap(lambda x: (C_tilde @ x).real)(xs)
+    
+def apply_ssm_rnn(Lambda_bar, B_bar, C_tilde,hidden, input_sequence,resets, conj_sym, bidirectional):
+    """ Compute the LxH output of discretized SSM given an LxH input.
+        Args:
+            Lambda_bar (complex64): discretized diagonal state matrix    (P,)
+            B_bar      (complex64): discretized input matrix             (P, H)
+            C_tilde    (complex64): output matrix                        (H, P)
+            hidden      (???????): hidden state of the ssm layer         (P x 1)
+            input_sequence (float32): input sequence of features         (L, H)
+            resets          (bool): sequence of whether to reset hidden state (L,)
+            conj_sym (bool):         whether conjugate symmetry is enforced
+            bidirectional (bool):    whether bidirectional setup is used,
+                                  Note for this case C_tilde will have 2P cols
+        Returns:
+            ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
+    """
+    Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
+                                            Lambda_bar.shape[0]))
+    Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
+
+
+    #New: Hidden state is simply the previous Bu
+    Lambda_elements = np.concatenate([
+        np.ones((1, Lambda_bar.shape[0])),
+        Lambda_elements,
+    ])
+
+    Bu_elements = np.concatenate([
+        hidden,
+        Bu_elements,
+    ])
+
+
+    if resets is None:
+        _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
+    else:
+        resets = np.concatenate([
+            np.zeros(1),
+            resets,
+        ])
+        _, xs, _ = jax.lax.associative_scan(binary_operator_reset, (Lambda_elements, Bu_elements, resets))
+    xs = xs[1:]
+
+    
+    if bidirectional:
+        raise ValueError("Cannot expect a bidirectional view if doing rnn")
+
+    if conj_sym:
+        return xs[np.newaxis, -1],jax.vmap(lambda x: 2*(C_tilde @ x).real)(xs)
+    else:
+        return xs[np.newaxis, -1],jax.vmap(lambda x: (C_tilde @ x).real)(xs)
 
 
 class S5SSM(nn.Module):
@@ -245,6 +314,29 @@ class S5SSM(nn.Module):
         # Add feedthrough matrix output Du;
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
         return ys + Du
+    
+    def __call_rnn__(self, hidden, input_sequence, resets):
+        """
+        Compute the LxH output of the S5 SSM given an LxH input sequence
+        using a parallel scan.
+        Args:
+             input_sequence (float32): input sequence (L, H)
+             resets (bool): input sequence (L,)
+        Returns:
+            output sequence (float32): (L, H)
+        """
+        hidden, ys = apply_ssm_rnn(self.Lambda_bar,
+                       self.B_bar,
+                       self.C_tilde,
+                       hidden,
+                       input_sequence,
+                       resets,
+                       self.conj_sym,
+                       self.bidirectional)
+        # Add feedthrough matrix output Du;
+        Du = jax.vmap(lambda u: self.D * u)(input_sequence)
+        return hidden, ys + Du
+
 
 
 def init_S5SSM(H,

@@ -304,15 +304,15 @@ def predict_with_hidden(
         batchnorm: bool,
     ):
     if batchnorm:
-        logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
-                            *batch_inputs, *batch_integration_timesteps,
+        hidden_states,logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
+                            *batch_inputs,*hidden_states *batch_integration_timesteps,
                             )
     else:
-        logits = model.apply({"params": state.params},
-                             *batch_inputs, *batch_integration_timesteps,
+        hidden_states,logits = model.apply({"params": state.params},
+                             *batch_inputs,*hidden_states, *batch_integration_timesteps,
                              )
 
-    return logits
+    return hidden_states,logits
 
 
 @jax.jit
