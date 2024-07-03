@@ -4,7 +4,7 @@ from jax import random
 import jax.numpy as jnp
 import flax
 import orbax.checkpoint as ocp
-import wandb
+# import wandb
 
 from lob.init_train import init_train_state, load_checkpoint, save_checkpoint, deduplicate_trainstate
 from lob.dataloading import create_lobster_prediction_dataset, create_lobster_train_loader#, Datasets
@@ -22,21 +22,21 @@ def train(args):
     best_test_acc = -10000.0
 
     # for parameter sweep: get args from wandb server
-    if args is None:
-        args = wandb.config
-    else:
-        if args.USE_WANDB:
-            # Make wandb config dictionary
-            run = wandb.init(project=args.wandb_project, job_type='model_training', config=vars(args), entity=args.wandb_entity)
-        else:
-            run = wandb.init(mode='offline')
+    # if args is None:
+    #     args = wandb.config
+    # else:
+    #     if args.USE_WANDB:
+    #         # Make wandb config dictionary
+    #         run = wandb.init(project=args.wandb_project, job_type='model_training', config=vars(args), entity=args.wandb_entity)
+    #     else:
+    #         run = wandb.init(mode='offline')
 
     ssm_size = args.ssm_size_base
     ssm_lr = args.ssm_lr_base
 
     # determine the size of initial blocks
     block_size = int(ssm_size / args.blocks)
-    wandb.log({"block_size": block_size})
+    # wandb.log({"block_size": block_size})
 
     # Set global learning rate lr (e.g. encoders, etc.) as function of ssm_lr
     lr = args.lr_factor * ssm_lr
@@ -246,39 +246,39 @@ def train(args):
             f" {best_test_acc:.4f} at Epoch {best_epoch + 1}\n"
         )
 
-        if valloader is not None:
-            wandb.log(
-                {
-                    "Training Loss": train_loss,
-                    "Val loss": val_loss,
-                    "Val Accuracy": val_acc,
-                    "Test Loss": test_loss,
-                    "Test Accuracy": test_acc,
-                    "count": count,
-                    "Learning rate count": lr_count,
-                    "Opt acc": opt_acc,
-                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-                }
-            )
-        else:
-            wandb.log(
-                {
-                    "Training Loss": train_loss,
-                    "Val loss": val_loss,
-                    "Val Accuracy": val_acc,
-                    "count": count,
-                    "Learning rate count": lr_count,
-                    "Opt acc": opt_acc,
-                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-                }
-            )
-        wandb.run.summary["Best Val Loss"] = best_loss
-        wandb.run.summary["Best Val Accuracy"] = best_acc
-        wandb.run.summary["Best Epoch"] = best_epoch
-        wandb.run.summary["Best Test Loss"] = best_test_loss
-        wandb.run.summary["Best Test Accuracy"] = best_test_acc
+        # if valloader is not None:
+        #     wandb.log(
+        #         {
+        #             "Training Loss": train_loss,
+        #             "Val loss": val_loss,
+        #             "Val Accuracy": val_acc,
+        #             "Test Loss": test_loss,
+        #             "Test Accuracy": test_acc,
+        #             "count": count,
+        #             "Learning rate count": lr_count,
+        #             "Opt acc": opt_acc,
+        #             "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+        #             "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+        #         }
+        #     )
+        # else:
+        #     wandb.log(
+        #         {
+        #             "Training Loss": train_loss,
+        #             "Val loss": val_loss,
+        #             "Val Accuracy": val_acc,
+        #             "count": count,
+        #             "Learning rate count": lr_count,
+        #             "Opt acc": opt_acc,
+        #             "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+        #             "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+        #         }
+        #     )
+        # wandb.run.summary["Best Val Loss"] = best_loss
+        # wandb.run.summary["Best Val Accuracy"] = best_acc
+        # wandb.run.summary["Best Epoch"] = best_epoch
+        # wandb.run.summary["Best Test Loss"] = best_test_loss
+        # wandb.run.summary["Best Test Accuracy"] = best_test_acc
 
         if count > args.early_stop_patience:
             break

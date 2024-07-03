@@ -119,26 +119,45 @@ class LOBSTER_Dataset(Dataset):
         return seq, y
     
     
+    # @staticmethod
+    # def sliding_window_mask(seq, rng):
+        
+    #     """ 
+    #     Generate N sequences where each sequence masks one different token 
+    #     in the latest message.
+    #     """
+    #     seq = seq.copy()
+    #     N = seq.shape[1]  # Number of tokens in a message
+    #     sliding_window_seqs = []
+    #     target_tokens = []
+
+    #     for i in range(N):
+    #         temp_seq = seq.copy()
+    #         y = temp_seq[-1, i]
+    #         temp_seq[-1, i] = Vocab.MASK_TOK
+    #         sliding_window_seqs.append(temp_seq)
+    #         target_tokens.append(y)
+        
+    #     return sliding_window_seqs, target_tokens
+    
+
     @staticmethod
     def sliding_window_mask(seq, rng):
         """ 
         Generate N sequences where each sequence masks one different token 
         in the latest message.
         """
-        seq = seq.copy()
-        N = seq.shape[1]  # Number of tokens in a message
-        sliding_window_seqs = []
-        target_tokens = []
-
-        for i in range(N):
+        def sliding_window_step(carry, i):
+            seq, rng = carry
             temp_seq = seq.copy()
             y = temp_seq[-1, i]
-            temp_seq[-1, i] = Vocab.MASK_TOK
-            sliding_window_seqs.append(temp_seq)
-            target_tokens.append(y)
-        
+            temp_seq = temp_seq.at[-1, i].set(Vocab.MASK_TOK)
+            return (seq, rng), (temp_seq, y)
+        N = seq.shape[1]
+        initial_carry = (seq, rng)
+        _, results = jax.lax.scan(sliding_window_step, initial_carry, jnp.arange(N))
+        sliding_window_seqs, target_tokens = results
         return sliding_window_seqs, target_tokens
-    
 
     @staticmethod
     def causal_mask(seq, rng):

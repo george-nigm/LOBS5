@@ -177,3 +177,8 @@ figures/
 *.out
 *.prof
 .vscode/**.json
+
+
+**.npy
+**.7z
+**.csv
