@@ -142,22 +142,57 @@ class LOBSTER_Dataset(Dataset):
     
 
     @staticmethod
-    def sliding_window_mask(seq, rng):
-        """ 
-        Generate N sequences where each sequence masks one different token 
-        in the latest message.
+    def last_position_mask(seq, rng):
         """
-        def sliding_window_step(carry, i):
-            seq, rng = carry
-            temp_seq = seq.copy()
-            y = temp_seq[-1, i]
-            temp_seq = temp_seq.at[-1, i].set(Vocab.MASK_TOK)
-            return (seq, rng), (temp_seq, y)
-        N = seq.shape[1]
-        initial_carry = (seq, rng)
-        _, results = jax.lax.scan(sliding_window_step, initial_carry, jnp.arange(N))
-        sliding_window_seqs, target_tokens = results
-        return sliding_window_seqs, target_tokens
+        Selects a field from the latest message where one token is masked with MSK.
+        Retains tokens to the left of MSK and removes those to the right, labeled as Q.
+        Deletes the first message from all messages, labeled as P.
+        Takes tokens to the right of MSK's position in the first message, labeled as O.
+        Concatenates O, P, and Q in sequence.
+        """
+        seq = seq.copy()
+
+        # Randomly selects the field to be masked and the hidden field
+        hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
+
+        # Gets the start and end indices of the selected masked field
+        i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
+
+        # Randomly selects a token within the chosen field for masking
+        msk_i = rng.integers(i_start, i_end)
+        y = seq[-1][msk_i]
+
+        # Q: Keeps tokens to the left of MSK
+        Q = seq[-1, :msk_i]
+        
+        # Inserts MASK_TOK at the position after the selected token for masking
+        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
+
+        # O: Retrieves tokens to the right of MSK's position in the first message
+        O = seq[0, msk_i + 1:]
+
+        # P: Removes the first message from the sequence
+        P = seq[1:]
+
+        # Concatenates O, flattened P, and Q
+        new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
+
+        return new_seq, y
+
+
+    # @staticmethod
+    # def last_position_mask(seq, rng):
+    #     """ 
+    #     Generate 1 sequence where each sequence masks one different token 
+    #     in the latest message.
+    #     """
+    #     seq = seq.copy()
+    #     N = seq.shape[1]
+    #     mask_index = jax.random.randint(rng, (), 0, N)
+    #     masked_seq = seq.copy()
+    #     target_token = masked_seq[-1, mask_index]
+    #     masked_seq[-1, mask_index] = Vocab.MASK_TOK
+    #     return masked_seq, target_token
 
     @staticmethod
     def causal_mask(seq, rng):
