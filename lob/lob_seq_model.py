@@ -422,12 +422,12 @@ class PaddedLobPredModel(nn.Module):
         # repeat book input to match message length
         x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         
-        token_index = # TODO
+        # token_index = 5 # TODO
 
-        # Calculate the repeat counts for each segment
-        K = x_m.shape[0] // x_b.shape[0]
-        repeats = [K - token_index] + [K] * (x_b.shape[0] - 2) + [token_index]
-        x_b = jnp.concatenate([jnp.repeat(x_b[i:i+1], repeats[i], axis=0) for i in range(x_b.shape[0])], axis=0)
+        # # Calculate the repeat counts for each segment
+        # K = x_m.shape[0] // x_b.shape[0] # TODO number of tokens in one message
+        # repeats = [K - token_index] + [K] * (x_b.shape[0] - 2) + [token_index]
+        # x_b = jnp.concatenate([jnp.repeat(x_b[i:i+1], repeats[i], axis=0) for i in range(x_b.shape[0])], axis=0)
         
             
         x = jnp.concatenate([x_m, x_b], axis=1)
