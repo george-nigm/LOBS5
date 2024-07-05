@@ -41,6 +41,9 @@ if __name__ == "__main__":
 						help="causal or random masking of sequences")
 	parser.add_argument("--use_book_data", type=str2bool, default=False,
 		     			help="use book data in addition to message data")
+	parser.add_argument("--merging", type=str, choices={'projected', 'padded'},
+						default='projected', 
+						help="Method for merging the book model with the message model. Cannot use RNN mode with projected mode.")
 	parser.add_argument("--use_simple_book", type=str2bool, default=False,
 		     			help="use raw price (-p0) and volume series instead of 'volume image representation'")
 	parser.add_argument("--book_transform", type=str2bool, default=False,

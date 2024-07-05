@@ -18,7 +18,7 @@ from flax.training import checkpoints
 from flax import linen as nn
 from orbax import checkpoint
 from lob.encoding import Vocab
-from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel, FullLobPredModel#, ParFullLobPredModel
+from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel,OldBatchPaddedLobPredModel, FullLobPredModel#, ParFullLobPredModel
 
 #from lob.lob_seq_model import BatchLobPredModel
 from lob.train_helpers import create_train_state#, eval_step, prep_batch, cross_entropy_loss, compute_accuracy
@@ -156,8 +156,9 @@ def init_train_state(
         book_seq_len,
         print_shapes=False
     ) -> Tuple[TrainState, Union[partial[BatchLobPredModel],
-                                  partial[FullLobPredModel],
-                                  partial[BatchPaddedLobPredModel]]]:
+                                  partial[BatchFullLobPredModel],
+                                  partial[BatchPaddedLobPredModel],
+                                  partial[OldBatchPaddedLobPredModel]]]:
 
     in_dim = n_classes
 
@@ -223,26 +224,72 @@ def init_train_state(
         # else:
         #     model_cls = BatchFullLobPredModel
         
-        model_cls = partial(
-            # projecting sequence lengths down has appeared better than padding
-            BatchFullLobPredModel,
-            #BatchPaddedLobPredModel,
-            #model_cls,
-            ssm=ssm_init_fn,
-            d_output=n_classes,
-            d_model=args.d_model,
-            d_book=book_dim,
-            n_message_layers=args.n_message_layers,  # 2
-            n_fused_layers=args.n_layers,
-            n_book_pre_layers=args.n_book_pre_layers,
-            n_book_post_layers=args.n_book_post_layers,
-            activation=args.activation_fn,
-            dropout=args.p_dropout,
-            mode=args.mode,
-            prenorm=args.prenorm,
-            batchnorm=args.batchnorm,
-            bn_momentum=args.bn_momentum,
-        )
+
+        if args.merging == 'projected':
+            model_cls = partial(
+                # projecting sequence lengths down has appeared better than padding
+                BatchFullLobPredModel,
+                #BatchPaddedLobPredModel,
+                #model_cls,
+                ssm=ssm_init_fn,
+                d_output=n_classes,
+                d_model=args.d_model,
+                d_book=book_dim,
+                n_message_layers=args.n_message_layers,  # 2
+                n_fused_layers=args.n_layers,
+                n_book_pre_layers=args.n_book_pre_layers,
+                n_book_post_layers=args.n_book_post_layers,
+                activation=args.activation_fn,
+                dropout=args.p_dropout,
+                mode=args.mode,
+                prenorm=args.prenorm,
+                batchnorm=args.batchnorm,
+                bn_momentum=args.bn_momentum,
+            )
+        elif args.merging == 'testing':
+            print("Testing")
+            model_cls = partial(
+                # projecting sequence lengths down has appeared better than padding
+                OldBatchPaddedLobPredModel,
+                #model_cls,
+                ssm=ssm_init_fn,
+                d_output=n_classes,
+                d_model=args.d_model,
+                d_book=book_dim,
+                n_message_layers=args.n_message_layers,  # 2
+                n_fused_layers=args.n_layers,
+                n_book_pre_layers=args.n_book_pre_layers,
+                n_book_post_layers=args.n_book_post_layers,
+                activation=args.activation_fn,
+                dropout=args.p_dropout,
+                mode=args.mode,
+                prenorm=args.prenorm,
+                batchnorm=args.batchnorm,
+                bn_momentum=args.bn_momentum,
+                #args not adding to partial: training & rescale. 
+            )
+        else:
+            model_cls = partial(
+                # projecting sequence lengths down has appeared better than padding
+                BatchPaddedLobPredModel,
+                #model_cls,
+                ssm=ssm_init_fn,
+                d_output=n_classes,
+                d_model=args.d_model,
+                d_book=book_dim,
+                n_message_layers=args.n_message_layers,  # 2
+                n_fused_layers=args.n_layers,
+                n_book_pre_layers=args.n_book_pre_layers,
+                n_book_post_layers=args.n_book_post_layers,
+                activation=args.activation_fn,
+                dropout=args.p_dropout,
+                mode=args.mode,
+                prenorm=args.prenorm,
+                batchnorm=args.batchnorm,
+                bn_momentum=args.bn_momentum,
+                #args not adding to partial: training & rescale. 
+            )
+
     else:
         if args.num_devices > 1:
             raise NotImplementedError("Message only model not implemented for multi-device training")

@@ -69,11 +69,21 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
+        #jax.debug.print("Before encoder in StackedEncoderModel {}",x.shape)
+        #jax.debug.print("call x_m[0:5] before msg_enc.encoder : {}",x[0:5][0])
         x = self.encoder(x)
-        for layer in self.layers:
+        #jax.debug.print("call x_m[0:5] after msg_enc.encoder : {}",x[0:5][0])
+
+        #jax.debug.print("After encoder in StackedEncoderModel {}",x.shape)
+        for i,layer in enumerate(self.layers):
             x = layer(x)
+            #jax.debug.print("call x_m[0:2] after layer {} : {}",i,x[0:2][0][0:2])
+
+        #jax.debug.print("call x_m[0:5] after msg_enc.layers : {}",x[0:5][0])
+
         return x
     
+
     def __call_rnn__(self, hidden, x,d, integration_timesteps):
         """
         Compute the LxH output of the stacked encoder given an Lxd_input
@@ -87,12 +97,18 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
+        #jax.debug.print("Before encoder in StackedEncoderModel.callrnn {}",x.shape)
+        #jax.debug.print("call_rnn x_m[0:5] before msg_enc.encoder : {}",x[0:5][0])
         x = self.encoder(x)
+        #jax.debug.print("call_rnn x_m[0:5] after msg_enc.encoder : {}",x[0:5][0])
+
+        #jax.debug.print("After encoder in StackedEncoderModel.callrnn {}",x.shape)
         new_hiddens = []
         for i, layer in enumerate(self.layers):
-            new_h,x = layer.__call_rnn__(hidden[i],x,d)
+            new_h, x = layer.__call_rnn__(hidden[i],x,d)
             new_hiddens.append(new_h)
-
+            #jax.debug.print("call_rnn x[0:2] after layer {} : {}",i,x[0:2][0][0:2])
+        #jax.debug.print("call_rnn x_m[0:2] after msg_enc.layers : {}",x[0:5][0])
         return new_hiddens,x
 
     @staticmethod

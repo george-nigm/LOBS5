@@ -161,16 +161,23 @@ def create_train_state(model_cls,
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
+    
+    jax.debug.print("Dummy input shapes (msg,book) ({}, \n {})",dummy_input[0].shape,dummy_input[1].shape)
+    #RNN mode and initialisation needs to go in here if we need it. 
+
     variables = model.init({"params": init_rng,
                             "dropout": dropout_rng},
-                           *dummy_input, *integration_timesteps,
+                           *dummy_input, *integration_timesteps, 
                            )
+    
     if batchnorm:
         params = variables["params"]#.unfreeze()
         batch_stats = variables["batch_stats"]
     else:
         params = variables["params"]#.unfreeze()
         # Note: `unfreeze()` is for using Optax.
+
+    print(params['message_encoder']['encoder']['embedding'].shape)
 
     if opt_config in ["standard"]:
         """This option applies weight decay to C, but B is kept with the
@@ -297,7 +304,10 @@ def create_train_state(model_cls,
         state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
     # keep copy of state on each device
+    print(state.params['message_encoder']['encoder']['embedding'].shape)
     state = jax_utils.replicate(state)#, devices=global_devices)
+    print(state.params['message_encoder']['encoder']['embedding'].shape)
+
     return state
 
 def get_slices(dims):

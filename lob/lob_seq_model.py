@@ -154,7 +154,7 @@ class LobBookModel(nn.Module):
         """
         Initializes ...
         """
-        self.layers = tuple(
+        self.pre_layers = tuple(
             SequenceLayer(
                 # fix ssm init to correct shape (different than other layers)
                 ssm=partial(self.ssm, H=self.d_book),
@@ -166,10 +166,9 @@ class LobBookModel(nn.Module):
                 batchnorm=self.batchnorm,
                 bn_momentum=self.bn_momentum,
                 step_rescale=self.step_rescale,
-            ) for _ in range(self.n_pre_layers)
-        )
-        self.layers += (nn.Dense(self.d_model), )  # project to d_model
-        self.layers += tuple(
+            ) for _ in range(self.n_pre_layers))
+        self.projection = nn.Dense(self.d_model)  # project to d_model
+        self.post_layers = tuple(
             SequenceLayer(
                 ssm=self.ssm,
                 dropout=self.dropout,
@@ -193,7 +192,10 @@ class LobBookModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
-        for layer in self.layers:
+        for layer in self.pre_layers:
+            x = layer(x)
+        x=self.projection(x)
+        for layer in self.post_layers:
             x = layer(x)
         return x
     
@@ -206,23 +208,25 @@ class LobBookModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
-        new_hiddens = []
-        for i, layer in enumerate(self.layers):
-            if isinstance(layer,(SequenceLayer,)):
-                new_h,x = layer.__call_rnn__(hiddens[i],x,d)
-            else: 
-                x=layer(x)
-                new_h=()
-            new_hiddens.append(new_h)
+        hidden_pre,hidden_post=hiddens
+        new_hiddens_pre,new_hiddens_post = [],[]
 
+        for i, layer in enumerate(self.pre_layers):
+            new_h,x = layer.__call_rnn__(hidden_pre[i],x,d)
+            new_hiddens_pre.append(new_h)
 
-        return new_hiddens,x
+        x=self.projection(x)
+
+        for i, layer in enumerate(self.post_layers):
+            new_h,x = layer.__call_rnn__(hidden_post[i],x,d)
+            new_hiddens_post.append(new_h)
+
+        return (new_hiddens_pre,new_hiddens_post),x
     @staticmethod
     def initialize_carry(batch_size, hidden_size,n_layers_pre,n_layers_post,):
         # Use a dummy key since the default state init fn is just zeros.
-        init_hidden=([SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_pre)]
-                    + []
-                    + [SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_post)])
+        init_hidden=([SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_pre)],
+                      [SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_post)])
         return init_hidden
     
     
@@ -347,6 +351,8 @@ class PaddedLobPredModel(nn.Module):
     d_book: int
     n_message_layers: int
     n_fused_layers: int
+    n_book_pre_layers: int = 1
+    n_book_post_layers: int = 1
     activation: str = "gelu"
     dropout: float = 0.2
     training: bool = True
@@ -371,7 +377,10 @@ class PaddedLobPredModel(nn.Module):
             batchnorm=self.batchnorm,
             bn_momentum=self.bn_momentum,
             step_rescale=self.step_rescale,
+            use_embed_layer=True,
+            vocab_size=self.d_output,
         )
+
         # applied to transposed message output to get seq len for fusion
         #self.message_out_proj = nn.Dense(self.d_model)  
         self.book_encoder = LobBookModel(
@@ -388,6 +397,8 @@ class PaddedLobPredModel(nn.Module):
             bn_momentum=self.bn_momentum,
             step_rescale=self.step_rescale,
         )
+
+
         # applied to transposed book output to get seq len for fusion
         #self.book_out_proj = nn.Dense(self.d_model)
         self.fused_s5 = StackedEncoderModel(
@@ -415,12 +426,18 @@ class PaddedLobPredModel(nn.Module):
         Returns:
             output (float32): (d_output)
         """
+        #jax.debug.print("x_m shape: {}",x_m.shape)
+
+        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #jax.debug.print("call x_m[0:5] before msg_enc : {}",x_m[0:5])
 
         x_m = self.message_encoder(x_m, message_integration_timesteps)
+        #jax.debug.print("call x_m[0:5] after msg_enc : {}",x_m[0:5][0])
         x_b = self.book_encoder(x_b, book_integration_timesteps)
 
         # repeat book input to match message length
-        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #Move this repeat to the dataloading and edit so that alignment works with shifted tokens. 
+        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         
         x = jnp.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
@@ -453,10 +470,16 @@ class PaddedLobPredModel(nn.Module):
         """
         hiddens_m, hiddens_b,hiddens_fused = hiddens_tuple
 
+        #jax.debug.print("x_m shape: {}",x_m.shape)
+
         # repeat book input to match message length
         x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #jax.debug.print("Fake repeat, should be fixed in loading proc.")
+
+        #jax.debug.print("call_rnn x_m[0:5] before msg_enc : {}",x_m[0:5])
 
         hiddens_m,x_m = self.message_encoder.__call_rnn__(hiddens_m, x_m,d_m, message_integration_timesteps)
+        #jax.debug.print("call_rnn x_m[0:5] after msg_enc : {}",x_m[0:5][0])
         hiddens_b,x_b = self.book_encoder.__call_rnn__(hiddens_b,x_b,d_b ,book_integration_timesteps)
 
         
@@ -486,11 +509,31 @@ class PaddedLobPredModel(nn.Module):
                       StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_fused_layers))
         return h_tuple_init
 
+split_rngs_args={"params": False, "dropout": True}
+variable_axes_args={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None}
+
 
 # Here we call vmap to parallelize across a batch of input sequences
+OldBatchPaddedLobPredModel = nn.vmap(
+    PaddedLobPredModel,
+    in_axes=(0, 0, 0, 0),
+    out_axes=0,
+    variable_axes=variable_axes_args,
+    split_rngs=split_rngs_args, axis_name='batch',)
+
 BatchPaddedLobPredModel = nn.vmap(
     PaddedLobPredModel,
     in_axes=(0, 0, 0, 0),
     out_axes=0,
-    variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
-    split_rngs={"params": False, "dropout": True}, axis_name='batch')
+    variable_axes=variable_axes_args,
+    split_rngs=split_rngs_args, axis_name='batch',
+    methods={'__call__':{'in_axes':(0, 0, 0, 0),
+                         'out_axes':0,
+                         'variable_axes':variable_axes_args,
+                         'split_rngs':split_rngs_args,
+                         'axis_name':'batch'},
+            '__call_rnn__':{'in_axes':(0,0, 0, 0, 0, 0,0,0),
+                         'out_axes':0,
+                         'variable_axes':variable_axes_args,
+                         'split_rngs':split_rngs_args,
+                         'axis_name':'batch'}})

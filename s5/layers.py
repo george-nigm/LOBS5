@@ -60,11 +60,15 @@ class SequenceLayer(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
+        #jax.debug.print("call x before prenorm : {}",x)
+
         skip = x
         if self.prenorm:
             x = self.norm(x)
+        
+        #jax.debug.print("call x before ssm : {}",x)
         x = self.seq(x)
-
+        #jax.debug.print("call x_m after ssm : {}",x)
         if self.activation in ["full_glu"]:
             x = self.drop(nn.gelu(x))
             x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
@@ -83,10 +87,17 @@ class SequenceLayer(nn.Module):
         else:
             raise NotImplementedError(
                    "Activation: {} not implemented".format(self.activation))
+        
+        #jax.debug.print("call x_m[0:5] after activation : {}",x[0:2][0][0:2])
+
 
         x = skip + x
         if not self.prenorm:
             x = self.norm(x)
+
+        #jax.debug.print("call x_m[0:5] after norm : {}",x[0:2][0][0:2])
+        jax.debug.print("######################## END OF LAYER ########################")
+
         return x
 
     def __call_rnn__(self,hidden, x,d):
@@ -99,11 +110,17 @@ class SequenceLayer(nn.Module):
             Returns:
                 output sequence (float32): (L, d_model)
             """
+            #jax.debug.print("call_rnn x before prenorm : {}",x)
+
             skip = x
             if self.prenorm:
                 x = self.norm(x)
-            #hidden,x = self.seq.__call_rnn__(x)
-            hidden, x = jax.vmap(self.seq.__call_rnn__, in_axes=1, out_axes=1)(hidden, x, d)
+
+            #jax.debug.print("call_rnn x before ssm : {}",x)
+            hidden,x = self.seq.__call_rnn__(hidden,x,d)
+            #jax.debug.print("call_rnn x after ssm : {}",x)
+            #jax.debug.print("Shape of x before vmap of ssm: {}", x.shape)
+            #hidden, x = jax.vmap(self.seq.__call_rnn__, in_axes=(None,1,None), out_axes=1)(hidden, x, d)
 
 
             if self.activation in ["full_glu"]:
@@ -125,11 +142,17 @@ class SequenceLayer(nn.Module):
                 raise NotImplementedError(
                     "Activation: {} not implemented".format(self.activation))
 
+            #jax.debug.print("call_rnn x_m[0:5] after activation : {}",x[0:2][0][0:2])
+
             x = skip + x
             if not self.prenorm:
                 x = self.norm(x)
-            return x
+
+            #jax.debug.print("call_rnn x_m[0:5] after norm : {}",x[0:2][0][0:2])
+            jax.debug.print("######################## END OF LAYER ########################")
+
+            return hidden, x
     @staticmethod
     def initialize_carry(batch_size, hidden_size):
         # Use a dummy key since the default state init fn is just zeros.
-        return jax.numpy.zeros((1, batch_size, hidden_size), dtype=jax.numpy.complex64)
+        return jax.numpy.zeros((batch_size,1, hidden_size), dtype=jax.numpy.complex64)
