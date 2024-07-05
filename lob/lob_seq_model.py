@@ -439,6 +439,14 @@ class PaddedLobPredModel(nn.Module):
         #Move this repeat to the dataloading and edit so that alignment works with shifted tokens. 
         #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         
+        # token_index = 5 # TODO
+
+        # # Calculate the repeat counts for each segment
+        # K = x_m.shape[0] // x_b.shape[0] # TODO number of tokens in one message
+        # repeats = [K - token_index] + [K] * (x_b.shape[0] - 2) + [token_index]
+        # x_b = jnp.concatenate([jnp.repeat(x_b[i:i+1], repeats[i], axis=0) for i in range(x_b.shape[0])], axis=0)
+        
+            
         x = jnp.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
         x = self.fused_s5(x, jnp.ones(x.shape[0]))

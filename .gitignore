@@ -176,3 +176,8 @@ figures/
 *.pkl
 *.out
 *.prof
+**.npz
+**.csv
+**.7z
+**.npy
+**.json
