@@ -246,29 +246,7 @@ def init_train_state(
                 batchnorm=args.batchnorm,
                 bn_momentum=args.bn_momentum,
             )
-        elif args.merging == 'testing':
-            print("Testing")
-            model_cls = partial(
-                # projecting sequence lengths down has appeared better than padding
-                OldBatchPaddedLobPredModel,
-                #model_cls,
-                ssm=ssm_init_fn,
-                d_output=n_classes,
-                d_model=args.d_model,
-                d_book=book_dim,
-                n_message_layers=args.n_message_layers,  # 2
-                n_fused_layers=args.n_layers,
-                n_book_pre_layers=args.n_book_pre_layers,
-                n_book_post_layers=args.n_book_post_layers,
-                activation=args.activation_fn,
-                dropout=args.p_dropout,
-                mode=args.mode,
-                prenorm=args.prenorm,
-                batchnorm=args.batchnorm,
-                bn_momentum=args.bn_momentum,
-                #args not adding to partial: training & rescale. 
-            )
-        else:
+        elif args.merging == 'padded': #i.e. 'padded'
             model_cls = partial(
                 # projecting sequence lengths down has appeared better than padding
                 BatchPaddedLobPredModel,
@@ -289,6 +267,8 @@ def init_train_state(
                 bn_momentum=args.bn_momentum,
                 #args not adding to partial: training & rescale. 
             )
+        else:
+            raise ValueError("Merge method: " + args.merging + " is not valid (check spelling)")
 
     else:
         if args.num_devices > 1:

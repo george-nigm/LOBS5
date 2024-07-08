@@ -8,7 +8,7 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # TODO: change this if num_devices changes (is less than all of the available ones)
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
@@ -36,7 +36,7 @@ if __name__ == "__main__":
 	parser.add_argument("--dataset", type=str, choices=Datasets.keys(),
 						default='lobster-prediction',
 						help="dataset name")
-	parser.add_argument("--masking", type=str, choices={'causal', 'random'},
+	parser.add_argument("--masking", type=str, choices={'causal', 'random','last_pos'},
 						default='causal',  # random
 						help="causal or random masking of sequences")
 	parser.add_argument("--use_book_data", type=str2bool, default=False,

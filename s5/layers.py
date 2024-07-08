@@ -95,8 +95,6 @@ class SequenceLayer(nn.Module):
         if not self.prenorm:
             x = self.norm(x)
 
-        #jax.debug.print("call x_m[0:5] after norm : {}",x[0:2][0][0:2])
-        jax.debug.print("######################## END OF LAYER ########################")
 
         return x
 
@@ -116,10 +114,7 @@ class SequenceLayer(nn.Module):
             if self.prenorm:
                 x = self.norm(x)
 
-            #jax.debug.print("call_rnn x before ssm : {}",x)
             hidden,x = self.seq.__call_rnn__(hidden,x,d)
-            #jax.debug.print("call_rnn x after ssm : {}",x)
-            #jax.debug.print("Shape of x before vmap of ssm: {}", x.shape)
             #hidden, x = jax.vmap(self.seq.__call_rnn__, in_axes=(None,1,None), out_axes=1)(hidden, x, d)
 
 
@@ -142,14 +137,9 @@ class SequenceLayer(nn.Module):
                 raise NotImplementedError(
                     "Activation: {} not implemented".format(self.activation))
 
-            #jax.debug.print("call_rnn x_m[0:5] after activation : {}",x[0:2][0][0:2])
-
             x = skip + x
             if not self.prenorm:
                 x = self.norm(x)
-
-            #jax.debug.print("call_rnn x_m[0:5] after norm : {}",x[0:2][0][0:2])
-            jax.debug.print("######################## END OF LAYER ########################")
 
             return hidden, x
     @staticmethod

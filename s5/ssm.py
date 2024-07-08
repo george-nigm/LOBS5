@@ -96,14 +96,9 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
 
     Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
 
-    #jax.debug.print("call ssm Bu_elems : {}",Bu_elements)
-    #jax.debug.print("call ssm Lambda_elems : {}",Bu_elements)
-
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
     
-    #jax.debug.print("call ssm xs : {}",xs)
-
 
     if bidirectional:
         _, xs2 = jax.lax.associative_scan(binary_operator,
@@ -143,19 +138,11 @@ def apply_ssm_rnn(Lambda_bar, B_bar, C_tilde,hidden, input_sequence,resets, conj
         Lambda_elements,
     ])
     
-    
-    """
-    jax.debug.print("B_bar shape {}",B_bar.shape)
-    jax.debug.print("Hidden shape {}",hidden.shape)
-    jax.debug.print("Bu shape {}",Bu_elements.shape)
-    jax.debug.print("Input shape {}",input_sequence.shape)
-    """
+
     Bu_elements = np.concatenate([
         hidden,
         Bu_elements,
     ])
-    #jax.debug.print("call_rnn ssm Bu_elems : {}",Bu_elements)
-    #jax.debug.print("call_rnn ssm Lambda_elems : {}",Bu_elements)
 
     if resets is None:
         _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
@@ -166,12 +153,8 @@ def apply_ssm_rnn(Lambda_bar, B_bar, C_tilde,hidden, input_sequence,resets, conj
         ])
         _, xs, _ = jax.lax.associative_scan(binary_operator_reset, (Lambda_elements, Bu_elements, resets))
     
-    #jax.debug.print("call_rnn ssm xs_full : {}",xs)
     xs_save=xs
     xs = xs[1:]
-
-    
-
 
     
     if bidirectional:
@@ -336,7 +319,6 @@ class S5SSM(nn.Module):
                        self.conj_sym,
                        self.bidirectional)
 
-        # Add feedthrough matrix output Du;
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
         return ys + Du
     
@@ -351,7 +333,7 @@ class S5SSM(nn.Module):
             output sequence (float32): (L, H)
         """
 
-        hidden, ys, Bu_elements_rnn,Lambda_elements_rnn,xs_rnn = apply_ssm_rnn(self.Lambda_bar,
+        hidden, ys, _,_,_ = apply_ssm_rnn(self.Lambda_bar,
                        self.B_bar,
                        self.C_tilde,
                        hidden,
@@ -359,28 +341,8 @@ class S5SSM(nn.Module):
                        None,
                        self.conj_sym,
                        self.bidirectional)
-        
-
-        """ys_call,Bu_elements_call,Lambda_elements_call,xs_call = apply_ssm(self.Lambda_bar,
-                       self.B_bar,
-                       self.C_tilde,
-                       input_sequence,
-                       self.conj_sym,
-                       self.bidirectional)"""
-        
-
-        """
-        jax.debug.print("Difference in y between apply funcs: {}",ys-ys_call)
-        jax.debug.print("Difference in Bu_elem between apply funcs: {}",Bu_elements_rnn[1:5]-Bu_elements_call[1:5])
-        jax.debug.print("Bu_elem rnn : {}",Bu_elements_rnn[1:5])
-        jax.debug.print("Lambda_elements rnn : {}",Lambda_elements_rnn[1:5])
-        jax.debug.print("Difference in Lambda_elements between apply funcs: {}",Lambda_elements_rnn[1:5]-Lambda_elements_call[0:4])
-        jax.debug.print("Difference in xs between apply funcs: {}",xs_rnn[1:5]-xs_call[0:4])
-
-
-        jax.debug.print("xs init: {}, lam init: {}, Bu init: {}",xs_rnn[0],Lambda_elements_rnn[0],Bu_elements_rnn[0])
-        
-        """
+                
+  
         # Add feedthrough matrix output Du;
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
         return hidden, ys + Du
