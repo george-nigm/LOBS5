@@ -65,8 +65,7 @@ class LOBSTER_Dataset(Dataset):
             y = seq[m_i, tok_i]
             seq[m_i, tok_i] = Vocab.MASK_TOK
             return seq, y
-        # breakpoint()
-        # jax.debug.breakpoint()
+
         return masking_fn
 
     @staticmethod
@@ -117,8 +116,7 @@ class LOBSTER_Dataset(Dataset):
         y = seq[-1, msk_pos]
         seq[-1, msk_pos] = Vocab.MASK_TOK
         seq[-1, hid_pos] = Vocab.HIDDEN_TOK
-        # jax.debug.breakpoint()
-        # breakpoint()
+
         return seq, y
     
     
@@ -479,8 +477,6 @@ class LOBSTER_Dataset(Dataset):
                 # divide volume by 100
                 #book[:, 2::2] = book[:, 2::2] / 100
                 
-            jax.debug.print("self.book_transform {}",self.book_transform)
-            jax.debug.print("self.book_transform {}",self.book_transform)
             # apply mask and extract prediction target token
             X, y = self.mask_fn(X, self.rng, book)
             X, y = X.reshape(-1), y.reshape(-1)
