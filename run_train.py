@@ -8,7 +8,22 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # TODO: change this if num_devices changes (is less than all of the available ones)
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+
+
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = "3,4,6,7"
+# os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3,4,5,6,7"
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0,3,4,5'
+
+
+from jax import config
+config.update("jax_disable_jit", False) 
+# config.update("jax_disable_jit", True)
+config.update("jax_check_tracer_leaks",False) #finds a whole assortment of leaks if true... bizarre.
+
+
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
