@@ -117,6 +117,134 @@ class LOBSTER_Dataset(Dataset):
         seq[-1, msk_pos] = Vocab.MASK_TOK
         seq[-1, hid_pos] = Vocab.HIDDEN_TOK
         return seq, y
+    
+    
+    # @staticmethod
+    # def sliding_window_mask(seq, rng):
+        
+    #     """ 
+    #     Generate N sequences where each sequence masks one different token 
+    #     in the latest message.
+    #     """
+    #     seq = seq.copy()
+    #     N = seq.shape[1]  # Number of tokens in a message
+    #     sliding_window_seqs = []
+    #     target_tokens = []
+
+    #     for i in range(N):
+    #         temp_seq = seq.copy()
+    #         y = temp_seq[-1, i]
+    #         temp_seq[-1, i] = Vocab.MASK_TOK
+    #         sliding_window_seqs.append(temp_seq)
+    #         target_tokens.append(y)
+        
+    #     return sliding_window_seqs, target_tokens
+    
+
+    @staticmethod
+    def last_position_mask(seq, rng):
+        """
+        Selects a field from the latest message where one token is masked with MSK.
+        Retains tokens to the left of MSK and removes those to the right, labeled as Q.
+        Deletes the first message from all messages, labeled as P.
+        Takes tokens to the right of MSK's position in the first message, labeled as O.
+        Concatenates O, P, and Q in sequence.
+        """
+        seq = seq.copy()
+
+        # Randomly selects the field to be masked and the hidden field
+        hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
+
+        # Gets the start and end indices of the selected masked field
+        i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
+
+        # Randomly selects a token within the chosen field for masking
+        msk_i = rng.integers(i_start, i_end)
+        y = seq[-1][msk_i]
+
+        # Q: Keeps tokens to the left of MSK
+        Q = seq[-1, :msk_i]
+        
+        # Inserts MASK_TOK at the position after the selected token for masking
+        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
+
+        # O: Retrieves tokens to the right of MSK's position in the first message
+        O = seq[0, msk_i + 1:]
+
+        # P: Removes the first message from the sequence
+        P = seq[1:]
+
+        # Concatenates O, flattened P, and Q
+        new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
+
+        return new_seq, y
+
+
+    def last_pos_mask(seq, rng, *args):
+        """
+        Generates a mask for the last position in the sequence.
+        
+        Parameters:
+        seq (list or array): The sequence of positions.
+        rng (int): The range or length of the sequence.
+        *args: Additional arguments (e.g., order books).
+        
+        Selects a field from the latest message where one token is masked with MSK.
+        Retains tokens to the left of MSK and removes those to the right, labeled as Q.
+        Deletes the first message from all messages, labeled as P.
+        Takes tokens to the right of MSK's position in the first message, labeled as O.
+        Concatenates O, P, and Q in sequence.
+        """
+        
+        order_books = args[0] if args else None
+        seq = seq.copy()
+
+        # Randomly selects the field to be masked and the hidden field
+        hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
+
+        # Gets the start and end indices of the selected masked field
+        i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
+
+        # Randomly selects a token within the chosen field for masking
+        msk_i = rng.integers(i_start, i_end)
+        y = seq[-1][msk_i]
+
+        # Q: Keeps tokens to the left of MSK
+        Q = seq[-1, :msk_i]
+        
+        # Inserts MASK_TOK at the position after the selected token for masking
+        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
+
+        # O: Retrieves tokens to the right of MSK's position in the first message
+        O = seq[0, msk_i + 1:]
+
+        # P: Removes the first message from the sequence
+        P = seq[1:]
+
+        # Concatenates O, flattened P, and Q
+        new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
+
+        token_index = msk_i  # Token index used for repetition calculation
+        K = len(new_seq) // len(order_books)
+        # Calculate the repeat counts for each segment
+        repeats = [K - token_index] + [K] * (len(order_books) - 2) + [token_index]
+        new_ob = jnp.concatenate([jnp.repeat(order_books[i:i+1], repeats[i], axis=0) for i in range(len(order_books))], axis=0)
+        
+        return new_seq, new_ob, y
+
+    # @staticmethod
+    # def last_position_mask(seq, rng):
+    #     """ 
+    #     Generate 1 sequence where each sequence masks one different token 
+    #     in the latest message.
+    #     """
+    #     seq = seq.copy()
+    #     N = seq.shape[1]
+    #     mask_index = jax.random.randint(rng, (), 0, N)
+    #     masked_seq = seq.copy()
+    #     target_token = masked_seq[-1, mask_index]
+    #     masked_seq[-1, mask_index] = Vocab.MASK_TOK
+    #     return masked_seq, target_token
 
     @staticmethod
     def causal_mask(seq, rng):

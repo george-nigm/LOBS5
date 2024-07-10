@@ -180,4 +180,4 @@ figures/
 **.csv
 **.7z
 **.npy
-**.json
+**.json.vscode/**.json
