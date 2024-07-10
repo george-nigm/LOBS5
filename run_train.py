@@ -8,7 +8,7 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # TODO: change this if num_devices changes (is less than all of the available ones)
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
@@ -38,7 +38,7 @@ if __name__ == "__main__":
 						help="dataset name")
 	parser.add_argument("--masking", type=str, choices={'causal', 'random','last_pos'},
 						default='causal',  # random
-						help="causal or random masking of sequences")
+						help="causal, random or last position masking of sequences")
 	parser.add_argument("--use_book_data", type=str2bool, default=False,
 		     			help="use book data in addition to message data")
 	parser.add_argument("--merging", type=str, choices={'projected', 'padded'},

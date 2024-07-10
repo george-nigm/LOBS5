@@ -52,7 +52,14 @@ def train(args):
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
-    mask_fn = LOBSTER_Dataset.causal_mask if args.masking == 'causal' else LOBSTER_Dataset.random_mask
+    mask_fn=None
+    if args.masking == 'causal':
+        mask_fn = LOBSTER_Dataset.causal_mask
+    elif args.masking == 'random':
+        mask_fn = LOBSTER_Dataset.random_mask
+    elif: args.masking == 'last_pos':
+         mask_fn = LOBSTER_Dataset.
+
     (lobster_dataset, trainloader, valloader, testloader, aux_dataloaders, 
         n_classes, seq_len, in_dim, book_seq_len, book_dim, train_size) = \
         create_lobster_prediction_dataset(
