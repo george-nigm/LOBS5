@@ -428,7 +428,7 @@ class PaddedLobPredModel(nn.Module):
         """
         #jax.debug.print("x_m shape: {}",x_m.shape)
 
-        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         #jax.debug.print("call x_m[0:5] before msg_enc : {}",x_m[0:5])
 
         x_m = self.message_encoder(x_m, message_integration_timesteps)
@@ -438,7 +438,8 @@ class PaddedLobPredModel(nn.Module):
         # repeat book input to match message length
         #Move this repeat to the dataloading and edit so that alignment works with shifted tokens. 
         #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
-        
+        #REPEAT SHOULD NO LONGER BE NEEDED DUE TO REPEATING HAPPENING IN DATALOADER
+
         # token_index = 5 # TODO
 
         # # Calculate the repeat counts for each segment
@@ -481,7 +482,12 @@ class PaddedLobPredModel(nn.Module):
         #jax.debug.print("x_m shape: {}",x_m.shape)
 
         # repeat book input to match message length
-        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #REPEAT SHOULD NO LONGER BE NEEDED DUE TO REPEATING HAPPENING IN DATALOADER
+
+
+
+
         #jax.debug.print("Fake repeat, should be fixed in loading proc.")
 
         #jax.debug.print("call_rnn x_m[0:5] before msg_enc : {}",x_m[0:5])

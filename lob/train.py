@@ -4,7 +4,7 @@ from jax import random
 import jax.numpy as jnp
 import flax
 import orbax.checkpoint as ocp
-# import wandb
+import wandb
 
 from lob.init_train import init_train_state, load_checkpoint, save_checkpoint, deduplicate_trainstate
 from lob.dataloading import create_lobster_prediction_dataset, create_lobster_train_loader#, Datasets
@@ -21,15 +21,15 @@ def train(args):
     best_test_loss = 100000000
     best_test_acc = -10000.0
 
-    # for parameter sweep: get args from wandb server
-    # if args is None:
-    #     args = wandb.config
-    # else:
-    #     if args.USE_WANDB:
-    #         # Make wandb config dictionary
-    #         run = wandb.init(project=args.wandb_project, job_type='model_training', config=vars(args), entity=args.wandb_entity)
-    #     else:
-    #         run = wandb.init(mode='offline')
+    #for parameter sweep: get args from wandb server
+    if args is None:
+        args = wandb.config
+    else:
+        if args.USE_WANDB:
+            # Make wandb config dictionary
+            run = wandb.init(project=args.wandb_project, job_type='model_training', config=vars(args), entity=args.wandb_entity)
+        else:
+            run = wandb.init(mode='offline')
 
     ssm_size = args.ssm_size_base
     ssm_lr = args.ssm_lr_base
@@ -57,8 +57,8 @@ def train(args):
         mask_fn = LOBSTER_Dataset.causal_mask
     elif args.masking == 'random':
         mask_fn = LOBSTER_Dataset.random_mask
-    elif: args.masking == 'last_pos':
-         mask_fn = LOBSTER_Dataset.
+    elif args.masking == 'last_pos':
+         mask_fn = LOBSTER_Dataset.last_pos_mask
 
     (lobster_dataset, trainloader, valloader, testloader, aux_dataloaders, 
         n_classes, seq_len, in_dim, book_seq_len, book_dim, train_size) = \
