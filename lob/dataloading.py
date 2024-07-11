@@ -4,7 +4,7 @@ import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 from s5.dataloading import make_data_loader
 from .lobster_dataloader import LOBSTER, LOBSTER_Dataset, LOBSTER_Sampler
-
+from lob.encoding import Message_Tokenizer
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 DATA_DIR = Path('../data/')

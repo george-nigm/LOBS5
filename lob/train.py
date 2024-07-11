@@ -38,7 +38,7 @@ def train(args):
 
     # determine the size of initial blocks
     block_size = int(ssm_size / args.blocks)
-    # wandb.log({"block_size": block_size})
+    wandb.log({"block_size": block_size})
 
     # Set global learning rate lr (e.g. encoders, etc.) as function of ssm_lr
     lr = args.lr_factor * ssm_lr
@@ -77,9 +77,7 @@ def train(args):
         )
 
     print(f"[*] Starting S5 Training on {ds} =>> Initializing...")
-    
-    # breakpoint()
-    # jax.debug.breakpoint()
+
 
     state, model_cls = init_train_state(
         args,
@@ -90,15 +88,15 @@ def train(args):
         print_shapes=True
     )
 
-    # if args.restore is not None and args.restore != '':
-    #     print(f"[*] Restoring weights from {args.restore}")
-    #     ckpt = load_checkpoint(
-    #         state,
-    #         args.restore,
-    #         # args.__dict__,
-    #         step=args.restore_step,
-    #     )
-    #     state = ckpt['model']
+    if args.restore is not None and args.restore != '':
+        print(f"[*] Restoring weights from {args.restore}")
+        ckpt = load_checkpoint(
+            state,
+            args.restore,
+            # args.__dict__,
+            step=args.restore_step,
+        )
+        state = ckpt['model']
     
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
@@ -109,22 +107,22 @@ def train(args):
 
     val_model = model_cls(training=False, step_rescale=1)
 
-    # mgr_options = ocp.CheckpointManagerOptions(
-    #     save_interval_steps=1,
-    #     create=True,
-    #     max_to_keep=10,
-    #     keep_period=10,
-    #     # step_prefix=f'{run.name}_{run.id}',
-    #     # enable_async_checkpointing=False,
-    # )
-    # ckpt_mgr = ocp.CheckpointManager(
-    #     os.path.abspath(f'checkpoints/{run.name}_{run.id}/'),
-    #     # ocp.Checkpointer(ocp.PyTreeCheckpointHandler()),
-    #     # ocp.Checkpointer(ocp.StandardCheckpointHandler()),
-    #     item_names=('state', 'metadata'),
-    #     options=mgr_options,
-    #     metadata=vars(args)
-    # )
+    mgr_options = ocp.CheckpointManagerOptions(
+        save_interval_steps=1,
+        create=True,
+        max_to_keep=10,
+        keep_period=10,
+        # step_prefix=f'{run.name}_{run.id}',
+        # enable_async_checkpointing=False,
+    )
+    ckpt_mgr = ocp.CheckpointManager(
+        os.path.abspath(f'checkpoints/{run.name}_{run.id}/'),
+        # ocp.Checkpointer(ocp.PyTreeCheckpointHandler()),
+        # ocp.Checkpointer(ocp.StandardCheckpointHandler()),
+        item_names=('state', 'metadata'),
+        options=mgr_options,
+        metadata=vars(args)
+    )
 
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
@@ -216,19 +214,19 @@ def train(args):
                 f" Test Accuracy: {val_acc:.4f}"
             )
 
-        # save checkpoint
-        # ckpt = {
-        #     'model': deduplicate_trainstate(state),
-        #     'config': vars(args),
-        #     'metrics': {
-        #         'loss_train': float(train_loss),
-        #         'loss_val': float(val_loss),
-        #         'loss_test': float(test_loss),
-        #         'acc_val': float(val_acc),
-        #         'acc_test': float(test_acc),
-        #     }
-        # }
-        # save_checkpoint(ckpt_mgr, ckpt, epoch)
+        #save checkpoint
+        ckpt = {
+            'model': deduplicate_trainstate(state),
+            'config': vars(args),
+            'metrics': {
+                'loss_train': float(train_loss),
+                'loss_val': float(val_loss),
+                'loss_test': float(test_loss),
+                'acc_val': float(val_acc),
+                'acc_test': float(test_acc),
+            }
+        }
+        save_checkpoint(ckpt_mgr, ckpt, epoch)
 
         # For early stopping purposes
         if val_loss < best_val_loss:
@@ -258,39 +256,39 @@ def train(args):
             f" {best_test_acc:.4f} at Epoch {best_epoch + 1}\n"
         )
 
-        # if valloader is not None:
-        #     wandb.log(
-        #         {
-        #             "Training Loss": train_loss,
-        #             "Val loss": val_loss,
-        #             "Val Accuracy": val_acc,
-        #             "Test Loss": test_loss,
-        #             "Test Accuracy": test_acc,
-        #             "count": count,
-        #             "Learning rate count": lr_count,
-        #             "Opt acc": opt_acc,
-        #             "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-        #             "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-        #         }
-        #     )
-        # else:
-        #     wandb.log(
-        #         {
-        #             "Training Loss": train_loss,
-        #             "Val loss": val_loss,
-        #             "Val Accuracy": val_acc,
-        #             "count": count,
-        #             "Learning rate count": lr_count,
-        #             "Opt acc": opt_acc,
-        #             "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-        #             "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-        #         }
-        #     )
-        # wandb.run.summary["Best Val Loss"] = best_loss
-        # wandb.run.summary["Best Val Accuracy"] = best_acc
-        # wandb.run.summary["Best Epoch"] = best_epoch
-        # wandb.run.summary["Best Test Loss"] = best_test_loss
-        # wandb.run.summary["Best Test Accuracy"] = best_test_acc
+        if valloader is not None:
+            wandb.log(
+                {
+                    "Training Loss": train_loss,
+                    "Val loss": val_loss,
+                    "Val Accuracy": val_acc,
+                    "Test Loss": test_loss,
+                    "Test Accuracy": test_acc,
+                    "count": count,
+                    "Learning rate count": lr_count,
+                    "Opt acc": opt_acc,
+                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                }
+            )
+        else:
+            wandb.log(
+                {
+                    "Training Loss": train_loss,
+                    "Val loss": val_loss,
+                    "Val Accuracy": val_acc,
+                    "count": count,
+                    "Learning rate count": lr_count,
+                    "Opt acc": opt_acc,
+                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                }
+            )
+        wandb.run.summary["Best Val Loss"] = best_loss
+        wandb.run.summary["Best Val Accuracy"] = best_acc
+        wandb.run.summary["Best Epoch"] = best_epoch
+        wandb.run.summary["Best Test Loss"] = best_test_loss
+        wandb.run.summary["Best Test Accuracy"] = best_test_acc
 
         if count > args.early_stop_patience:
             break

@@ -180,7 +180,7 @@ class LOBSTER_Dataset(Dataset):
 
         return new_seq, y
 
-
+    @staticmethod
     def last_pos_mask(seq, rng, *args):
         """
         Generates a mask for the last position in the sequence.
@@ -197,6 +197,7 @@ class LOBSTER_Dataset(Dataset):
         Concatenates O, P, and Q in sequence.
         """
         order_books = args[0] if args else None
+
         seq = seq.copy()
 
         # Randomly selects the field to be masked and the hidden field
@@ -223,6 +224,8 @@ class LOBSTER_Dataset(Dataset):
         token_index = msk_i  # Token index used for repetition calculation
         K = P.shape[1]
         # Calculate the repeat counts for each segment
+
+        #FIXME: if order_books is None, then this line will FAIL
         repeats = jnp.array([K - token_index] + [K] * (len(order_books) - 2) + [token_index])
         # order_books is in shape (500,501) # TODO should be shape 501*501 ?
         # the repeat should happen in the first dimension and keep the second dimension not changed
@@ -237,7 +240,7 @@ class LOBSTER_Dataset(Dataset):
         new_ob_Q = jnp.repeat(order_books[-1:], repeats[-1], axis=0)
         new_ob = jnp.concatenate([new_ob_O, new_ob_P, new_ob_Q], axis=0)
         
-        return new_seq, new_ob, y
+        return (new_seq, new_ob), y
 
 
     @staticmethod
@@ -373,8 +376,10 @@ class LOBSTER_Dataset(Dataset):
         self.n_cache_files = n_cache_files
         self._message_cache = OrderedDict()
         self.vocab = Vocab()
-        self.seq_len = self.n_messages * Message_Tokenizer.MSG_LEN
         self.mask_fn = mask_fn
+        self.seq_len = self.n_messages * Message_Tokenizer.MSG_LEN
+        if self.mask_fn==LOBSTER_Dataset.last_pos_mask:
+            self.seq_len=(self.n_messages-1)* Message_Tokenizer.MSG_LEN
         self.rng = np.random.default_rng(seed)
         self.rng_jax = jax.random.PRNGKey(seed)
         self.randomize_offset = randomize_offset
@@ -398,6 +403,8 @@ class LOBSTER_Dataset(Dataset):
                 self.d_book = b.shape[1]
             # TODO: generalize to L3 data
             self.L_book = self.n_messages
+            if self.mask_fn==LOBSTER_Dataset.last_pos_mask:
+                self.L_book=(self.n_messages-1)* Message_Tokenizer.MSG_LEN
         else:
             self.d_book = 0
             self.L_book = 0
@@ -478,17 +485,22 @@ class LOBSTER_Dataset(Dataset):
                 #book[:, 2::2] = book[:, 2::2] / 100
                 
             # apply mask and extract prediction target token
-            X, y = self.mask_fn(X, self.rng, book)
+            
+            if self.mask_fn == self.last_pos_mask:
+                X, y = self.mask_fn(X, self.rng, book)
+                X,book=X
+            else:
+                X, y = self.mask_fn(X, self.rng)
             X, y = X.reshape(-1), y.reshape(-1)
             # TODO: look into aux_data (could we still use time when available?)
 
 
             ret_tuple = X, y, book
         else:
-            
-            
             # # apply mask and extract prediction target token
-            X, y = self.mask_fn(X, self.rng, book)
+            X, y = self.mask_fn(X, self.rng)
+            if self.mask_fn == self.last_pos_mask:
+                X,book=X
             X, y = X.reshape(-1), y.reshape(-1)
             # TODO: look into aux_data (could we still use time when available?)
             
@@ -750,10 +762,12 @@ class LOBSTER(SequenceDataset):
         self.d_input = len(self.dataset_train.vocab)
         self.d_output = self.d_input
         # sequence length
-        self.L = self.n_messages * Message_Tokenizer.MSG_LEN
+        self.L = self.dataset_train.seq_len
         # book sequence lengths and dimension (number of levels + 1)
         self.L_book = self.dataset_train.L_book
         self.d_book = self.dataset_train.d_book
+
+
 
         #self.split_train_val(self.val_split)
         self.dataset_val = LOBSTER_Dataset(
