@@ -65,7 +65,7 @@ class LOBSTER_Dataset(Dataset):
             y = seq[m_i, tok_i]
             seq[m_i, tok_i] = Vocab.MASK_TOK
             return seq, y
-            
+
         return masking_fn
 
     @staticmethod
@@ -116,6 +116,7 @@ class LOBSTER_Dataset(Dataset):
         y = seq[-1, msk_pos]
         seq[-1, msk_pos] = Vocab.MASK_TOK
         seq[-1, hid_pos] = Vocab.HIDDEN_TOK
+
         return seq, y
     
     
@@ -195,7 +196,6 @@ class LOBSTER_Dataset(Dataset):
         Takes tokens to the right of MSK's position in the first message, labeled as O.
         Concatenates O, P, and Q in sequence.
         """
-        
         order_books = args[0] if args else None
         seq = seq.copy()
 
@@ -209,42 +209,36 @@ class LOBSTER_Dataset(Dataset):
         msk_i = rng.integers(i_start, i_end)
         y = seq[-1][msk_i]
 
-        # Q: Keeps tokens to the left of MSK
-        Q = seq[-1, :msk_i]
-        
-        # Inserts MASK_TOK at the position after the selected token for masking
-        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
-
         # O: Retrieves tokens to the right of MSK's position in the first message
         O = seq[0, msk_i + 1:]
-
         # P: Removes the first message from the sequence
-        P = seq[1:]
-
+        P = seq[1:-1]
+        # Q: Keeps tokens to the left of MSK
+        Q = seq[-1, :msk_i]
+        # Inserts MASK_TOK at the position after the selected token for masking
+        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
         # Concatenates O, flattened P, and Q
         new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
 
         token_index = msk_i  # Token index used for repetition calculation
-        K = len(new_seq) // len(order_books)
+        K = P.shape[1]
         # Calculate the repeat counts for each segment
-        repeats = [K - token_index] + [K] * (len(order_books) - 2) + [token_index]
-        new_ob = jnp.concatenate([jnp.repeat(order_books[i:i+1], repeats[i], axis=0) for i in range(len(order_books))], axis=0)
+        repeats = jnp.array([K - token_index] + [K] * (len(order_books) - 2) + [token_index])
+        # order_books is in shape (500,501) # TODO should be shape 501*501 ?
+        # the repeat should happen in the first dimension and keep the second dimension not changed
+        new_ob_O = jnp.repeat(order_books[0:1], repeats[0], axis=0)
+        # Use vmap to apply the function across the first axis of order_books_P
+        order_books_P = order_books[1:-1]
+        new_ob_P = jax.vmap(
+            lambda row: jnp.repeat(row[jnp.newaxis, :], K, axis=0), 
+            in_axes=(0,),
+            )(order_books_P)
+        new_ob_P = new_ob_P.reshape(-1, new_ob_P.shape[-1])
+        new_ob_Q = jnp.repeat(order_books[-1:], repeats[-1], axis=0)
+        new_ob = jnp.concatenate([new_ob_O, new_ob_P, new_ob_Q], axis=0)
         
         return new_seq, new_ob, y
 
-    # @staticmethod
-    # def last_position_mask(seq, rng):
-    #     """ 
-    #     Generate 1 sequence where each sequence masks one different token 
-    #     in the latest message.
-    #     """
-    #     seq = seq.copy()
-    #     N = seq.shape[1]
-    #     mask_index = jax.random.randint(rng, (), 0, N)
-    #     masked_seq = seq.copy()
-    #     target_token = masked_seq[-1, mask_index]
-    #     masked_seq[-1, mask_index] = Vocab.MASK_TOK
-    #     return masked_seq, target_token
 
     @staticmethod
     def causal_mask(seq, rng):
@@ -457,10 +451,11 @@ class LOBSTER_Dataset(Dataset):
         
         X = encoding.encode_msgs(X_raw, self.vocab.ENCODING)
 
-        # apply mask and extract prediction target token
-        X, y = self.mask_fn(X, self.rng)
-        X, y = X.reshape(-1), y.reshape(-1)
-        # TODO: look into aux_data (could we still use time when available?)
+        # # apply mask and extract prediction target token
+        # X, y = self.mask_fn(X, self.rng, book)
+        # # X, y = self.mask_fn(X, self.rng)
+        # X, y = X.reshape(-1), y.reshape(-1)
+        # # TODO: look into aux_data (could we still use time when available?)
 
         if self.use_book_data:
             # first message is already dropped, so we can use
@@ -481,9 +476,22 @@ class LOBSTER_Dataset(Dataset):
                 # book[:, 1::2] = (book[:, 1::2] - p_mid_0)
                 # divide volume by 100
                 #book[:, 2::2] = book[:, 2::2] / 100
+                
+            # apply mask and extract prediction target token
+            X, y = self.mask_fn(X, self.rng, book)
+            X, y = X.reshape(-1), y.reshape(-1)
+            # TODO: look into aux_data (could we still use time when available?)
+
 
             ret_tuple = X, y, book
         else:
+            
+            
+            # # apply mask and extract prediction target token
+            X, y = self.mask_fn(X, self.rng, book)
+            X, y = X.reshape(-1), y.reshape(-1)
+            # TODO: look into aux_data (could we still use time when available?)
+            
             ret_tuple = X, y
 
         if self.return_raw_msgs:
@@ -722,7 +730,8 @@ class LOBSTER(SequenceDataset):
         if book_files:
             self.train_files, self.train_book_files = zip(*self.train_files)
             self.val_files, self.val_book_files = zip(*self.val_files)
-
+        print("FILEs loaded")
+        
         #n_cache_files = 0
         self.dataset_train = LOBSTER_Dataset(
             self.train_files,

@@ -13,6 +13,8 @@ from lob.train_helpers import reduce_lr_on_plateau, linear_warmup, \
     cosine_annealing, constant_lr, train_epoch, validate
 
 
+
+
 def train(args):
     """
     Main function to train over a certain number of epochs
@@ -75,6 +77,9 @@ def train(args):
         )
 
     print(f"[*] Starting S5 Training on {ds} =>> Initializing...")
+    
+    # breakpoint()
+    # jax.debug.breakpoint()
 
     state, model_cls = init_train_state(
         args,
@@ -85,15 +90,15 @@ def train(args):
         print_shapes=True
     )
 
-    if args.restore is not None and args.restore != '':
-        print(f"[*] Restoring weights from {args.restore}")
-        ckpt = load_checkpoint(
-            state,
-            args.restore,
-            # args.__dict__,
-            step=args.restore_step,
-        )
-        state = ckpt['model']
+    # if args.restore is not None and args.restore != '':
+    #     print(f"[*] Restoring weights from {args.restore}")
+    #     ckpt = load_checkpoint(
+    #         state,
+    #         args.restore,
+    #         # args.__dict__,
+    #         step=args.restore_step,
+    #     )
+    #     state = ckpt['model']
     
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
@@ -104,22 +109,22 @@ def train(args):
 
     val_model = model_cls(training=False, step_rescale=1)
 
-    mgr_options = ocp.CheckpointManagerOptions(
-        save_interval_steps=1,
-        create=True,
-        max_to_keep=10,
-        keep_period=10,
-        # step_prefix=f'{run.name}_{run.id}',
-        enable_async_checkpointing=False,
-    )
-    ckpt_mgr = ocp.CheckpointManager(
-        os.path.abspath(f'checkpoints/{run.name}_{run.id}/'),
-        # ocp.Checkpointer(ocp.PyTreeCheckpointHandler()),
-        # ocp.Checkpointer(ocp.StandardCheckpointHandler()),
-        item_names=('state', 'metadata'),
-        options=mgr_options,
-        metadata=vars(args)
-    )
+    # mgr_options = ocp.CheckpointManagerOptions(
+    #     save_interval_steps=1,
+    #     create=True,
+    #     max_to_keep=10,
+    #     keep_period=10,
+    #     # step_prefix=f'{run.name}_{run.id}',
+    #     # enable_async_checkpointing=False,
+    # )
+    # ckpt_mgr = ocp.CheckpointManager(
+    #     os.path.abspath(f'checkpoints/{run.name}_{run.id}/'),
+    #     # ocp.Checkpointer(ocp.PyTreeCheckpointHandler()),
+    #     # ocp.Checkpointer(ocp.StandardCheckpointHandler()),
+    #     item_names=('state', 'metadata'),
+    #     options=mgr_options,
+    #     metadata=vars(args)
+    # )
 
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
@@ -212,18 +217,18 @@ def train(args):
             )
 
         # save checkpoint
-        ckpt = {
-            'model': deduplicate_trainstate(state),
-            'config': vars(args),
-            'metrics': {
-                'loss_train': float(train_loss),
-                'loss_val': float(val_loss),
-                'loss_test': float(test_loss),
-                'acc_val': float(val_acc),
-                'acc_test': float(test_acc),
-            }
-        }
-        save_checkpoint(ckpt_mgr, ckpt, epoch)
+        # ckpt = {
+        #     'model': deduplicate_trainstate(state),
+        #     'config': vars(args),
+        #     'metrics': {
+        #         'loss_train': float(train_loss),
+        #         'loss_val': float(val_loss),
+        #         'loss_test': float(test_loss),
+        #         'acc_val': float(val_acc),
+        #         'acc_test': float(test_acc),
+        #     }
+        # }
+        # save_checkpoint(ckpt_mgr, ckpt, epoch)
 
         # For early stopping purposes
         if val_loss < best_val_loss:
