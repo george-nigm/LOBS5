@@ -181,6 +181,7 @@ class LOBSTER_Dataset(Dataset):
         return new_seq, y
 
     @staticmethod
+    @jax.jit
     def last_pos_mask(seq, rng, *args):
         """
         Generates a mask for the last position in the sequence.

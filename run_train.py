@@ -9,7 +9,7 @@ import os
 
 # TODO: change this if num_devices changes (is less than all of the available ones)
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
 import argparse
@@ -29,7 +29,7 @@ if __name__ == "__main__":
 						help="log with wandb?")
 	parser.add_argument("--wandb_project", type=str, default="LOBS5",
 						help="wandb project name")
-	parser.add_argument("--wandb_entity", type=str, default="peer-nagy",
+	parser.add_argument("--wandb_entity", type=str, default="sasrey",
 						help="wandb entity name, e.g. username")
 	parser.add_argument("--dir_name", type=str, default='./data',
 						help="name of directory where data is cached")
