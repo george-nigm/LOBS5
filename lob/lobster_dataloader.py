@@ -179,6 +179,62 @@ class LOBSTER_Dataset(Dataset):
         new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
 
         return new_seq, y
+    
+    @staticmethod
+    @jax.jit
+    def last_pos_np_mask(seq, rng, *args):
+        """
+        Generates a mask for the last position in the sequence.
+        
+        Parameters:
+        seq (list or array): The sequence of positions.
+        rng (int): The range or length of the sequence.
+        *args: Additional arguments (e.g., order books).
+        
+        Selects a field from the latest message where one token is masked with MSK.
+        Retains tokens to the left of MSK and removes those to the right, labeled as Q.
+        Deletes the first message from all messages, labeled as P.
+        Takes tokens to the right of MSK's position in the first message, labeled as O.
+        Concatenates O, P, and Q in sequence.
+        """
+        order_books = args[0] if args else None
+
+        seq = seq.copy()
+
+        # Randomly selects the field to be masked and the hidden field
+        hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
+
+        # Gets the start and end indices of the selected masked field
+        i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
+
+        # Randomly selects a token within the chosen field for masking
+        msk_i = rng.integers(i_start, i_end)
+        y = seq[-1][msk_i]
+
+        # O: Retrieves tokens to the right of MSK's position in the first message
+        O = seq[0, msk_i + 1:]
+        # P: Removes the first message from the sequence
+        P = seq[1:-1]
+        # Q: Keeps tokens to the left of MSK
+        Q = seq[-1, :msk_i]
+        # Inserts MASK_TOK at the position after the selected token for masking
+        Q = np.concatenate([Q, np.array([Vocab.MASK_TOK])])
+        # Concatenates O, flattened P, and Q
+        new_seq = np.concatenate([O] + [P.flatten()] + [Q])
+
+        token_index = msk_i  # Token index used for repetition calculation
+        K = P.shape[1]
+        # Calculate the repeat counts for each segment
+
+        #FIXME: if order_books is None, then this line will FAIL
+        repeats = [K - token_index] + [K] * (len(order_books) - 2) + [token_index]
+        new_ob = jnp.concatenate([jnp.repeat(order_books[i:i+1], repeats[i], axis=0) for i in range(len(order_books))], axis=0)
+        
+        
+        return (new_seq, new_ob), y
+
+    
+    
 
     @staticmethod
     @jax.jit
