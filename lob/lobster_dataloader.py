@@ -488,7 +488,7 @@ class LOBSTER_Dataset(Dataset):
             # apply mask and extract prediction target token
             
             if self.mask_fn == self.last_pos_mask:
-                X, y = self.mask_fn(X, self.rng, book)
+                X, y = self.mask_fn(X, self.rng_jax, book)
                 X,book=X
             else:
                 X, y = self.mask_fn(X, self.rng)
@@ -499,7 +499,9 @@ class LOBSTER_Dataset(Dataset):
             ret_tuple = X, y, book
         else:
             # # apply mask and extract prediction target token
-            X, y = self.mask_fn(X, self.rng)
+
+            #FIXME: jax and normal rng are different types of things. 
+            X, y = self.mask_fn(X, self.rng_jax)
             if self.mask_fn == self.last_pos_mask:
                 X,book=X
             X, y = X.reshape(-1), y.reshape(-1)

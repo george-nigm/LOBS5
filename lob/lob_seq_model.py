@@ -428,7 +428,7 @@ class PaddedLobPredModel(nn.Module):
         """
         #jax.debug.print("x_m shape: {}",x_m.shape)
 
-        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         #jax.debug.print("call x_m[0:5] before msg_enc : {}",x_m[0:5])
 
         x_m = self.message_encoder(x_m, message_integration_timesteps)
@@ -452,14 +452,21 @@ class PaddedLobPredModel(nn.Module):
         # TODO: again, check integration time steps make sense here
         x = self.fused_s5(x, jnp.ones(x.shape[0]))
 
+        jax.debug.print("x output shape model {}",x.shape)
+
         if self.mode in ["pool"]:
             x = jnp.mean(x, axis=0)
         elif self.mode in ["last"]:
             x = x[-1]
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last]")
+        
+        jax.debug.print("x output shape after pool/last {}",x.shape)
+
 
         x = self.decoder(x)
+        jax.debug.print("x output shape after decoder {}",x.shape)
+
         return nn.log_softmax(x, axis=-1)
 
     def __call_rnn__(self,hiddens_tuple,
@@ -479,24 +486,8 @@ class PaddedLobPredModel(nn.Module):
         """
         hiddens_m, hiddens_b,hiddens_fused = hiddens_tuple
 
-        #jax.debug.print("x_m shape: {}",x_m.shape)
-
-        # repeat book input to match message length
-        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
-        #REPEAT SHOULD NO LONGER BE NEEDED DUE TO REPEATING HAPPENING IN DATALOADER
-
-
-
-
-        #jax.debug.print("Fake repeat, should be fixed in loading proc.")
-
-        #jax.debug.print("call_rnn x_m[0:5] before msg_enc : {}",x_m[0:5])
-
         hiddens_m,x_m = self.message_encoder.__call_rnn__(hiddens_m, x_m,d_m, message_integration_timesteps)
-        #jax.debug.print("call_rnn x_m[0:5] after msg_enc : {}",x_m[0:5][0])
         hiddens_b,x_b = self.book_encoder.__call_rnn__(hiddens_b,x_b,d_b ,book_integration_timesteps)
-
-        
         x = jnp.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
         hiddens_fused,x = self.fused_s5.__call_rnn__(hiddens_fused, x, d_f, jnp.ones(x.shape[0]))
@@ -510,6 +501,18 @@ class PaddedLobPredModel(nn.Module):
 
         x = self.decoder(x)
         return (hiddens_m, hiddens_b,hiddens_fused),nn.log_softmax(x, axis=-1)
+
+    def __call_scan__(self,hiddens_tuple,
+                      x_m, x_b,
+                      d_m, d_b,
+                      d_f,
+                      message_integration_timesteps, book_integration_timesteps):
+        
+
+        #xs will be the inputs through which to scan
+
+
+        jax.lax.scan(self.__call_rnn__,init,xs)
     
     @staticmethod
     def initialize_carry(batch_size, hidden_size,
