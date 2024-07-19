@@ -23,12 +23,14 @@ from jax.nn import one_hot
 
 import lob.encoding as encoding
 from lob.encoding import Vocab, Message_Tokenizer
-from preproc import transform_L2_state
+from preproc import transform_L2_state,transform_L2_state_numpy
 from s5.dataloaders.base import default_data_path, SequenceDataset
 from s5.utils import permutations
 default_data_path = Path(__file__).parent.parent.absolute()
 default_data_path = default_data_path / "data"
 
+
+import time
 
 class LOBSTER_Dataset(Dataset):
 
@@ -119,27 +121,18 @@ class LOBSTER_Dataset(Dataset):
 
         return seq, y
     
-    
-    # @staticmethod
-    # def sliding_window_mask(seq, rng):
-        
-    #     """ 
-    #     Generate N sequences where each sequence masks one different token 
-    #     in the latest message.
-    #     """
-    #     seq = seq.copy()
-    #     N = seq.shape[1]  # Number of tokens in a message
-    #     sliding_window_seqs = []
-    #     target_tokens = []
-
-    #     for i in range(N):
-    #         temp_seq = seq.copy()
-    #         y = temp_seq[-1, i]
-    #         temp_seq[-1, i] = Vocab.MASK_TOK
-    #         sliding_window_seqs.append(temp_seq)
-    #         target_tokens.append(y)
-        
-    #     return sliding_window_seqs, target_tokens
+    @staticmethod
+    def no_mask(seq,order_books=None):
+        """ Return the whole sequence and a sequence of labels y (which are essentially the sequence)
+        TODO: Need to decide whether to put a 0th element in front for the case of generating 1st token...
+        """
+        seq=seq.copy()
+        # ob_seq=np.repeat(order_books, seq.shape[0] // order_books.shape[0], axis=0)
+        y= seq
+        seq=np.concatenate([[Vocab.START_TOK],
+                            seq[:-1]])
+        # ob_seq=ob_seq[:-1]
+        return (seq,order_books), y
     
 
     @staticmethod
@@ -181,7 +174,6 @@ class LOBSTER_Dataset(Dataset):
         return new_seq, y
 
     @staticmethod
-    @jax.jit
     def last_pos_mask(seq, rng, *args):
         """
         Generates a mask for the last position in the sequence.
@@ -378,15 +370,15 @@ class LOBSTER_Dataset(Dataset):
         self._message_cache = OrderedDict()
         self.vocab = Vocab()
         self.mask_fn = mask_fn
-        self.seq_len = self.n_messages * Message_Tokenizer.MSG_LEN
-        if self.mask_fn==LOBSTER_Dataset.last_pos_mask:
-            self.seq_len=(self.n_messages-1)* Message_Tokenizer.MSG_LEN
+        if self.mask_fn==LOBSTER_Dataset.no_mask:
+            self.seq_len=self.n_messages* Message_Tokenizer.MSG_LEN
+        else:
+            NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
         self.rng = np.random.default_rng(seed)
         self.rng_jax = jax.random.PRNGKey(seed)
         self.randomize_offset = randomize_offset
         self._reset_offsets()
         self._set_book_dims()
-
         self._seqs_per_file = np.array(
             [(self._get_num_rows(f) - self.seq_offsets[i]) // n_messages
              for i, f in enumerate(message_files)])
@@ -402,10 +394,10 @@ class LOBSTER_Dataset(Dataset):
             else:
                 b = np.load(self.book_files[0], mmap_mode='r', allow_pickle=True)
                 self.d_book = b.shape[1]
-            # TODO: generalize to L3 data
-            self.L_book = self.n_messages
-            if self.mask_fn==LOBSTER_Dataset.last_pos_mask:
-                self.L_book=(self.n_messages-1)* Message_Tokenizer.MSG_LEN
+            if self.mask_fn==LOBSTER_Dataset.no_mask:
+                self.L_book=self.n_messages
+            else:
+                NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
         else:
             self.d_book = 0
             self.L_book = 0
@@ -445,37 +437,36 @@ class LOBSTER_Dataset(Dataset):
         else:
             if file_idx not in self._message_cache:
                 self._add_to_cache(file_idx)
-
             #print('fetching from cache')
             X = self._message_cache[file_idx]
             if self.use_book_data:
+                # print('fetching book from cache')
                 book = self._book_cache[file_idx]
 
         seq_start = self.seq_offsets[file_idx] + seq_idx * self.n_messages
         seq_end = seq_start + self.n_messages
         
-        X_raw = jnp.array(X[seq_start: seq_end])
+        X_raw = np.array(X[seq_start: seq_end])
         # encode message
-        
+
         X = encoding.encode_msgs(X_raw, self.vocab.ENCODING)
 
-        # # apply mask and extract prediction target token
-        # X, y = self.mask_fn(X, self.rng, book)
-        # # X, y = self.mask_fn(X, self.rng)
-        # X, y = X.reshape(-1), y.reshape(-1)
-        # # TODO: look into aux_data (could we still use time when available?)
-
+        
+        
         if self.use_book_data:
             # first message is already dropped, so we can use
             # the book state with the same index (prior to the message)
+
+
             book = book[seq_start + self.inference: seq_end + self.inference].copy()
+    
             if self.return_raw_msgs:
                 book_l2_init = book[0, 1:].copy()
-
+            # t0=time.time()
             # tranform from L2 (price volume) representation to fixed volume image 
             if self.book_transform:
                 book = transform_L2_state(book, self.book_depth, 100)
-
+            # t1=time.time()
             # use raw price, volume series, rather than volume image
             # subtract initial price to start all sequences around 0
             # if self.use_simple_book:
@@ -487,26 +478,21 @@ class LOBSTER_Dataset(Dataset):
                 
             # apply mask and extract prediction target token
             
-            if self.mask_fn == self.last_pos_mask:
-                X, y = self.mask_fn(X, self.rng_jax, book)
-                X,book=X
-            else:
-                X, y = self.mask_fn(X, self.rng)
-            X, y = X.reshape(-1), y.reshape(-1)
+            
+            X = X.reshape(-1)
+            X, y = self.mask_fn(np.array(X), book)
+            X,book=X
+            y=y.reshape(-1)
+            
             # TODO: look into aux_data (could we still use time when available?)
-
-
             ret_tuple = X, y, book
+            
         else:
             # # apply mask and extract prediction target token
-
-            #FIXME: jax and normal rng are different types of things. 
-            X, y = self.mask_fn(X, self.rng_jax)
-            if self.mask_fn == self.last_pos_mask:
-                X,book=X
-            X, y = X.reshape(-1), y.reshape(-1)
-            # TODO: look into aux_data (could we still use time when available?)
-            
+            X = X.reshape(-1)
+            X, y = self.mask_fn(X)
+            X,book=X
+            y=y.reshape(-1)
             ret_tuple = X, y
 
         if self.return_raw_msgs:

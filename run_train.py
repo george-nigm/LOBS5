@@ -8,8 +8,10 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # TODO: change this if num_devices changes (is less than all of the available ones)
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]=".90"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+#os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 
 import argparse
@@ -36,7 +38,7 @@ if __name__ == "__main__":
 	parser.add_argument("--dataset", type=str, choices=Datasets.keys(),
 						default='lobster-prediction',
 						help="dataset name")
-	parser.add_argument("--masking", type=str, choices={'causal', 'random','last_pos'},
+	parser.add_argument("--masking", type=str, choices={'causal', 'random','last_pos','none'},
 						default='causal',  # random
 						help="causal, random or last position masking of sequences")
 	parser.add_argument("--use_book_data", type=str2bool, default=False,
@@ -144,6 +146,12 @@ if __name__ == "__main__":
 	  	       "noBCdecay:      no weight decay on B (ssm lr), no weight decay on C (ssm lr) \\")
 	parser.add_argument("--jax_seed", type=int, default=1919,
 						help="seed randomness")
+	parser.add_argument("--debug_loading", type=str2bool, default=False,
+						help="Set flag to True to skip any training and just run the loading process.")
+	parser.add_argument("--enable_profiler", type=str2bool, default=False,
+					help="Set flag to True to use the TB profiler.")
+	
+	
 
 	args = parser.parse_args()
 
@@ -153,8 +161,7 @@ if __name__ == "__main__":
 
 	from lob.train import train
 	#import tensorflow as tf
-	# import jax
-	
+	# import jax	
 	# import cProfile
 
 	#with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):

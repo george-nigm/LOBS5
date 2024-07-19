@@ -9,6 +9,7 @@ from functools import partial
 NA_VAL = -9999
 HIDDEN_VAL = -20000
 MASK_VAL = -10000
+START_VAL=-30000
 
 
 @jax.jit
@@ -24,7 +25,7 @@ def decode(ar, ks, vs):
 
 @jax.jit
 def is_special_val(x):
-    return jnp.isin(x, jnp.array([MASK_VAL, HIDDEN_VAL, NA_VAL])).any()
+    return jnp.isin(x, jnp.array([MASK_VAL, HIDDEN_VAL, NA_VAL,START_VAL])).any()
 
 def expand_special_val(x, n_tokens):
     return jnp.tile(x, (n_tokens,))
@@ -118,7 +119,7 @@ def encode_msg(
         price_ref_sign, price_ref, size_ref, time_ref_comb]
     return jnp.hstack(out) # time_s_ref, time_ns_ref])
 
-encode_msgs = jax.jit(jax.vmap(encode_msg, in_axes=(0, None)))
+encode_msgs = jax.jit(jax.vmap(encode_msg, in_axes=(0, None)),backend='cpu')
 
 @jax.jit
 def encode_time(
@@ -208,9 +209,10 @@ class Vocab:
     MASK_TOK = 0
     HIDDEN_TOK = 1
     NA_TOK = 2
+    START_TOK= 3
 
     def __init__(self) -> None:
-        self.counter = 3  # 0: MSK, 1: HID, 2: NAN
+        self.counter = 4  # 0: MSK, 1: HID, 2: NAN, 4: START
         self.ENCODING = {}
         self.DECODING = {}
         self.DECODING_GLOBAL = {}
@@ -222,14 +224,17 @@ class Vocab:
         self._add_field('price', range(1000), [1])
         self._add_field('sign', [-1, 1], None)
         self._add_field('direction', [0, 1], None)
+        #TODO: add start at end: counter +1. 
 
     def __len__(self):
         return self.counter
 
+
+#TODO: Should fix this to ensure that the start token takes the last value, not the first. 
     def _add_field(self, name, values, delim_i=None):
-        enc = [(MASK_VAL, Vocab.MASK_TOK), (HIDDEN_VAL, Vocab.HIDDEN_TOK), (NA_VAL, Vocab.NA_TOK)]
+        enc = [(MASK_VAL, Vocab.MASK_TOK), (HIDDEN_VAL, Vocab.HIDDEN_TOK), (NA_VAL, Vocab.NA_TOK),(START_VAL, Vocab.START_TOK)]
         enc += [(val, self.counter + i) for i, val in enumerate(values)]
-        self.counter += len(enc) - 3  # don't count special tokens
+        self.counter += len(enc) - 4  # don't count special tokens
         enc = tuple(zip(*enc))
         self.ENCODING[name] = (
             jnp.array(enc[0], dtype=jnp.int32),
@@ -240,18 +245,23 @@ class Vocab:
             self.ENCODING[field]['MSK'] = Vocab.MASK_TOK
             self.ENCODING[field]['HID'] = Vocab.HIDDEN_TOK
             self.ENCODING[field]['NAN'] = Vocab.NA_TOK
+            self.ENCODING[field]['START'] = Vocab.START_TOK
 
             self.DECODING[field][Vocab.MASK_TOK] = 'MSK'
             self.DECODING[field][Vocab.HIDDEN_TOK] = 'HID'
             self.DECODING[field][Vocab.NA_TOK] = 'NAN'
+            self.DECODING[field][Vocab.START_TOK] = 'START'
+
         self.ENCODING['generic'] = {
             'MSK': Vocab.MASK_TOK,
             'HID': Vocab.HIDDEN_TOK,
             'NAN': Vocab.NA_TOK,
+            'START': Vocab.START_TOK,
         }
         self.DECODING_GLOBAL[Vocab.MASK_TOK] = ('generic', 'MSK')
         self.DECODING_GLOBAL[Vocab.HIDDEN_TOK] = ('generic', 'HID')
         self.DECODING_GLOBAL[Vocab.NA_TOK] = ('generic', 'NAN')
+        self.DECODING_GLOBAL[Vocab.START_TOK] = ('generic', 'START')
 
 class Message_Tokenizer:
 

@@ -428,7 +428,7 @@ class PaddedLobPredModel(nn.Module):
         """
         #jax.debug.print("x_m shape: {}",x_m.shape)
 
-        x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         #jax.debug.print("call x_m[0:5] before msg_enc : {}",x_m[0:5])
 
         x_m = self.message_encoder(x_m, message_integration_timesteps)
@@ -469,12 +469,15 @@ class PaddedLobPredModel(nn.Module):
 
         return nn.log_softmax(x, axis=-1)
 
+
+    #FOR AR version....
     def __call_rnn__(self,hiddens_tuple,
                       x_m, x_b,
                       d_m, d_b,
                       d_f,
                       message_integration_timesteps, book_integration_timesteps):
         """
+        FOR full output version
         Compute the size d_output log softmax output given a
         (L_m x d_input, L_b x [P+1]) input sequence tuple,
         combining message and book inputs.
@@ -486,33 +489,62 @@ class PaddedLobPredModel(nn.Module):
         """
         hiddens_m, hiddens_b,hiddens_fused = hiddens_tuple
 
+        # print("Shapes:",x_m.shape,x_b.shape,d_m.shape,d_b.shape)
+
+        print("Shapes:",x_m.shape,x_b.shape,d_m.shape,d_b.shape)
+
         hiddens_m,x_m = self.message_encoder.__call_rnn__(hiddens_m, x_m,d_m, message_integration_timesteps)
         hiddens_b,x_b = self.book_encoder.__call_rnn__(hiddens_b,x_b,d_b ,book_integration_timesteps)
         x = jnp.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
         hiddens_fused,x = self.fused_s5.__call_rnn__(hiddens_fused, x, d_f, jnp.ones(x.shape[0]))
 
+        """if self.mode in ["pool"]:
+            x = jnp.mean(x, axis=0)
+        elif self.mode in ["last"]:
+            x = x[-1]
+        else:
+            raise NotImplementedError("Mode must be in ['pool', 'last]")"""
+
+        x = self.decoder(x)
+        return (hiddens_m, hiddens_b,hiddens_fused),nn.log_softmax(x, axis=-1)
+
+    @nn.remat
+    def __call_ar__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
+        """
+        Compute the size d_output log softmax output given a
+        (L_m x d_input, L_b x [P+1]) input sequence tuple,
+        combining message and book inputs.
+        Args:
+             x_m: message input sequence (L_m x d_input, 
+             x_b: book state (volume series) (L_b x [P+1])
+        Returns:
+            output (float32): (d_output)
+        """
+        #Uncomment to debug if no longer working in data-loader. 
+
+        x_m = self.message_encoder(x_m, message_integration_timesteps)
+        x_b = self.book_encoder(x_b, book_integration_timesteps)
+        
+        #Works because book already repeated when loading data. 
+        x = jnp.concatenate([x_m, x_b], axis=1)
+        # TODO: again, check integration time steps make sense here
+        x = self.fused_s5(x, jnp.ones(x.shape[0]))
+
+        #Removed the pooling to enable each token to be a target,
+        #  not just a random one in the last message. 
+        """
         if self.mode in ["pool"]:
             x = jnp.mean(x, axis=0)
         elif self.mode in ["last"]:
             x = x[-1]
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last]")
-
+        """
         x = self.decoder(x)
-        return (hiddens_m, hiddens_b,hiddens_fused),nn.log_softmax(x, axis=-1)
-
-    def __call_scan__(self,hiddens_tuple,
-                      x_m, x_b,
-                      d_m, d_b,
-                      d_f,
-                      message_integration_timesteps, book_integration_timesteps):
         
-
-        #xs will be the inputs through which to scan
-
-
-        jax.lax.scan(self.__call_rnn__,init,xs)
+        x=nn.log_softmax(x, axis=-1)
+        return x
     
     @staticmethod
     def initialize_carry(batch_size, hidden_size,
@@ -550,6 +582,11 @@ BatchPaddedLobPredModel = nn.vmap(
                          'split_rngs':split_rngs_args,
                          'axis_name':'batch'},
             '__call_rnn__':{'in_axes':(0,0, 0, 0, 0, 0,0,0),
+                         'out_axes':0,
+                         'variable_axes':variable_axes_args,
+                         'split_rngs':split_rngs_args,
+                         'axis_name':'batch'},
+            '__call_ar__':{'in_axes':(0, 0, 0, 0),
                          'out_axes':0,
                          'variable_axes':variable_axes_args,
                          'split_rngs':split_rngs_args,

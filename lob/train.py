@@ -61,6 +61,10 @@ def train(args):
         mask_fn = LOBSTER_Dataset.random_mask
     elif args.masking == 'last_pos':
          mask_fn = LOBSTER_Dataset.last_pos_mask
+    elif args.masking == 'none':
+         mask_fn = LOBSTER_Dataset.no_mask
+    else:
+        ValueError('Issue with mask function: logic for '+args.masking+' not implemented.')
 
     (lobster_dataset, trainloader, valloader, testloader, aux_dataloaders, 
         n_classes, seq_len, in_dim, book_seq_len, book_dim, train_size) = \
@@ -77,26 +81,31 @@ def train(args):
         )
 
     print(f"[*] Starting S5 Training on {ds} =>> Initializing...")
-
-
-    state, model_cls = init_train_state(
-        args,
-        n_classes=n_classes,
-        seq_len=seq_len,
-        book_dim=book_dim,
-        book_seq_len=book_seq_len,
-        print_shapes=True
-    )
-
-    if args.restore is not None and args.restore != '':
-        print(f"[*] Restoring weights from {args.restore}")
-        ckpt = load_checkpoint(
-            state,
-            args.restore,
-            # args.__dict__,
-            step=args.restore_step,
+    print(args.debug_loading)
+    if args.debug_loading:
+        state=None
+        val_model=None
+    else:
+        state, model_cls = init_train_state(
+            args,
+            n_classes=n_classes,
+            seq_len=seq_len,
+            book_dim=book_dim,
+            book_seq_len=book_seq_len,
+            print_shapes=True
         )
-        state = ckpt['model']
+
+        if args.restore is not None and args.restore != '':
+            print(f"[*] Restoring weights from {args.restore}")
+            ckpt = load_checkpoint(
+                state,
+                args.restore,
+                # args.__dict__,
+                step=args.restore_step,
+            )
+            state = ckpt['model']
+        
+        val_model = model_cls(training=False, step_rescale=1)
     
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
@@ -105,7 +114,7 @@ def train(args):
     step = 0  # for per step learning rate decay
     steps_per_epoch = int(train_size/args.bsz)
 
-    val_model = model_cls(training=False, step_rescale=1)
+    
 
     mgr_options = ocp.CheckpointManagerOptions(
         save_interval_steps=1,
@@ -148,6 +157,17 @@ def train(args):
 
         print('Training on', args.num_devices, 'devices.')
         train_rng, skey = random.split(train_rng)
+
+
+        #Pass an initial hidden state to be used in case of the 'RNN' forward pass being used. 
+        init_hidden=model_cls().initialize_carry(batch_size=args.bsz//args.num_devices,
+                                                hidden_size=(ssm_size // pow(2,int(args.conj_sym))),
+                                                n_message_layers=args.n_message_layers,
+                                                n_book_pre_layers=args.n_book_pre_layers ,
+                                                n_book_post_layers=args.n_book_post_layers,
+                                                n_fused_layers=args.n_layers,)
+
+
         state, train_loss, step = train_epoch(state,
                                               skey,
                                               #model_cls,
@@ -157,7 +177,10 @@ def train(args):
                                               #in_dim,
                                               args.batchnorm,
                                               lr_params,
-                                              args.num_devices)
+                                              args.num_devices,
+                                              args.debug_loading,
+                                              args.enable_profiler,
+                                              init_hidden,)
         # reinit training loader, so that sequences are initialised with
         del trainloader
         # different offsets

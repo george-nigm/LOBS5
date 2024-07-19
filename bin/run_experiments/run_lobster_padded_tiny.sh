@@ -6,8 +6,8 @@ python run_train.py --USE_WANDB=True\
                     --opt_config=standard --p_dropout=0.0 --ssm_lr_base=0.0005 --ssm_size_base=256 \
                     --warmup_end=1 --weight_decay=0.05 --msg_seq_len=500 \
                     --use_book_data=True --use_simple_book=False --book_transform=True \
-                    --masking=last_pos \
-                    --num_devices=2 --n_data_workers=0 \
+                    --masking=none \
+                    --num_devices=4 --n_data_workers=0 \
                     #--restore='/data1/sascha/LOBS5/checkpoints/rural-serenity-60_uxc2c11x/' #\
                     #--restore='checkpoints/eager-shadow-750_af39bb9u/'
 
