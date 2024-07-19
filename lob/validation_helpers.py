@@ -287,10 +287,12 @@ def predict(
     if batchnorm:
         logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
                             *batch_inputs, *batch_integration_timesteps,
+                            method="__call_rnn__",
                             )
     else:
         logits = model.apply({"params": state.params},
                              *batch_inputs, *batch_integration_timesteps,
+                             method="__call_rnn__",
                              )
 
     return logits
@@ -305,11 +307,13 @@ def predict_with_hidden(
     ):
     if batchnorm:
         hidden_states,logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
-                            *batch_inputs,*hidden_states *batch_integration_timesteps,
+                            hidden_states,*batch_inputs, *batch_integration_timesteps,
+                            method="__call_rnn__"
                             )
     else:
         hidden_states,logits = model.apply({"params": state.params},
-                             *batch_inputs,*hidden_states, *batch_integration_timesteps,
+                             hidden_states,*batch_inputs, *batch_integration_timesteps,
+                             method="__call_rnn__"
                              )
 
     return hidden_states,logits

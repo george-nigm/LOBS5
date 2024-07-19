@@ -780,6 +780,7 @@ def eval_step(
         apply_fn,
         batchnorm,
     ):
+    batch_inputs=repeat_book(*batch_inputs)
     if batchnorm:
         logits = apply_fn({"params": state.params, "batch_stats": state.batch_stats},
                              *batch_inputs, *batch_integration_timesteps,
