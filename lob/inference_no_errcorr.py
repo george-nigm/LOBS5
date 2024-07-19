@@ -596,9 +596,9 @@ def _generate_token_v2(
         batchnorm : bool,
         valid_mask_array : jax.Array ,
         sample_top_n : int,
-        hidden_state: jax.Array , #Assume 'something', probably model params. 
-        m_seq: jax.Array, #Should be needed only for 1st token.
-        b_seq: jax.Array , #Should only need for 1st token.
+        hidden_state: Tuple , #Assume 'something', probably model params. 
+        tok: jax.Array, #Should be needed only for 1st token.
+        book: jax.Array , #Should only need for 1st token.
         mask_i : int, #Still between 0 and message_length
         rng 
     ):
@@ -615,8 +615,8 @@ def _generate_token_v2(
         jnp.ones((1, len(b_seq)))
     )
 
-    logits = valh.predict_with_hidden(
-        input,
+    hidden,logits = valh.predict_with_hidden(
+        hidden,input,dones
         integration_timesteps, train_state, model, batchnorm)
     
     # filter out (syntactically) invalid tokens for current position
@@ -628,7 +628,7 @@ def _generate_token_v2(
     rng, rng_ = jax.random.split(rng)
     m_seq = valh.fill_predicted_toks(m_seq, logits, sample_top_n, jnp.array([rng_]))
     
-    return m_seq, mask_i + 1, rng
+    return new_tok,mask_i + 1, rng,hidden
 
 def _generate_token(
         train_state : TrainState,
