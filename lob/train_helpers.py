@@ -148,11 +148,11 @@ def create_train_state(model_cls,
             dummy_input = (
                 # np.ones((bsz, seq_len, in_dim), dtype=np.int32),  # messages
                 np.ones((bsz, seq_len, ), dtype=np.int32),  # messages
-                np.ones((bsz, book_seq_len, book_dim)),  # books
+                np.ones((bsz, seq_len, book_dim)),  # books
             )
             integration_timesteps = (
                 np.ones((bsz, seq_len, )),
-                np.ones((bsz, book_seq_len, )),
+                np.ones((bsz, seq_len, )),
             )
         else:
             # dummy_input = (np.ones((bsz, seq_len, in_dim), dtype=np.int32) , )
