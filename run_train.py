@@ -7,19 +7,27 @@ import os
 # allocate and de-allocate memory as needed (SLOW)
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-# TODO: change this if num_devices changes (is less than all of the available ones)
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]=".90"
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# TODO: change this if num_devices changes (is less than all of the available ones11)
+os.environ["TF_CPP_MIN_LOG_LEVEL"]="0"
+
 #os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
+if __name__ == "__main__":
+	os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+else:
+	# Forces all generated worker processes to not run on GPU.
+	#  Required at this high level, because the init func in the 
+	# worker spawn interface happens after init. of the CUDA process. 
+	os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-import argparse
-from s5.utils.util import str2bool
 from lob.dataloading import Datasets
 
-
 if __name__ == "__main__":
+	import argparse
+	from s5.utils.util import str2bool
+	os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.80"
+	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 
 	#physical_devices = tf.config.list_physical_devices('GPU')
 	#tf.config.experimental.set_memory_growth(physical_devices[0], True)

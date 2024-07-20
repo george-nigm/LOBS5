@@ -6,6 +6,8 @@ import jax.numpy as jnp
 from functools import partial
 
 
+
+
 NA_VAL = -9999
 HIDDEN_VAL = -20000
 MASK_VAL = -10000
@@ -19,16 +21,21 @@ def encode(ar, ks, vs):
     """
     return vs[jnp.searchsorted(ks, ar)]
 
+
+
 @jax.jit
 def decode(ar, ks, vs):
     return encode(ar, vs, ks)
+
 
 @jax.jit
 def is_special_val(x):
     return jnp.isin(x, jnp.array([MASK_VAL, HIDDEN_VAL, NA_VAL,START_VAL])).any()
 
+
 def expand_special_val(x, n_tokens):
     return jnp.tile(x, (n_tokens,))
+
 
 @partial(jax.jit, static_argnums=(1,2,3))
 def split_int(x, n_tokens, tok_len, prepend_sign_token=False):
@@ -48,6 +55,8 @@ def split_int(x, n_tokens, tok_len, prepend_sign_token=False):
         splits = jnp.hstack([sign, splits])
     return splits
 
+
+
 @partial(jax.jit, static_argnums=(1,))
 def combine_int(x, tok_len, sign=1):
     base = 10
@@ -55,6 +64,7 @@ def combine_int(x, tok_len, sign=1):
     exp = jnp.flip(
         jnp.arange(0, n_digits, tok_len))
     return sign * jnp.sum(x * (base ** exp), axis=-1)
+
 
 @partial(jax.jit, static_argnums=(1,2,3))
 def split_field(x, n_tokens, tok_len, prepend_sign_token=False):
@@ -65,17 +75,19 @@ def split_field(x, n_tokens, tok_len, prepend_sign_token=False):
         lambda arg: split_int(arg, n_tokens, tok_len, prepend_sign_token),
         x)
 
+
 @partial(jax.jit, static_argnums=(1,))
 def combine_field(
         x: jax.Array,
         tok_len: int,
-        sign: jax.Array = jnp.array(1)
+        sign=1
     ):
     return jax.lax.cond(
-        is_special_val(jnp.concatenate((sign.flatten(), x.flatten()))),
+        is_special_val(jnp.concatenate((jnp.array(sign).flatten(), x.flatten()))),
         lambda arg: NA_VAL,
         lambda arg: combine_int(arg, tok_len, sign),
         x)
+
 
 # event_type	direction	price	size	delta_t	time_s	time_ns	price_ref	size_ref	time_s_ref	time_ns_ref
 @jax.jit
@@ -118,6 +130,7 @@ def encode_msg(
         event_type, direction, price_sign, price, size, time_comb, # delta_t, time_s, time_ns,
         price_ref_sign, price_ref, size_ref, time_ref_comb]
     return jnp.hstack(out) # time_s_ref, time_ns_ref])
+
 
 encode_msgs = jax.jit(jax.vmap(encode_msg, in_axes=(0, None)),backend='cpu')
 
@@ -171,7 +184,7 @@ def decode_msg(msg_enc, encoding):
         event_type, direction, NA_VAL, price, size, delta_t_s, delta_t_ns, time_s, time_ns,
         price_ref, size_ref, time_s_ref, time_ns_ref])
 
-decode_msgs = jax.jit(jax.vmap(decode_msg, in_axes=(0,)))
+decode_msgs = jax.jit(jax.vmap(decode_msg, in_axes=(0,)),backend='cpu')
 
 @jax.jit
 def decode_time(time_toks, encoding):

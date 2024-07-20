@@ -18,7 +18,7 @@ from lob.encoding import Vocab, Message_Tokenizer
 
 
 
-@partial(jax.jit, static_argnums=(1, 2))
+@partial(jax.jit, static_argnums=(1, 2),backend="cpu")
 @partial(
     jax.vmap,
     in_axes=(0, None, None),

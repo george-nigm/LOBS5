@@ -14,15 +14,10 @@ from collections import OrderedDict
 #import torchvision
 from torch.utils.data import Dataset, Subset, Sampler
 from glob import glob
-import pandas as pd
-import jax
 # Global flag to set a specific platform, must be used at startup.
-#jax.config.update('jax_platform_name', 'cpu')
-import jax.numpy as jnp
-from jax.nn import one_hot
+# jax.config.update('jax_platform_name', 'cpu')
 
-import lob.encoding as encoding
-from lob.encoding import Vocab, Message_Tokenizer
+from lob.encoding import Vocab, Message_Tokenizer,encode_msgs
 from preproc import transform_L2_state,transform_L2_state_numpy
 from s5.dataloaders.base import default_data_path, SequenceDataset
 from s5.utils import permutations
@@ -31,6 +26,8 @@ default_data_path = default_data_path / "data"
 
 
 import time
+
+
 
 class LOBSTER_Dataset(Dataset):
 
@@ -135,105 +132,105 @@ class LOBSTER_Dataset(Dataset):
         return (seq,order_books), y
     
 
-    @staticmethod
-    def last_position_mask(seq, rng):
-        """
-        Selects a field from the latest message where one token is masked with MSK.
-        Retains tokens to the left of MSK and removes those to the right, labeled as Q.
-        Deletes the first message from all messages, labeled as P.
-        Takes tokens to the right of MSK's position in the first message, labeled as O.
-        Concatenates O, P, and Q in sequence.
-        """
-        seq = seq.copy()
+    # @staticmethod
+    # def last_position_mask(seq, rng):
+    #     """
+    #     Selects a field from the latest message where one token is masked with MSK.
+    #     Retains tokens to the left of MSK and removes those to the right, labeled as Q.
+    #     Deletes the first message from all messages, labeled as P.
+    #     Takes tokens to the right of MSK's position in the first message, labeled as O.
+    #     Concatenates O, P, and Q in sequence.
+    #     """
+    #     seq = seq.copy()
 
-        # Randomly selects the field to be masked and the hidden field
-        hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
+    #     # Randomly selects the field to be masked and the hidden field
+    #     hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
 
-        # Gets the start and end indices of the selected masked field
-        i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
+    #     # Gets the start and end indices of the selected masked field
+    #     i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
 
-        # Randomly selects a token within the chosen field for masking
-        msk_i = rng.integers(i_start, i_end)
-        y = seq[-1][msk_i]
+    #     # Randomly selects a token within the chosen field for masking
+    #     msk_i = rng.integers(i_start, i_end)
+    #     y = seq[-1][msk_i]
 
-        # Q: Keeps tokens to the left of MSK
-        Q = seq[-1, :msk_i]
+    #     # Q: Keeps tokens to the left of MSK
+    #     Q = seq[-1, :msk_i]
         
-        # Inserts MASK_TOK at the position after the selected token for masking
-        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
+    #     # Inserts MASK_TOK at the position after the selected token for masking
+    #     Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
 
-        # O: Retrieves tokens to the right of MSK's position in the first message
-        O = seq[0, msk_i + 1:]
+    #     # O: Retrieves tokens to the right of MSK's position in the first message
+    #     O = seq[0, msk_i + 1:]
 
-        # P: Removes the first message from the sequence
-        P = seq[1:]
+    #     # P: Removes the first message from the sequence
+    #     P = seq[1:]
 
-        # Concatenates O, flattened P, and Q
-        new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
+    #     # Concatenates O, flattened P, and Q
+    #     new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
 
-        return new_seq, y
+    #     return new_seq, y
 
-    @staticmethod
-    def last_pos_mask(seq, rng, *args):
-        """
-        Generates a mask for the last position in the sequence.
+    # @staticmethod
+    # def last_pos_mask(seq, rng, *args):
+    #     """
+    #     Generates a mask for the last position in the sequence.
         
-        Parameters:
-        seq (list or array): The sequence of positions.
-        rng (int): The range or length of the sequence.
-        *args: Additional arguments (e.g., order books).
+    #     Parameters:
+    #     seq (list or array): The sequence of positions.
+    #     rng (int): The range or length of the sequence.
+    #     *args: Additional arguments (e.g., order books).
         
-        Selects a field from the latest message where one token is masked with MSK.
-        Retains tokens to the left of MSK and removes those to the right, labeled as Q.
-        Deletes the first message from all messages, labeled as P.
-        Takes tokens to the right of MSK's position in the first message, labeled as O.
-        Concatenates O, P, and Q in sequence.
-        """
-        order_books = args[0] if args else None
+    #     Selects a field from the latest message where one token is masked with MSK.
+    #     Retains tokens to the left of MSK and removes those to the right, labeled as Q.
+    #     Deletes the first message from all messages, labeled as P.
+    #     Takes tokens to the right of MSK's position in the first message, labeled as O.
+    #     Concatenates O, P, and Q in sequence.
+    #     """
+    #     order_books = args[0] if args else None
 
-        seq = seq.copy()
+    #     seq = seq.copy()
 
-        # Randomly selects the field to be masked and the hidden field
-        hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
+    #     # Randomly selects the field to be masked and the hidden field
+    #     hidden_fields, msk_field = LOBSTER_Dataset._select_sequential_causal_mask_no_time(rng)
 
-        # Gets the start and end indices of the selected masked field
-        i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
+    #     # Gets the start and end indices of the selected masked field
+    #     i_start, i_end = LOBSTER_Dataset._get_tok_slice_i(msk_field)
 
-        # Randomly selects a token within the chosen field for masking
-        msk_i = rng.integers(i_start, i_end)
-        y = seq[-1][msk_i]
+    #     # Randomly selects a token within the chosen field for masking
+    #     msk_i = rng.integers(i_start, i_end)
+    #     y = seq[-1][msk_i]
 
-        # O: Retrieves tokens to the right of MSK's position in the first message
-        O = seq[0, msk_i + 1:]
-        # P: Removes the first message from the sequence
-        P = seq[1:-1]
-        # Q: Keeps tokens to the left of MSK
-        Q = seq[-1, :msk_i]
-        # Inserts MASK_TOK at the position after the selected token for masking
-        Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
-        # Concatenates O, flattened P, and Q
-        new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
+    #     # O: Retrieves tokens to the right of MSK's position in the first message
+    #     O = seq[0, msk_i + 1:]
+    #     # P: Removes the first message from the sequence
+    #     P = seq[1:-1]
+    #     # Q: Keeps tokens to the left of MSK
+    #     Q = seq[-1, :msk_i]
+    #     # Inserts MASK_TOK at the position after the selected token for masking
+    #     Q = jnp.concatenate([Q, jnp.array([Vocab.MASK_TOK])])
+    #     # Concatenates O, flattened P, and Q
+    #     new_seq = jnp.concatenate([O] + [P.flatten()] + [Q])
 
-        token_index = msk_i  # Token index used for repetition calculation
-        K = P.shape[1]
-        # Calculate the repeat counts for each segment
+    #     token_index = msk_i  # Token index used for repetition calculation
+    #     K = P.shape[1]
+    #     # Calculate the repeat counts for each segment
 
-        #FIXME: if order_books is None, then this line will FAIL
-        repeats = jnp.array([K - token_index] + [K] * (len(order_books) - 2) + [token_index])
-        # order_books is in shape (500,501) # TODO should be shape 501*501 ?
-        # the repeat should happen in the first dimension and keep the second dimension not changed
-        new_ob_O = jnp.repeat(order_books[0:1], repeats[0], axis=0)
-        # Use vmap to apply the function across the first axis of order_books_P
-        order_books_P = order_books[1:-1]
-        new_ob_P = jax.vmap(
-            lambda row: jnp.repeat(row[jnp.newaxis, :], K, axis=0), 
-            in_axes=(0,),
-            )(order_books_P)
-        new_ob_P = new_ob_P.reshape(-1, new_ob_P.shape[-1])
-        new_ob_Q = jnp.repeat(order_books[-1:], repeats[-1], axis=0)
-        new_ob = jnp.concatenate([new_ob_O, new_ob_P, new_ob_Q], axis=0)
+    #     #FIXME: if order_books is None, then this line will FAIL
+    #     repeats = jnp.array([K - token_index] + [K] * (len(order_books) - 2) + [token_index])
+    #     # order_books is in shape (500,501) # TODO should be shape 501*501 ?
+    #     # the repeat should happen in the first dimension and keep the second dimension not changed
+    #     new_ob_O = jnp.repeat(order_books[0:1], repeats[0], axis=0)
+    #     # Use vmap to apply the function across the first axis of order_books_P
+    #     order_books_P = order_books[1:-1]
+    #     new_ob_P = jax.vmap(
+    #         lambda row: jnp.repeat(row[jnp.newaxis, :], K, axis=0), 
+    #         in_axes=(0,),
+    #         )(order_books_P)
+    #     new_ob_P = new_ob_P.reshape(-1, new_ob_P.shape[-1])
+    #     new_ob_Q = jnp.repeat(order_books[-1:], repeats[-1], axis=0)
+    #     new_ob = jnp.concatenate([new_ob_O, new_ob_P, new_ob_Q], axis=0)
         
-        return (new_seq, new_ob), y
+    #     return (new_seq, new_ob), y
 
 
     @staticmethod
@@ -343,6 +340,7 @@ class LOBSTER_Dataset(Dataset):
             inference=False,
             ) -> None:
 
+
         assert len(message_files) > 0
         assert not (use_simple_book and book_transform)
 
@@ -375,7 +373,6 @@ class LOBSTER_Dataset(Dataset):
         else:
             NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
         self.rng = np.random.default_rng(seed)
-        self.rng_jax = jax.random.PRNGKey(seed)
         self.randomize_offset = randomize_offset
         self._reset_offsets()
         self._set_book_dims()
@@ -420,6 +417,8 @@ class LOBSTER_Dataset(Dataset):
     def __len__(self):
         return self._len
 
+
+
     def __getitem__(self, idx):
         if hasattr(idx, '__len__'):
             return list(zip(*[self[i] for i in idx]))
@@ -449,7 +448,7 @@ class LOBSTER_Dataset(Dataset):
         X_raw = np.array(X[seq_start: seq_end])
         # encode message
 
-        X = encoding.encode_msgs(X_raw, self.vocab.ENCODING)
+        X = encode_msgs(X_raw, self.vocab.ENCODING)
 
         
         
@@ -465,7 +464,8 @@ class LOBSTER_Dataset(Dataset):
             # t0=time.time()
             # tranform from L2 (price volume) representation to fixed volume image 
             if self.book_transform:
-                book = transform_L2_state(book, self.book_depth, 100)
+                book = transform_L2_state_numpy(book, self.book_depth, 100)
+            book=np.array(book)
             # t1=time.time()
             # use raw price, volume series, rather than volume image
             # subtract initial price to start all sequences around 0
@@ -703,7 +703,7 @@ class LOBSTER(SequenceDataset):
         # raw message files
 
         n_test_files = max(1, int(len(message_files) * self.test_split))
-
+        print(n_test_files)
         # train on first part of data
         self.train_files = message_files[:len(message_files) - n_test_files]
         # and test on last days

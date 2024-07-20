@@ -1,10 +1,10 @@
-import torch
 from pathlib import Path
-import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
 from s5.dataloading import make_data_loader
 from .lobster_dataloader import LOBSTER, LOBSTER_Dataset, LOBSTER_Sampler
-from lob.encoding import Message_Tokenizer
+# from lob.encoding import Message_Tokenizer
+
+
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 DATA_DIR = Path('../data/')
@@ -91,10 +91,24 @@ def create_lobster_train_loader(dataset_obj, seed, bsz, num_workers, reset_train
 		seed=seed,
 		batch_size=bsz,
 		shuffle=True,  # TODO: remove later
-		num_workers=num_workers)
+		num_workers=num_workers,
+		worker_init_fn=force_cpu)
 	return trn_loader
 
 Datasets = {
 	# financial data
 	"lobster-prediction": create_lobster_prediction_dataset,
 }
+
+
+def force_cpu(index:int):
+	import os
+	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+	os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+	import jax
+	jax.config.update('jax_platform_name', 'cpu')
+	# print("turning off cuda")
+	# time.sleep(3)
+	# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+	# print("done")
+	# time.sleep(3)
