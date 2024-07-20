@@ -26,7 +26,7 @@ if __name__ == "__main__":
 	import argparse
 	from s5.utils.util import str2bool
 	os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.80"
+	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.85"
 	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 
 	#physical_devices = tf.config.list_physical_devices('GPU')

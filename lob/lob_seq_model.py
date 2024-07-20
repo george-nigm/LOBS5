@@ -366,6 +366,7 @@ class PaddedLobPredModel(nn.Module):
         """
         Initializes the S5 stacked encoder and a linear decoder.
         """
+        # nn.checkpoint()
         self.message_encoder = StackedEncoderModel(
             ssm=self.ssm,
             d_model=self.d_model,
@@ -383,6 +384,7 @@ class PaddedLobPredModel(nn.Module):
 
         # applied to transposed message output to get seq len for fusion
         #self.message_out_proj = nn.Dense(self.d_model)  
+        # nn.checkpoint()
         self.book_encoder = LobBookModel(
             ssm=self.ssm,
             d_book=self.d_book,
@@ -401,6 +403,8 @@ class PaddedLobPredModel(nn.Module):
 
         # applied to transposed book output to get seq len for fusion
         #self.book_out_proj = nn.Dense(self.d_model)
+        # nn.checkpoint()
+
         self.fused_s5 = StackedEncoderModel(
             ssm=self.ssm,
             d_model=self.d_model,
@@ -509,7 +513,6 @@ class PaddedLobPredModel(nn.Module):
         x = self.decoder(x)
         return (hiddens_m, hiddens_b,hiddens_fused),nn.log_softmax(x, axis=-1)
 
-    @nn.remat
     def __call_ar__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
         """
         Compute the size d_output log softmax output given a
@@ -525,7 +528,7 @@ class PaddedLobPredModel(nn.Module):
 
         x_m = self.message_encoder(x_m, message_integration_timesteps)
         x_b = self.book_encoder(x_b, book_integration_timesteps)
-        
+
         #Works because book already repeated when loading data. 
         x = jnp.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
@@ -541,7 +544,7 @@ class PaddedLobPredModel(nn.Module):
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last]")
         """
-        x = self.decoder(x)
+        x =self.decoder(x)
         
         x=nn.log_softmax(x, axis=-1)
         return x
