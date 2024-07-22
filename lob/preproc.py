@@ -266,9 +266,9 @@ def process_book(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/nfs/home/peern/LOBS5/data/raw/',
+    parser.add_argument("--data_dir", type=str, default='/homes/80/kang/LOBS5/goog_unzip_2018/',
 		     			help="where to load data from")
-    parser.add_argument("--save_dir", type=str, default='/nfs/home/peern/LOBS5/data/',
+    parser.add_argument("--save_dir", type=str, default='/homes/80/kang/LOBS5/GOOG2018/',
 		     			help="where to save processed data")
     parser.add_argument("--filter_above_lvl", type=int,
                         help="filters down from levels present in the data to specified number of price levels")
@@ -277,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument("--skip_existing", action='store_true', default=False)
     parser.add_argument("--messages_only", action='store_true', default=False)
     parser.add_argument("--book_only", action='store_true', default=False)
-    parser.add_argument("--use_raw_book_repr", action='store_true', default=False)
+    parser.add_argument("--use_raw_book_repr", action='store_true', default=True)
     args = parser.parse_args()
 
     assert not (args.messages_only and args.book_only)

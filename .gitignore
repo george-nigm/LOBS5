@@ -182,3 +182,4 @@ figures/
 **.npy
 **.json.vscode/**.json
 req.txt
+.vscode/PythonImportHelper-v2-Completion.json
