@@ -476,6 +476,7 @@ def train_epoch(
     """
     # Store Metrics
     batch_losses = []
+    cross_entropies= [] #list of 1xNTok losses 
 
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
     #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
@@ -503,7 +504,7 @@ def train_epoch(
             #     init_hiddens)
 
 
-            state, loss = train_step(
+            state, loss, ce = train_step(
                 state,
                 drop_rng,
                 inputs,
@@ -517,6 +518,7 @@ def train_epoch(
 
             # losses are already averaged across devices (--> should be all the same here)
             batch_losses.append(loss[0])
+            cross_entropies.append(ce)
             lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
             state, step = update_learning_rate_per_step(lr_params, state)
             if (step>10) & (step<=11) & debug_profiler:
@@ -528,7 +530,10 @@ def train_epoch(
     
         
     # Return average loss over batches
-    return state, np.mean(np.array(batch_losses)), step
+    ce_means=np.mean(np.concatenate(cross_entropies,axis=0),axis=0)
+    # jax.debug.print("CE of epoch by token: {}",ce_means.shape)
+    loss_mean=np.mean(np.array(batch_losses))
+    return state,loss_mean , ce_means,step
 
 
 @partial(jax.vmap,in_axes=(0,0),out_axes=(0,0))
@@ -583,18 +588,21 @@ def train_step(
 
         
         ce=cross_entropy_loss(logits, batch_labels)
+        ce=np.mean(ce,axis=0)
         # jax.debug.print("Shape of CE: {}", ce.shape)
         # average cross-ent loss
         loss = np.mean(ce)
         # jax.debug.print("Shape of loss: {}", loss.shape)
-        return loss, (mod_vars, logits)
+        return loss, (mod_vars, logits,ce)
 
-    (loss, (mod_vars, logits)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+    (loss, (mod_vars, logits,ce)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
 
     # UPDATE
     # calculate means over device dimension (first)
     loss = jax.lax.pmean(loss, axis_name="batch_devices")
     grads = jax.lax.pmean(grads, axis_name="batch_devices")
+
+    ce=jax.lax.pmean(ce,axis_name="batch_devices")
 
     if batchnorm:
         mod_vars = jax.lax.pmean(mod_vars, axis_name="batch_devices")
@@ -603,7 +611,7 @@ def train_step(
         state = state.apply_gradients(grads=grads)
 
     #return loss, mod_vars, grads, state
-    return state, loss
+    return state, loss, ce
 
 @partial(
     jax.pmap,

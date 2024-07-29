@@ -133,6 +133,11 @@ def train(args):
         metadata=vars(args)
     )
 
+    dt = [[x] for (x,) in zip([*range(seq_len)])]
+    ce_table=wandb.Table(columns=["tok"] ,data=dt)
+
+    
+
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
 
@@ -168,7 +173,7 @@ def train(args):
                                                 n_fused_layers=args.n_layers,)
 
 
-        state, train_loss, step = train_epoch(state,
+        state, train_loss,ce_by_tok ,step = train_epoch(state,
                                               skey,
                                               #model_cls,
                                               #train_model,
@@ -279,6 +284,10 @@ def train(args):
             f" {best_test_acc:.4f} at Epoch {best_epoch + 1}\n"
         )
 
+        ce_table.add_column(name="ce_"+str(epoch),data=ce_by_tok.tolist())
+        ce_table=wandb.Table(columns=ce_table.columns,data=ce_table.data)
+        
+
         if valloader is not None:
             wandb.log(
                 {
@@ -291,7 +300,8 @@ def train(args):
                     "Learning rate count": lr_count,
                     "Opt acc": opt_acc,
                     "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
+                    "Training CE by token":ce_table
                 }
             )
         else:
@@ -304,7 +314,8 @@ def train(args):
                     "Learning rate count": lr_count,
                     "Opt acc": opt_acc,
                     "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
+                    "Training CE by token":ce_table
                 }
             )
         wandb.run.summary["Best Val Loss"] = best_loss
