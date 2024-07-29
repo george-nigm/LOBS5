@@ -521,7 +521,7 @@ def train_epoch(
             cross_entropies.append(ce)
             lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
             state, step = update_learning_rate_per_step(lr_params, state)
-            if (step>10) & (step<=11) & debug_profiler:
+            if (step>20) & (step<=21) & debug_profiler:
                 jax.profiler.stop_trace()
                 break
         else:

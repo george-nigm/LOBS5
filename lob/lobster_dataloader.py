@@ -703,7 +703,6 @@ class LOBSTER(SequenceDataset):
         # raw message files
 
         n_test_files = max(1, int(len(message_files) * self.test_split))
-        print(n_test_files)
         # train on first part of data
         self.train_files = message_files[:len(message_files) - n_test_files]
         # and test on last days
@@ -731,7 +730,6 @@ class LOBSTER(SequenceDataset):
         if book_files:
             self.train_files, self.train_book_files = zip(*self.train_files)
             self.val_files, self.val_book_files = zip(*self.val_files)
-        print("FILEs loaded")
         
         #n_cache_files = 0
         self.dataset_train = LOBSTER_Dataset(
