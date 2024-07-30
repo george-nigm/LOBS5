@@ -159,6 +159,8 @@ if __name__ == "__main__":
 						help="Set flag to True to skip any training and just run the loading process.")
 	parser.add_argument("--enable_profiler", type=str2bool, default=False,
 					help="Set flag to True to use the TB profiler.")
+	parser.add_argument("--curtail_epoch", type=int, default=None,
+						help="End epoch early at this step (Train & Val/Test)")
 	
 	
 

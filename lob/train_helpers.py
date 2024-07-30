@@ -468,6 +468,7 @@ def train_epoch(
         num_devices,
         debug_loading,
         debug_profiler,
+        curtail_epoch,
         init_hiddens
     ):
 
@@ -523,6 +524,8 @@ def train_epoch(
             state, step = update_learning_rate_per_step(lr_params, state)
             if (step>20) & (step<=21) & debug_profiler:
                 jax.profiler.stop_trace()
+            if curtail_epoch is not None and batch_idx>curtail_epoch:
+                print(f"Ending epoch early at step {batch_idx} due to curtail_epoch arg.")
                 break
         else:
             continue
@@ -601,7 +604,6 @@ def train_step(
     # calculate means over device dimension (first)
     loss = jax.lax.pmean(loss, axis_name="batch_devices")
     grads = jax.lax.pmean(grads, axis_name="batch_devices")
-
     ce=jax.lax.pmean(ce,axis_name="batch_devices")
 
     if batchnorm:
@@ -756,7 +758,7 @@ def train_step_old(
     return state, loss
 
 
-def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, step_rescale=1.0):
+def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, curtail_epoch=None, step_rescale=1.0):
     """Validation function that loops over batches"""
     # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     losses, accuracies, preds = [], [], []
@@ -766,17 +768,23 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
             inputs, labels, integration_timesteps, state, apply_fn, batchnorm)
         # losses = np.append(losses, loss)
         # accuracies = np.append(accuracies, acc)
+
         losses.append(loss)
         accuracies.append(acc)
+        if curtail_epoch is not None and batch_idx>curtail_epoch:
+            print(f"Ending epoch early at step {batch_idx} due to curtail_epoch arg.")
+            break
 
+    
+    ce_means=np.mean(np.concatenate(losses,axis=0),axis=0)
     aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
-    return aveloss, aveaccu
+    return aveloss, aveaccu, ce_means
 
 @partial(
     jax.pmap,
     axis_name="batch_devices",
     static_broadcasted_argnums=(4,5),
-    in_axes=(0, 0, 0, 0, None, None),
+    in_axes=(0, 0, 0, 0, None, None, None),
     # devices=global_devices
 )
 def eval_step(
@@ -787,6 +795,7 @@ def eval_step(
         #model,
         apply_fn,
         batchnorm,
+        ignore_times=False,
     ):
     batch_inputs=repeat_book(*batch_inputs)
     if batchnorm:
@@ -800,7 +809,7 @@ def eval_step(
                              method='__call_ar__',
                              )
 
-    losses = cross_entropy_loss(logits, batch_labels)    
+    losses = cross_entropy_loss(logits, batch_labels)  
     accs = compute_accuracy(logits, batch_labels)
 
     return losses, accs, logits

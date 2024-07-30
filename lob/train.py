@@ -81,7 +81,6 @@ def train(args):
         )
 
     print(f"[*] Starting S5 Training on {ds} =>> Initializing...")
-    print(args.debug_loading)
     if args.debug_loading:
         state=None
         val_model=None
@@ -198,17 +197,21 @@ def train(args):
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
-            val_loss, val_acc = validate(state,
-                                         #model_cls,
-                                         val_model.apply,
-                                         valloader,
-                                         seq_len,
-                                         in_dim,
-                                         args.batchnorm,
-                                         args.num_devices)
+            (val_loss,
+              val_acc,
+                val_ce_means) = validate(state,
+                                        #model_cls,
+                                        val_model.apply,
+                                        valloader,
+                                        seq_len,
+                                        in_dim,
+                                        args.batchnorm,
+                                        args.num_devices,
+                                        curtail_epoch=args.curtail_epoch)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
-            test_loss, test_acc = validate(state,
+            (test_loss, test_acc,
+              test_ce_means) = validate(state,
                                            #model_cls,
                                            val_model.apply,
                                            testloader,
