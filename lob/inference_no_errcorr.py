@@ -615,9 +615,13 @@ def _generate_token_v2(
         jnp.ones((1, len(b_seq)))
     )
 
-    logits = valh.predict_with_hidden(
+    logits, hiddens = valh.predict_with_hidden(
         input,
-        integration_timesteps, train_state, model, batchnorm)
+        integration_timesteps, train_state, model, batchnorm)   
+    
+    # logits = valh.predict_with_hidden(
+    #     input,
+    #     integration_timesteps, train_state, model, batchnorm)
     
     # filter out (syntactically) invalid tokens for current position
     if valid_mask is not None:
@@ -628,7 +632,7 @@ def _generate_token_v2(
     rng, rng_ = jax.random.split(rng)
     m_seq = valh.fill_predicted_toks(m_seq, logits, sample_top_n, jnp.array([rng_]))
     
-    return m_seq, mask_i + 1, rng
+    return m_seq, mask_i + 1, rng, hiddens
 
 def _generate_token(
         train_state : TrainState,
@@ -764,7 +768,8 @@ def _generate_msg_v2(
     gen_token_carry = (m_seq, b_seq, mask_i, rng_)
 
     # finish message generation
-    (m_seq, b_seq, mask_i, rng_), _ = jax.lax.scan(
+    (m_seq, b_seq, mask_i, rng_, hiddens), _ = jax.lax.scan(
+    # (m_seq, b_seq, mask_i, rng_), _ = jax.lax.scan(
         generate_token_scannable,
         gen_token_carry,
         xs=None,
@@ -815,7 +820,7 @@ def _generate_msg_v2(
 
     n_msg_todo -= 1
 
-    return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid_new, n_msg_todo
+    return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid_new, n_msg_todo, hiddens
 
 def _generate_msg(
         sim: OrderBook,
