@@ -131,6 +131,11 @@ class LOBSTER_Dataset(Dataset):
         # ob_seq=ob_seq[:-1]
         return (seq,order_books), y
     
+    @staticmethod
+    def inference_mask(seq,order_books=None):
+        """ Identity function, shouldn't even return the labels. 
+        """
+        return (seq,order_books), np.array(0)
 
     # @staticmethod
     # def last_position_mask(seq, rng):

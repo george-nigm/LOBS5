@@ -192,7 +192,7 @@ def get_dataset(
     ds = LOBSTER_Dataset(
         msg_files,
         n_messages=n_messages + n_eval_messages,
-        mask_fn=lambda X, rng: (X, jnp.array(0)),
+        mask_fn=LOBSTER_Dataset.inference_mask,
         seed=seed,
         n_cache_files=n_cache_files,
         randomize_offset=False,
