@@ -2,7 +2,7 @@ import os
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
 else:
     # Forces all generated worker processes to not run on GPU.
     #  Required at this high level, because the init func in the 
@@ -135,7 +135,8 @@ def eval(eval_args):
                                          in_dim,
                                          args.batchnorm,
                                          args.num_devices,
-                                         curtail_epoch=args.curtail_epoch)
+                                         curtail_epoch=args.curtail_epoch,
+                                         ignore_times=args.ignore_times,)
 
             print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test...")
             test_loss, test_acc, test_ce_by_tok = validate(state,
@@ -146,7 +147,8 @@ def eval(eval_args):
                                            in_dim,
                                            args.batchnorm,
                                            args.num_devices,
-                                           curtail_epoch=args.curtail_epoch)
+                                           curtail_epoch=args.curtail_epoch,
+                                            ignore_times=args.ignore_times,)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -207,8 +209,8 @@ def eval(eval_args):
 
 if __name__ == "__main__":
     import argparse
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-    os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.85"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+    os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.9"
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
     from s5.utils.util import str2bool
 
@@ -239,6 +241,8 @@ if __name__ == "__main__":
                     help="number of devices (GPUs) to use")
     parser.add_argument("--USE_WANDB", type=str2bool, default=True,
                     help="log with wandb?")
+    parser.add_argument("--ignore_times", type=str2bool, default=True,
+                    help="Ignore the loss due to predicting the time.")
 
 
     args = parser.parse_args()

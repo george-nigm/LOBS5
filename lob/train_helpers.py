@@ -8,6 +8,7 @@ from flax.training import train_state
 from flax import jax_utils
 import optax
 from typing import Any, Dict, Optional, Tuple, Union
+from lob.encoding import Message_Tokenizer
 
 # from lob.lob_seq_model import LobPredModel
 
@@ -758,7 +759,7 @@ def train_step_old(
     return state, loss
 
 
-def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, curtail_epoch=None, step_rescale=1.0):
+def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, curtail_epoch=None, ignore_times=False, step_rescale=1.0):
     """Validation function that loops over batches"""
     # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     losses, accuracies, preds = [], [], []
@@ -769,14 +770,20 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
         # losses = np.append(losses, loss)
         # accuracies = np.append(accuracies, acc)
 
+        if ignore_times:
+            indx=np.arange(0,inputs[0].shape[-1])
+            modulo=indx%Message_Tokenizer.MSG_LEN
+            loss=loss.at[:,:,~((modulo<9) | (modulo>13))].set(0)
+
         losses.append(loss)
         accuracies.append(acc)
         if curtail_epoch is not None and batch_idx>curtail_epoch:
             print(f"Ending epoch early at step {batch_idx} due to curtail_epoch arg.")
             break
 
-    
-    ce_means=np.mean(np.concatenate(losses,axis=0),axis=0)
+    concat_loss=np.concatenate(losses,axis=0)
+    print(f"Concat Loss is {concat_loss.shape}")
+    ce_means=np.mean(concat_loss,axis=(0,1))
     aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
     return aveloss, aveaccu, ce_means
 
