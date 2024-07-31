@@ -299,12 +299,15 @@ def predict(
 
 @partial(jax.jit, static_argnums=(3, 4))
 def predict_with_hidden(
+        hidden_states,
         batch_inputs: jax.Array,
+        batch_dones, 
         batch_integration_timesteps: jax.Array,
         state: TrainState,
         model: flax.linen.Module,
         batchnorm: bool,
     ):
+    
     if batchnorm:
         hidden_states,logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
                             hidden_states,*batch_inputs, *batch_integration_timesteps,

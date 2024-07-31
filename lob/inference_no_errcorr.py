@@ -1,3 +1,7 @@
+from jax import config
+# config.update("jax_disable_jit", False) 
+config.update("jax_disable_jit", True)
+
 from datetime import datetime
 import functools
 from glob import glob
@@ -590,49 +594,45 @@ def _add_time_tokens(
         jnp.hstack([time_s_toks, time_ns_toks]))
     return m_seq
 
-def _generate_token_v2(
-        train_state : TrainState,
-        model : nn.module,
-        batchnorm : bool,
-        valid_mask_array : jax.Array ,
-        sample_top_n : int,
-        hidden_state: jax.Array , #Assume 'something', probably model params. 
-        m_seq: jax.Array, #Should be needed only for 1st token.
-        b_seq: jax.Array , #Should only need for 1st token.
-        mask_i : int, #Still between 0 and message_length
-        rng 
-    ):
+# def _generate_token_v2(
+#         train_state : TrainState,
+#         model : nn.module,
+#         batchnorm : bool,
+#         valid_mask_array : jax.Array ,
+#         sample_top_n : int,
+#         hidden_state: Tuple , #Assume 'something', probably model params. 
+#         tok: jax.Array, #Should be needed only for 1st token.
+#         book: jax.Array , #Should only need for 1st token.
+#         mask_i : int, #Still between 0 and message_length
+#         rng 
+#     ):
 
-    # syntactically valid tokens for current message position
-    valid_mask = valh.get_valid_mask(valid_mask_array, mask_i)
+#     # syntactically valid tokens for current message position
+#     valid_mask = valh.get_valid_mask(valid_mask_array, mask_i)
 
-    input = (
-        jnp.expand_dims(m_seq, axis=0),
-        jnp.expand_dims(b_seq, axis=0)
-    )
-    integration_timesteps = (
-        jnp.ones((1, len(m_seq))), 
-        jnp.ones((1, len(b_seq)))
-    )
+#     input = (
+#         jnp.expand_dims(m_seq, axis=0),
+#         jnp.expand_dims(b_seq, axis=0)
+#     )
+#     integration_timesteps = (
+#         jnp.ones((1, len(m_seq))), 
+#         jnp.ones((1, len(b_seq)))
+#     )
 
-    logits, hiddens = valh.predict_with_hidden(
-        input,
-        integration_timesteps, train_state, model, batchnorm)   
+#     hidden,logits = valh.predict_with_hidden(
+#         hidden,input,dones
+#         integration_timesteps, train_state, model, batchnorm)
     
-    # logits = valh.predict_with_hidden(
-    #     input,
-    #     integration_timesteps, train_state, model, batchnorm)
-    
-    # filter out (syntactically) invalid tokens for current position
-    if valid_mask is not None:
-        logits = valh.filter_valid_pred(logits, valid_mask)
+#     # filter out (syntactically) invalid tokens for current position
+#     if valid_mask is not None:
+#         logits = valh.filter_valid_pred(logits, valid_mask)
 
-    # update sequence
-    # NOTE: rng arg expects one element per batch element
-    rng, rng_ = jax.random.split(rng)
-    m_seq = valh.fill_predicted_toks(m_seq, logits, sample_top_n, jnp.array([rng_]))
+#     # update sequence
+#     # NOTE: rng arg expects one element per batch element
+#     rng, rng_ = jax.random.split(rng)
+#     m_seq = valh.fill_predicted_toks(m_seq, logits, sample_top_n, jnp.array([rng_]))
     
-    return m_seq, mask_i + 1, rng, hiddens
+#     return new_tok,mask_i + 1, rng,hidden
 
 def _generate_token(
         train_state : TrainState,
