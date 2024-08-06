@@ -1,7 +1,8 @@
 import argparse
 import os
 import sys
-
+sys.path.append("/homes/80/kang/LOBS5/")
+sys.path.append("/homes/80/kang/AlphaTrade/")
 # # Add parent folder to path (to run this file from subdirectories)
 # (parent_folder_path, current_dir) = os.path.split(os.path.abspath(''))
 # sys.path.append(parent_folder_path)
@@ -38,13 +39,15 @@ from lob.init_train import init_train_state, load_checkpoint, load_metadata, loa
 
 print(os.path.abspath(''))
 
+
 #############################################################################
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
     "--stock", type=str)
 parser.add_argument(
-    "--save_folder", type=str, default='/nfs/home/peern/LOBS5/data_saved/m500/')
+    # "--save_folder", type=str, default='/nfs/home/peern/LOBS5/data_saved/m500/')
+    "--save_folder", type=str, default='/homes/80/kang/LOBS5/GOOG_tmp/')
 parser.add_argument(
     "--n_gen_msgs", type=int,
 	help="how many messages to generate following each input sequence")
@@ -57,7 +60,8 @@ parser.add_argument(
 parser.add_argument(
     "--model_size", type=str, default='large',)
 parser.add_argument(
-    "--data_dir", type=str, default='/nfs/home/peern/LOBS5/data/test_set/',)
+    "--data_dir", type=str, default='/homes/80/kang/LOBS5/GOOG_tiny/',)
+    # "--data_dir", type=str, default='/nfs/home/peern/LOBS5/data/test_set/',)
 
 args = parser.parse_args()
 
@@ -84,7 +88,8 @@ stock = args.stock # 'GOOG', 'INTC'
 
 if stock == 'GOOG':
     # ckpt_path = './checkpoints/treasured-leaf-149_84yhvzjt/' # 0.5 y GOOG, (full model)
-    ckpt_path = './checkpoints/denim-elevator-754_czg1ss71/' # large model
+    # ckpt_path = './checkpoints/denim-elevator-754_czg1ss71/' # large model
+    ckpt_path = '/homes/80/kang/LOBS5/checkpoints/honest-oath-159_3kn3xbd5/' # large model
 elif stock == 'INTC':
     # ckpt_path = './checkpoints/pleasant-cherry-152_i6h5n74c/' # 0.5 y INTC, (full model)
     # TODO:

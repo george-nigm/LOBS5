@@ -468,7 +468,8 @@ def train_epoch(
         num_devices,
         debug_loading,
         debug_profiler,
-        init_hiddens
+        curtail_epochs,
+        init_hiddens,
     ):
 
     """
@@ -523,6 +524,9 @@ def train_epoch(
             state, step = update_learning_rate_per_step(lr_params, state)
             if (step>20) & (step<=21) & debug_profiler:
                 jax.profiler.stop_trace()
+                break
+            if (curtail_epochs is not None) and (batch_idx>curtail_epochs):
+                print("Ending epoch early due to curtail_epochs being ",curtail_epochs)
                 break
         else:
             continue
@@ -756,7 +760,7 @@ def train_step_old(
     return state, loss
 
 
-def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, step_rescale=1.0):
+def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices,curtail_epochs, step_rescale=1.0):
     """Validation function that loops over batches"""
     # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     losses, accuracies, preds = [], [], []
@@ -768,6 +772,10 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
         # accuracies = np.append(accuracies, acc)
         losses.append(loss)
         accuracies.append(acc)
+
+        if (curtail_epochs is not None) and (batch_idx>curtail_epochs):
+            print("Ending epoch early due to curtail_epochs being ",curtail_epochs)
+            break
 
     aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
     return aveloss, aveaccu
