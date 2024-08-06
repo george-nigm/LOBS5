@@ -469,8 +469,8 @@ def train_epoch(
         num_devices,
         debug_loading,
         debug_profiler,
-        curtail_epoch,
-        init_hiddens
+        curtail_epochs,
+        init_hiddens,
     ):
 
     """
@@ -525,8 +525,9 @@ def train_epoch(
             state, step = update_learning_rate_per_step(lr_params, state)
             if (step>20) & (step<=21) & debug_profiler:
                 jax.profiler.stop_trace()
-            if curtail_epoch is not None and batch_idx>curtail_epoch:
-                print(f"Ending epoch early at step {batch_idx} due to curtail_epoch arg.")
+                break
+            if (curtail_epochs is not None) and (batch_idx>curtail_epochs):
+                print("Ending epoch early due to curtail_epochs being ",curtail_epochs)
                 break
         else:
             continue

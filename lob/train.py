@@ -184,6 +184,7 @@ def train(args):
                                               args.num_devices,
                                               args.debug_loading,
                                               args.enable_profiler,
+                                              args.curtail_epochs,
                                               init_hidden,)
         # reinit training loader, so that sequences are initialised with
         del trainloader
@@ -218,7 +219,8 @@ def train(args):
                                            seq_len,
                                            in_dim,
                                            args.batchnorm,
-                                           args.num_devices)
+                                           args.num_devices,
+                                           args.curtail_epochs,)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
