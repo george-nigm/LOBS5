@@ -8,6 +8,7 @@ from flax.training import train_state
 from flax import jax_utils
 import optax
 from typing import Any, Dict, Optional, Tuple, Union
+from lob.encoding import Message_Tokenizer
 
 # from lob.lob_seq_model import LobPredModel
 
@@ -605,7 +606,6 @@ def train_step(
     # calculate means over device dimension (first)
     loss = jax.lax.pmean(loss, axis_name="batch_devices")
     grads = jax.lax.pmean(grads, axis_name="batch_devices")
-
     ce=jax.lax.pmean(ce,axis_name="batch_devices")
 
     if batchnorm:
@@ -760,7 +760,7 @@ def train_step_old(
     return state, loss
 
 
-def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices,curtail_epochs, step_rescale=1.0):
+def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, curtail_epoch=None, ignore_times=False, step_rescale=1.0):
     """Validation function that loops over batches"""
     # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     losses, accuracies, preds = [], [], []
@@ -770,21 +770,33 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
             inputs, labels, integration_timesteps, state, apply_fn, batchnorm)
         # losses = np.append(losses, loss)
         # accuracies = np.append(accuracies, acc)
+
+        if ignore_times:
+            indx=np.arange(0,inputs[0].shape[-1])
+            modulo=indx%Message_Tokenizer.MSG_LEN
+            loss=loss.at[:,:,~((modulo<9) | (modulo>13))].set(0)
+
         losses.append(loss)
         accuracies.append(acc)
+        if curtail_epoch is not None and batch_idx>curtail_epoch:
+            print(f"Ending epoch early at step {batch_idx} due to curtail_epoch arg.")
+            break
 
-        if (curtail_epochs is not None) and (batch_idx>curtail_epochs):
-            print("Ending epoch early due to curtail_epochs being ",curtail_epochs)
+        concat_loss=np.concatenate(losses,axis=0)
+        print(f"Concat Loss is {concat_loss.shape}")
+        ce_means=np.mean(concat_loss,axis=(0,1))
+        if (curtail_epoch is not None) and (batch_idx>curtail_epoch):
+            print("Ending epoch early due to curtail_epochs being ",curtail_epoch)
             break
 
     aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
-    return aveloss, aveaccu
+    return aveloss, aveaccu, ce_means
 
 @partial(
     jax.pmap,
     axis_name="batch_devices",
     static_broadcasted_argnums=(4,5),
-    in_axes=(0, 0, 0, 0, None, None),
+    in_axes=(0, 0, 0, 0, None, None, None),
     # devices=global_devices
 )
 def eval_step(
@@ -795,6 +807,7 @@ def eval_step(
         #model,
         apply_fn,
         batchnorm,
+        ignore_times=False,
     ):
     batch_inputs=repeat_book(*batch_inputs)
     if batchnorm:
@@ -808,7 +821,7 @@ def eval_step(
                              method='__call_ar__',
                              )
 
-    losses = cross_entropy_loss(logits, batch_labels)    
+    losses = cross_entropy_loss(logits, batch_labels)  
     accs = compute_accuracy(logits, batch_labels)
 
     return losses, accs, logits
