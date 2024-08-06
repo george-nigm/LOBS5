@@ -540,13 +540,20 @@ def train_epoch(
     return state,loss_mean , ce_means,step
 
 
-@partial(jax.vmap,in_axes=(0,0),out_axes=(0,0))
-def repeat_book(msg,book):
+@partial(jax.vmap,in_axes=(0,0,None),out_axes=(0,0))
+@partial(jax.jit,static_argnums=(2,))
+def repeat_book(msg,book,shift_start):
     #DEFINITION OF START BOOK:
-    pad=np.zeros((1,book.shape[1]))
-    book = np.repeat(book, (msg.shape[0]) // book.shape[0], axis=0)
-    book=np.concatenate([pad,book[1:]])
+    if msg.shape[0]>book.shape[0]:
+        book = np.repeat(book, (msg.shape[0]) // book.shape[0], axis=0)
+
+    if shift_start:
+        pad=np.zeros((1,book.shape[1]))
+        #FIXME: Wrong logic, needs to be the init book state.
+        # book=np.concatenate([book[:1],book[1:]])
+        book=np.concatenate([pad,book[1:]])
     return (msg,book)
+
 @partial(
     jax.pmap,
     axis_name="batch_devices",
@@ -565,7 +572,7 @@ def train_step(
     ):
     #print('tracing par_loss_and_grad')
 
-    batch_inputs=repeat_book(*batch_inputs)
+    batch_inputs=repeat_book(*batch_inputs,True)
     # batch_integration_timesteps=repeat_book(*batch_integration_timesteps)
 
     def loss_fn(params):
@@ -631,13 +638,13 @@ def train_step_rnn(
         batch_labels: jax.Array, # 5
         batch_integration_timesteps: Tuple[jax.Array, jax.Array], # 6
         batchnorm: bool, # 7
-        init_hiddens: Tuple[Any,Any,Any], 
+        init_hiddens: Tuple, 
     ):
     #print('tracing par_loss_and_grad')
 
     #Never reset the hidden states:
     
-    batch_inputs=repeat_book(*batch_inputs)
+    batch_inputs=repeat_book(*batch_inputs,True)
     # batch_integration_timesteps=repeat_book(*batch_integration_timesteps)
     
     
@@ -646,7 +653,7 @@ def train_step_rnn(
             shapes=jax.tree_util.tree_map(lambda x: x.shape,xs)
             print("Shapes before using:",shapes)
             batch_inputs,batch_integration_timesteps,batch_labels=xs
-            dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*3
+            dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*len(hiddens)
             hiddens=carry
             if batchnorm:
                 (hiddens,logits), mod_vars = state.apply_fn( 
@@ -773,7 +780,7 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
         if ignore_times:
             indx=np.arange(0,inputs[0].shape[-1])
             modulo=indx%Message_Tokenizer.MSG_LEN
-            loss=loss.at[:,:,~((modulo<9) | (modulo>13))].set(0)
+            loss=loss.at[:,:,~((modulo<5) | (modulo>8))].set(0)
 
         losses.append(loss)
         accuracies.append(acc)
@@ -784,7 +791,7 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
     concat_loss=np.concatenate(losses,axis=0)
     print(f"Concat Loss is {concat_loss.shape}")
     ce_means=np.mean(concat_loss,axis=(0,1))
-    aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
+    aveloss, aveaccu = np.mean(concat_loss), np.mean(np.array(accuracies))
     return aveloss, aveaccu, ce_means
 
 @partial(
@@ -804,7 +811,7 @@ def eval_step(
         batchnorm,
         ignore_times=False,
     ):
-    batch_inputs=repeat_book(*batch_inputs)
+    batch_inputs=repeat_book(*batch_inputs,True)
     if batchnorm:
         logits = apply_fn({"params": state.params, "batch_stats": state.batch_stats},
                              *batch_inputs, *batch_integration_timesteps,
