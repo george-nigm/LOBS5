@@ -59,6 +59,47 @@ def transform_L2_state(
     # return mybook.astype(jnp.float32) #/ divide_by
     return mybook 
 
+@partial(jax.jit, static_argnums=(1, 2),backend="gpu")
+@partial(
+    jax.vmap,
+    in_axes=(0, None, None),
+    out_axes=0,
+)
+def transform_L2_state_gpu(
+        book: jax.Array, 
+        price_levels: int,
+        tick_size: int = 100,
+        #divide_by: int = 1,
+    ) -> jax.Array:
+    """ Transformation for data loading:
+        Converts L2 book state from data to price_levels many volume
+        series used as input to the model. The first element (column) of the
+        input and output is the change in mid price.
+        Converts sizes to negative sizes for ask side (sell orders).
+    """
+    delta_p_mid, book = book[:1], book[1:]
+    book = book.reshape((-1,2))
+    mid_price = jnp.ceil((book[0, 0] + book[1, 0]) / (2*tick_size)).__mul__(tick_size).astype(int)
+    book = book.at[:, 0].set((book[:, 0] - mid_price) // tick_size)
+    # change relative prices to indices
+    book = book.at[:, 0].set(book[:, 0] + price_levels // 2)
+    # set to out of bounds index, so that we can use -1 to indicate nan
+    # out of bounds will be ignored in setting value in jax
+    book = jnp.where(book < 0, -price_levels-1, book)
+
+    mybook = jnp.zeros(price_levels, dtype=jnp.int32)
+    mybook = mybook.at[book[:, 0]].set(book[:, 1])
+    
+    # set ask volume to negative (sell orders)
+    mybook = mybook.at[price_levels // 2:].set(mybook[price_levels // 2:] * -1)
+    mybook = jnp.concatenate((
+        delta_p_mid.astype(np.float32),
+        mybook.astype(np.float32) / 1000
+    ))
+
+    # return mybook.astype(jnp.float32) #/ divide_by
+    return mybook 
+
 @partial(np.vectorize,signature="(c),(),()->(d)")
 def transform_L2_state_numpy(
         book: np.ndarray, 

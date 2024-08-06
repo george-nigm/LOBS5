@@ -19,6 +19,7 @@ debug = lambda *args: logger.debug(' '.join((str(arg) for arg in args)))
 info = lambda *args: logger.info(' '.join((str(arg) for arg in args)))
 
 from lob.lobster_dataloader import LOBSTER_Dataset
+from lob.train_helpers import repeat_book
 
 v = Vocab()
 
@@ -120,6 +121,17 @@ def get_valid_toks_for_input(inp_maybe_batched):
     fields = get_masked_fields(inp_maybe_batched)
     return get_valid_toks_for_field(fields)
 
+def get_first_time(m_seq_cond,encoder):
+    last_msg=m_seq_cond[-Message_Tokenizer.MSG_LEN:]
+    with jax.ensure_compile_time_eval():
+        time_s_start_i, time_s_end_i = get_idx_from_field('time_s')
+        time_ns_start_i, time_ns_end_i = get_idx_from_field('time_ns')
+    time_init_s, time_init_ns = encoding.decode_time(
+        last_msg[time_s_start_i:time_ns_end_i],
+        encoder
+    )
+    return (time_init_s, time_init_ns)
+
 def valid_prediction_mass(pred, fields, top_n=None):
     """ for a predicted distribution over tokens get the total mass of the
         syntactically valid labels
@@ -168,13 +180,11 @@ def pred_rank(pred, labels):
     ranks = np.squeeze(a[..., ::-1].argsort(axis=-1))
     return ranks[correct_mask]
 
-@partial(jax.jit, static_argnums=(2,4))
-def fill_predicted_toks(
-        seq: jax.Array,
+@partial(jax.jit, static_argnums=(1,))
+def fill_predicted_tok(
         pred_logits: jax.Array,
         top_n: int = 1,
         rng: Optional[jax.dtypes.prng_key] = None,
-        MASK_TOK: int = Vocab.MASK_TOK,
     ) -> jax.Array:
     """ Set the predicted token in the given sequence
         when top_n=1, the argmax is used, otherwise a random sample
@@ -185,7 +195,7 @@ def fill_predicted_toks(
         vals = pred_logits.argmax(axis=-1)
     else:
         vals = sample_pred(pred_logits, top_n, rng)
-    return np.where(seq == MASK_TOK, vals, seq)
+    return vals
 
 @partial(jax.jit, static_argnums=(1,))
 @partial(jax.vmap, in_axes=(0, None, 0))
@@ -196,7 +206,7 @@ def sample_pred(
     ) -> jax.Array:
     """ Sample from the top_n predicted labels
     """
-    idx = np.arange(pred.shape[0]).reshape(pred.shape)
+    idx = np.arange(pred.shape[-1]).reshape(pred.shape)
     if top_n > 1 and top_n < pred.shape[-1]:
         mask_top_n = mask_n_highest(pred, top_n)
         p = np.exp(pred) * mask_top_n
@@ -297,29 +307,42 @@ def predict(
 
     return logits
 
-@partial(jax.jit, static_argnums=(3, 4))
-def predict_with_hidden(
-        hidden_states,
-        batch_inputs: jax.Array,
-        batch_dones, 
-        batch_integration_timesteps: jax.Array,
+
+
+@partial(jax.jit, static_argnums=(4, 5, 6))
+def apply_model(
+        hidden_state: Tuple,
+        m_seq: jax.Array ,
+        b_seq: jax.Array ,
         state: TrainState,
         model: flax.linen.Module,
         batchnorm: bool,
+        shift_start: bool,
     ):
-    
+    batch_inputs = (
+        np.expand_dims(m_seq, axis=0),
+        np.expand_dims(b_seq, axis=0))
+    batch_integration_timesteps = (
+        np.ones((1, len(m_seq))), 
+        np.ones((1, len(m_seq)))
+    )
+    batch_inputs=repeat_book(*batch_inputs,shift_start)
+
+    dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*len(hidden_state)
+
+
     if batchnorm:
-        hidden_states,logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
-                            hidden_states,*batch_inputs, *batch_integration_timesteps,
+        hidden_state,logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
+                            hidden_state,*batch_inputs, *dones, *batch_integration_timesteps,
                             method="__call_rnn__"
                             )
     else:
-        hidden_states,logits = model.apply({"params": state.params},
-                             hidden_states,*batch_inputs, *batch_integration_timesteps,
+        hidden_state,logits = model.apply({"params": state.params},
+                             hidden_state,*batch_inputs, *dones, *batch_integration_timesteps,
                              method="__call_rnn__"
                              )
 
-    return hidden_states,logits
+    return hidden_state,logits
 
 
 @jax.jit
@@ -381,7 +404,7 @@ def pred_next_tok(
         logits = filter_valid_pred(logits, valid_mask)
     # update sequence
     # note: rng arg expects one element per batch element
-    seq = fill_predicted_toks(seq, logits, sample_top_n, np.array([rng]))
+    seq = fill_predicted_tok(seq, logits, sample_top_n, np.array([rng]))
     return seq
 
 
