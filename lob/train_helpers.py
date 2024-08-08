@@ -548,7 +548,7 @@ def repeat_book(msg,book,shift_start):
     if msg.shape[0]>book.shape[0]:
         book = np.repeat(book, (msg.shape[0]) // book.shape[0], axis=0)
     if shift_start:
-        pad=book[0]
+        pad=book[:0]
         #FIXME: Wrong logic, needs to be the init book state.
         # book=np.concatenate([book[:1],book[1:]])
         book=np.concatenate([pad,book[0:]])
