@@ -495,7 +495,7 @@ class PaddedLobPredModel(nn.Module):
 
         # print("Shapes:",x_m.shape,x_b.shape,d_m.shape,d_b.shape)
 
-        print("Shapes:",x_m.shape,x_b.shape,d_m.shape,d_b.shape)
+        # print("Shapes:",x_m.shape,x_b.shape,d_m.shape,d_b.shape)
 
         hiddens_m,x_m = self.message_encoder.__call_rnn__(hiddens_m, x_m,d_m, message_integration_timesteps)
         hiddens_b,x_b = self.book_encoder.__call_rnn__(hiddens_b,x_b,d_b ,book_integration_timesteps)

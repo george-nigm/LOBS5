@@ -293,6 +293,7 @@ def get_sim_msg(
         lambda new_id, ref_id: new_id,
         new_order_id, order_id_ref
     )
+    # jax.debug.print("{}",order_id)
 
     sim_msg = construct_sim_msg(
         event_type,  # type: execution
@@ -615,16 +616,16 @@ def _generate_token(
                               False)
     logits=logits[0]
 
-    jax.debug.print("Best logits for index {} before the mask: \n {}",token_index,jnp.flip(jnp.argsort(logits)))
+    # jax.debug.print("Best logits for index {} before the mask: \n {}",token_index,jnp.flip(jnp.argsort(logits)))
 
     
     # filter out (syntactically) invalid tokens for current position
     if valid_mask is not None:
         logits = valh.filter_valid_pred(logits, valid_mask)
-    jax.debug.print("Mask for index {}: \n {}",token_index,valid_mask)
+    # jax.debug.print("Mask for index {}: \n {}",token_index,valid_mask)
 
     
-    jax.debug.print("Best logits for index {} after the mask: \n {}",token_index,jnp.flip(jnp.argsort(logits)))
+    # jax.debug.print("Best logits for index {} after the mask: \n {}",token_index,jnp.flip(jnp.argsort(logits)))
 
 
     # update sequence
@@ -764,6 +765,7 @@ def _generate_msg(
     # jax.debug.print('sim_msg {}', sim_msg)
 
     # feed message to simulator, updating book state
+
     sim_state = sim.process_order_array(sim_state, sim_msg)
 
     # debug('trades', _trades)
@@ -1065,9 +1067,9 @@ def sample_new(
         batch_size: int,  # how many samples to process in parallel
         ds: LOBSTER_Dataset,
         rng: jax.dtypes.prng_key,
-        seq_len: int,
-        n_msgs: int,
-        n_gen_msgs: int,
+        seq_len_cond: int, #cond
+        n_cond_msgs: int, #eval
+        n_gen_msgs: int, #gen
         train_state: TrainState,
         model: nn.Module,
         batchnorm: bool,
@@ -1151,18 +1153,18 @@ def sample_new(
 
         print(m_seq.shape)
         # encoded data
-        m_seq_inp = m_seq[:, : seq_len+1]
-        m_seq_eval = m_seq[:, (seq_len+1): ]
-        b_seq_inp = b_seq[: , : n_msgs]
-        b_seq_eval = b_seq[:, n_msgs: ]
+        m_seq_inp = m_seq[:, : seq_len_cond+1]
+        m_seq_eval = m_seq[:, (seq_len_cond+1): ]
+        b_seq_inp = b_seq[: , : n_cond_msgs]
+        b_seq_eval = b_seq[:, n_cond_msgs: ]
         # true L2 data: remove price change column
         # shape: [batch, messages, levels]
-        b_seq_pv_inp = onp.array(b_seq_pv[:, : n_msgs, 1:])
-        b_seq_pv_eval = onp.array(b_seq_pv[:, n_msgs:, 1:])
+        b_seq_pv_inp = onp.array(b_seq_pv[:, : n_cond_msgs, 1:])
+        b_seq_pv_eval = onp.array(b_seq_pv[:, n_cond_msgs:, 1:])
 
         # raw LOBSTER data
-        m_seq_raw_inp = msg_seq_raw[:, : n_msgs]
-        m_seq_raw_eval = msg_seq_raw[:, n_msgs: ]
+        m_seq_raw_inp = msg_seq_raw[:, : n_cond_msgs]
+        m_seq_raw_eval = msg_seq_raw[:, n_cond_msgs: ]
 
         # initialise simulator
         sim_init, sim_states_init = get_sims_vmap(
@@ -1185,7 +1187,7 @@ def sample_new(
         # print('sim_states_init.asks.shape', sim_states_init.asks.shape)
         # print('sim_states_init.bids.shape', sim_states_init.bids.shape)
         # print('sim_states_init.trades.shape', sim_states_init.trades.shape)
-        msgs_decoded, l2_book_states, num_errors = generate_batched(
+        msgs_decoded, l2_book_states, num_errors,mgs_tokens = generate_batched(
             sim_init,
             train_state,
             model,
