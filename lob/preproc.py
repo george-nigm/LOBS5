@@ -198,6 +198,8 @@ def process_message_files(
             messages, book = filter_by_lvl(messages, book, filter_above_lvl)
         
         print('<< pre processing >>')
+        messages = messages.loc[(messages.time>=Decimal(34200)) & (messages.time<Decimal(57600))]
+        book = book.loc[messages.index]
         m_ = tok.preproc(messages, book)
 
         # save processed messages
@@ -256,6 +258,7 @@ def process_book_files(
 
         # remove disallowed order types
         messages = messages.loc[messages.event_type.isin(allowed_events)]
+        messages = messages.loc[(messages.time>=Decimal(34200)) & (messages.time<Decimal(57600))]
         # make sure book is same length as messages
         book = book.loc[messages.index]
 
@@ -307,9 +310,9 @@ def process_book(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/homes/80/kang/LOBS5/goog_unzip_2018/',
+    parser.add_argument("--data_dir", type=str, default='/homes/80/kang/GOOG_2017/',
 		     			help="where to load data from")
-    parser.add_argument("--save_dir", type=str, default='/homes/80/kang/LOBS5/GOOG2018/',
+    parser.add_argument("--save_dir", type=str, default='/homes/80/kang/LOBS5/GOOG2017to2019/',
 		     			help="where to save processed data")
     parser.add_argument("--filter_above_lvl", type=int,
                         help="filters down from levels present in the data to specified number of price levels")
