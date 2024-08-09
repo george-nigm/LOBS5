@@ -10,6 +10,7 @@ python3 run_train.py --USE_WANDB=True \
                     --num_devices=4 --n_data_workers=8 \
                     --debug_loading=False \
                     --enable_profiler=False \
+                    --curtail_epochs=3000 \
                     # --restore='/homes/80/kang/LOBS5/checkpoints/honest-oath-159_3kn3xbd5/' \
                     # --restore_step=63
                     #--restore='checkpoints/eager-shadow-750_af39bb9u/'

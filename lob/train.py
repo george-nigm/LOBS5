@@ -208,7 +208,7 @@ def train(args):
                                         in_dim,
                                         args.batchnorm,
                                         args.num_devices,
-                                        curtail_epoch=args.curtail_epoch)
+                                        curtail_epoch=args.curtail_epochs)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
             (test_loss, test_acc,
@@ -220,7 +220,7 @@ def train(args):
                                            in_dim,
                                            args.batchnorm,
                                            args.num_devices,
-                                           args.curtail_epochs,)
+                                           curtail_epoch=args.curtail_epochs,)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
