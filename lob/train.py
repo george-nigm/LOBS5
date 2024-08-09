@@ -200,7 +200,8 @@ def train(args):
             print(f"[*] Running Epoch {epoch + 1} Validation...")
             (val_loss,
               val_acc,
-                val_ce_means) = validate(state,
+                val_ce_means,
+                val_acc_means) = validate(state,
                                         #model_cls,
                                         val_model.apply,
                                         valloader,
@@ -212,7 +213,7 @@ def train(args):
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
             (test_loss, test_acc,
-              test_ce_means) = validate(state,
+              test_ce_means,test_acc_means) = validate(state,
                                            #model_cls,
                                            val_model.apply,
                                            testloader,
@@ -232,7 +233,8 @@ def train(args):
         else:
             # else use test set as validation set (e.g. IMDB)
             print(f"[*] Running Epoch {epoch + 1} Test...")
-            val_loss, val_acc = validate(state,
+            (val_loss, val_acc,
+              test_ce_means,test_acc_means) = validate(state,
                                          #model_cls,
                                          val_model.apply,
                                          testloader,
@@ -288,8 +290,11 @@ def train(args):
             f"\tBest Test Loss: {best_test_loss:.5f} -- Best Test Accuracy:"
             f" {best_test_acc:.4f} at Epoch {best_epoch + 1}\n"
         )
-
-        ce_table.add_column(name="ce_"+str(epoch),data=ce_by_tok.tolist())
+        ce_table.add_column(name="val_ce_"+str(epoch),data=val_ce_means.tolist())
+        ce_table.add_column(name="test_ce_"+str(epoch),data=test_ce_means.tolist())
+        ce_table.add_column(name="val_acc_"+str(epoch),data=val_acc_means.tolist())
+        ce_table.add_column(name="test_acc_"+str(epoch),data=test_acc_means.tolist())
+        ce_table.add_column(name="train_ce_"+str(epoch),data=ce_by_tok.tolist())
         ce_table=wandb.Table(columns=ce_table.columns,data=ce_table.data)
         
 

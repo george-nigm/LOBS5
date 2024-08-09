@@ -127,7 +127,7 @@ def eval(eval_args):
 
         if valloader is not None:
             print(f"[*] Running Epoch {args.restore_step + epoch + 1} Validation...")
-            val_loss, val_acc,val_ce_by_tok = validate(state,
+            val_loss, val_acc,val_ce_by_tok, val_acc_by_tok = validate(state,
                                          #model_cls,
                                          eval_model.apply,
                                          valloader,
@@ -139,7 +139,7 @@ def eval(eval_args):
                                          ignore_times=args.ignore_times,)
 
             print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test...")
-            test_loss, test_acc, test_ce_by_tok = validate(state,
+            test_loss, test_acc, test_ce_by_tok, test_acc_by_tok  = validate(state,
                                            #model_cls,
                                            eval_model.apply,
                                            testloader,
@@ -160,7 +160,7 @@ def eval(eval_args):
         else:
             # else use test set as validation set (e.g. IMDB)
             print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test...")
-            test_loss, test_acc, test_ce_by_tok = validate(state,
+            test_loss, test_acc, test_ce_by_tok, test_acc_by_tok  = validate(state,
                                            #model_cls,
                                            eval_model.apply,
                                            testloader,
@@ -179,6 +179,8 @@ def eval(eval_args):
 
         ce_table.add_column(name="val_ce_"+str(epoch),data=val_ce_by_tok.tolist())
         ce_table.add_column(name="test_ce_"+str(epoch),data=test_ce_by_tok.tolist())
+        ce_table.add_column(name="val_acc_"+str(epoch),data=val_acc_by_tok.tolist())
+        ce_table.add_column(name="test_acc_"+str(epoch),data=test_acc_by_tok.tolist())
         ce_table=wandb.Table(columns=ce_table.columns,data=ce_table.data)
         
 

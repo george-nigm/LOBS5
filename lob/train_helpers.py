@@ -789,10 +789,13 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
             break
 
     concat_loss=np.concatenate(losses,axis=0)
+    concat_acc=np.concatenate(accuracies,axis=0)
     print(f"Concat Loss is {concat_loss.shape}")
+    print(f"Concat Acc is {concat_acc.shape}")
+    acc_means=np.mean(concat_acc,axis=(0,1))
     ce_means=np.mean(concat_loss,axis=(0,1))
     aveloss, aveaccu = np.mean(concat_loss), np.mean(np.array(accuracies))
-    return aveloss, aveaccu, ce_means
+    return aveloss, aveaccu, ce_means,acc_means
 
 @partial(
     jax.pmap,
