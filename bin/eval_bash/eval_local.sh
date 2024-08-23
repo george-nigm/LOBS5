@@ -1,5 +1,5 @@
  python3 eval.py --restore="/homes/80/kang/LOBS5/checkpoints/golden-wildflower-202_a4mdlh6p/" \
-                        --dir_name="/data1/sascha/data/GOOG2017to2019/" \
+                        --dir_name="/homes/80/kang/LOBS5/GOOG2017to2019/" \
                         --restore_step=9 \
                         --n_data_workers=4 \
                         --bsz=8 \
