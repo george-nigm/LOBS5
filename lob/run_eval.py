@@ -71,13 +71,14 @@ if __name__ == "__main__":
     # get args from command line to select stock between GOOG, INTC
     parser = argparse.ArgumentParser()
     parser.add_argument('--stock', type=str, default='GOOG', help='stock to evaluate')
+
     run_args = parser.parse_args()
 
 
 
     if run_args.stock == 'GOOG':
         data_dir = '/data1/sascha/data/GOOG2017to2019'
-        ckpt_path='/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5'
+        ckpt_path='/data1/sascha/data/checkpoints/toasty-pine-206_7lo414ol'
     elif run_args.stock == 'INTC':
         raise NotImplementedError("Nothing trained for INTC yet")
     elif run_args.stock == 'TSLA':
@@ -212,7 +213,7 @@ if __name__ == "__main__":
         args.batchnorm,
         v.ENCODING,
         run_args.stock,
-        save_folder='/data1/sascha/data/GOOG_argmax/',
+        save_folder='/data1/sascha/data/GOOG_toastypine/',
         sample_top_n=sample_top_n,
         args=args,
         conditional= True,
