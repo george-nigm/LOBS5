@@ -108,7 +108,7 @@ def msg_to_jnp(
         and rearrange for simulator.
     """
     m = m_raw.copy()
-    
+
     return jnp.array([
         m[EVENT_TYPE_i],
         (m[DIRECTION_i] * 2) - 1,
@@ -233,7 +233,7 @@ def switch(
         )
     else:
         raise ValueError(f'Invalid number of conditions and functions, got {len(condlist)} and {len(funclist)}')
-            
+
 
 def get_sim_msg(
         pred_msg_enc: jax.Array,
@@ -274,7 +274,7 @@ def get_sim_msg(
     # sim_msg = switch(
     #     (event_type == 1, (event_type == 2) | (event_type == 3), event_type == 4),
     #     (get_sim_msg_new, get_sim_msg_mod, get_sim_msg_exec, construct_dummy_sim_msg),
-    #     (event_type, quantity, side, p_abs, time_s, time_ns, 
+    #     (event_type, quantity, side, p_abs, time_s, time_ns,
     #             rel_price_ref, quantity_ref, time_s_ref, time_ns_ref,
     #             new_order_id, sim, sim_state,
     #     )
@@ -429,7 +429,7 @@ def search_orig_msg(
     ):
     vol = sim.get_volume_at_price(sim_state, side, p_mod_raw)
     ret_none = (vol==0)
-    
+
     # if sim.get_volume_at_price(sim_state, side, p_mod_raw) == 0:
     #     debug('No volume at given price, discarding...')
     #     return None, None, None
@@ -444,7 +444,7 @@ def search_orig_msg(
     debug('sim IDs', sim_ids[sim_ids > 1])
     mask = get_invalid_ref_mask(m_seq_raw, p_mod_raw, sim_ids)
     orig_i, n_fields_removed = valh.try_find_msg(orig_enc, m_seq, mask)
-    
+
     # didn't find matching original message
     if orig_i is None:
         if sim.get_volume_at_price(sim_state, side, p_mod_raw, True) == 0:
@@ -453,7 +453,7 @@ def search_orig_msg(
         order_id = job.INITID
         # keep generated ref part, which we cannot validate
         orig_msg_found = orig_enc[-REF_LEN: ]
-    
+
     # found matching original message
     else:
         # get order ID from raw data for simulator
@@ -517,7 +517,7 @@ def _get_safe_mid_price(
     # bid negative:  2 ~> ask - tick_size
     # both negative: 3 ~> 0
     case_i = (ask <= 0) * 1 + (bid <= 0) * 2
-    
+
     p_mid = jax.lax.switch(
         case_i,
         (
@@ -578,7 +578,7 @@ def _add_time_tokens(
     # debug('delta_t', delta_t_s, delta_t_ns)
     time_s, time_ns = add_times(time_init_s, time_init_ns, delta_t_s, delta_t_ns)
     # debug('time', time_s, time_ns)
-    
+
     # encode time and add to sequence
     time_s = encoding.split_field(time_s, 2, 3)
     time_s_toks = encoding.encode(time_s, *encoder['time'])
@@ -599,7 +599,7 @@ def _generate_token(
         m_seq,
         b_seq,
         mask_i,
-        rng 
+        rng
     ):
 
     # syntactically valid tokens for current message position
@@ -610,13 +610,13 @@ def _generate_token(
         jnp.expand_dims(b_seq, axis=0)
     )
     integration_timesteps = (
-        jnp.ones((1, len(m_seq))), 
+        jnp.ones((1, len(m_seq))),
         jnp.ones((1, len(b_seq)))
     )
     logits = valh.predict(
         input,
         integration_timesteps, train_state, model, batchnorm)
-    
+
     # filter out (syntactically) invalid tokens for current position
     if valid_mask is not None:
         logits = valh.filter_valid_pred(logits, valid_mask)
@@ -657,7 +657,7 @@ def _generate_msg(
         valid_mask_array: jax.Array,
         sample_top_n: int,
         tick_size: int,
-        
+
         m_seq: jax.Array,
         b_seq: jax.Array,
         n_msg_todo: int,
@@ -678,7 +678,7 @@ def _generate_msg(
         delta_t_s_start_i, delta_t_s_end_i = valh.get_idx_from_field('delta_t_s')
         delta_t_ns_start_i, delta_t_ns_end_i = valh.get_idx_from_field('delta_t_ns')
 
-    # 
+    #
     time_init_s, time_init_ns = encoding.decode_time(
         m_seq[last_start_i + time_s_start_i: last_start_i + time_ns_end_i],
         encoder
@@ -776,7 +776,7 @@ def _generate_msg(
 
     return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid_new, n_msg_todo
 
-    
+
 def _make_generate_msg_scannable(
         sim: OrderBook,
         train_state: TrainState,
@@ -799,7 +799,7 @@ def _make_generate_msg_scannable(
         """
         m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng = gen_state
         rng, rng_ = jax.random.split(rng)
-        
+
         msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid, n_msg_todo = __generate_msg(
             m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng_
         )
@@ -822,7 +822,7 @@ def generate(
         rng: jax.dtypes.prng_key,
         # if eval_msgs given, also returns loss of predictions
         # e.g. to calculate perplexity
-        # m_seq_eval: Optional[jax.Array] = None,  
+        # m_seq_eval: Optional[jax.Array] = None,
     ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
 
     # id_gen = OrderIdGenerator()
@@ -844,7 +844,7 @@ def generate(
     # jax.debug.print('generate - p_mid {}', p_mid)
 
     generate_msg_scannable = _make_generate_msg_scannable(
-        sim, train_state, model, batchnorm, 
+        sim, train_state, model, batchnorm,
         encoder, valid_mask_array, sample_top_n, tick_size
     )
     gen_state, (msgs_decoded, l2_book_states) = jax.lax.scan(
@@ -865,7 +865,7 @@ generate_batched = jax.jit(
         generate,
         in_axes=(
             None, None, None, None,
-            None, None, None,    0, 
+            None, None, None,    0,
                0, None,    0,    0
         )
     ),
@@ -895,7 +895,7 @@ def calc_sequence_losses(
                 (size, *a.shape[1:])
             )
         )(starts)
-    
+
     l = Message_Tokenizer.MSG_LEN
 
     @jax.jit
@@ -916,7 +916,7 @@ def calc_sequence_losses(
 
         input = (m_seq, b_seq)
         integration_timesteps = (
-            jnp.ones(len(m_seq), dtype=jnp.float32), 
+            jnp.ones(len(m_seq), dtype=jnp.float32),
             jnp.ones(len(b_seq), dtype=jnp.float32)
         )
         return input, integration_timesteps, y.astype(jnp.float32)
@@ -946,10 +946,10 @@ def calc_sequence_losses(
         logits2 = valh.predict(
             input,
             integration_timesteps, state, model, batchnorm)
-        
+
         logits = jnp.concatenate([logits1, logits2[2*bsz - mask_idxs.shape[0] : ]], axis=0)
         y = jnp.concatenate([y1, y2[2*bsz - mask_idxs.shape[0] : ]], axis=0)
-        
+
         # filter out (syntactically) invalid tokens for current position
         if valid_mask is not None:
             logits = valh.filter_valid_pred(logits, valid_mask)
@@ -989,7 +989,7 @@ def calc_sequence_losses(
 #         encoder,
 #         rng,
 #     ):
-    
+
 #     rng, rng_ = jax.random.split(rng)
 
 #     # generate predictions
@@ -1041,18 +1041,26 @@ def sample_new(
         save_folder: str = './data_saved/',
         tick_size: int = 100,
         sample_top_n: int = -1,
+        sample_all: bool = False,
     ):
     """
     """
-    assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
 
     rng, rng_ = jax.random.split(rng)
-    sample_i = jax.random.choice(
-        rng_,
-        jnp.arange(len(ds), dtype=jnp.int32),
-        shape=(n_samples // batch_size, batch_size),
-        replace=False
-    ).tolist()
+    if sample_all:
+        sample_i = jnp.arange(
+            len(ds) // batch_size * batch_size,
+            dtype=jnp.int32
+        ).reshape(-1, batch_size).tolist()
+    else:
+        assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
+
+        sample_i = jax.random.choice(
+            rng_,
+            jnp.arange(len(ds), dtype=jnp.int32),
+            shape=(n_samples // batch_size, batch_size),
+            replace=False
+        ).tolist()
     rng, rng_ = jax.random.split(rng)
 
     # create folders to save the data if they don't exist yet
@@ -1071,8 +1079,8 @@ def sample_new(
     # all_metrics = []
     for batch_i in tqdm(sample_i):
         print('BATCH', batch_i)
-        # TODO: check if we can init the dataset without the raw data 
-        #       if it's not needed 
+        # TODO: check if we can init the dataset without the raw data
+        #       if it's not needed
         m_seq, _, b_seq_pv, msg_seq_raw, book_l2_init = ds[batch_i]
         m_seq = jnp.array(m_seq)
         b_seq_pv = jnp.array(b_seq_pv)
@@ -1143,13 +1151,13 @@ def sample_new(
             in zip(
                 batch_i,
                 m_seq_raw_inp, b_seq_pv_inp,
-                m_seq_raw_eval, b_seq_pv_eval, 
+                m_seq_raw_eval, b_seq_pv_eval,
                 msgs_decoded, l2_book_states
             ):
 
             # get date from filename
             date = ds.get_date(i)
-            
+
             # input / cond data
             msg_to_lobster_format(cond_msg).to_csv(
                 save_folder + f'/data_cond/{stock_symbol}_{date}_message_real_id_{i}.csv',
@@ -1169,7 +1177,7 @@ def sample_new(
                 save_folder + f'/data_real/{stock_symbol}_{date}_orderbook_real_id_{i}.csv',
                 index=False, header=False
             )
-            
+
             # gen data
             msg_to_lobster_format(gen_msg).to_csv(
                 save_folder + f'/data_gen/{stock_symbol}_{date}_message_real_id_{i}_gen_id_0.csv',
@@ -1179,17 +1187,17 @@ def sample_new(
                 save_folder + f'/data_gen/{stock_symbol}_{date}_orderbook_real_id_{i}_gen_id_0.csv',
                 index=False, header=False
             )
-            
+
 def msg_to_lobster_format(
         m_seq: jax.Array,
 ) -> pd.DataFrame:
-    """ 
+    """
     message format: [time, event_type, order_id, size, price, direction]
     """
     m_seq_ = onp.array(m_seq)[:, [TIMEs_i, TIMEns_i, EVENT_TYPE_i, ORDER_ID_i, SIZE_i, PRICE_ABS_i, DIRECTION_i]]
     m_seq_ = pd.DataFrame(m_seq_, columns=['time_s', 'time_ns', 'event_type', 'order_id', 'size', 'price', 'direction'])
 
-    # combine time field to single field    
+    # combine time field to single field
     m_seq_.insert(
         column = 'time',
         loc = 0,

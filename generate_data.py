@@ -2,33 +2,12 @@ import argparse
 import os
 import sys
 
-# # Add parent folder to path (to run this file from subdirectories)
-# (parent_folder_path, current_dir) = os.path.split(os.path.abspath(''))
-# sys.path.append(parent_folder_path)
-
-# # add git submodule to path to allow imports to work
-# submodule_name = 'AlphaTrade'
-# sys.path.append(os.path.join(parent_folder_path, submodule_name))
-
-# from gymnax_exchange.jaxob.jorderbook import OrderBook
-# from AlphaTrade import gymnax_exchange
-# from AlphaTrade.gymnax_exchange.jaxob.jorderbook import OrderBook
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 #os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".25"
 
 import torch
 torch.multiprocessing.set_start_method('spawn')
-
-
-
-# Add parent folder to path (to run this file from subdirectories)
-# (parent_folder_path, current_dir) = os.path.split(os.path.abspath(''))
-# sys.path.append(parent_folder_path)
-
-# # add git submodule to path to allow imports to work
-# submodule_name = 'AlphaTrade'
-# sys.path.append(os.path.join(parent_folder_path, submodule_name))
 
 import jax
 from lob.encoding import Vocab, Message_Tokenizer
@@ -44,7 +23,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--stock", type=str)
 parser.add_argument(
-    "--save_folder", type=str, default='/nfs/home/peern/LOBS5/data_saved/m500/')
+    "--save_folder", type=str, default='/nfs/home/peern/LOBS5/data_saved/')
 parser.add_argument(
     "--n_gen_msgs", type=int,
 	help="how many messages to generate following each input sequence")
@@ -58,6 +37,11 @@ parser.add_argument(
     "--model_size", type=str, default='large',)
 parser.add_argument(
     "--data_dir", type=str, default='/nfs/home/peern/LOBS5/data/test_set/',)
+parser.add_argument(
+    "--rng_seed", type=int, default=42,)
+parser.add_argument(
+    "--sample_all", action='store_true', default=False,
+    help="sample all data sequences, instead of randomly sampling")
 
 args = parser.parse_args()
 
@@ -74,21 +58,21 @@ seq_len = n_messages * Message_Tokenizer.MSG_LEN
 book_dim = 501 #b_enc.shape[1]
 book_seq_len = n_messages
 
-n_eval_messages = args.n_gen_msgs  # how many to load from dataset 
+n_eval_messages = args.n_gen_msgs  # how many to load from dataset
 eval_seq_len = n_eval_messages * Message_Tokenizer.MSG_LEN
 
-rng = jax.random.key(42)
+rng = jax.random.key(args.rng_seed)
 rng, rng_ = jax.random.split(rng)
 
 stock = args.stock # 'GOOG', 'INTC'
 
 if stock == 'GOOG':
     # ckpt_path = './checkpoints/treasured-leaf-149_84yhvzjt/' # 0.5 y GOOG, (full model)
-    ckpt_path = './checkpoints/denim-elevator-754_czg1ss71/' # large model
+    # ckpt_path = './checkpoints/denim-elevator-754_czg1ss71/' # large model
+    ckpt_path = './checkpoints/stilted-deluge-759_8g3vqor4'  # small model
 elif stock == 'INTC':
     # ckpt_path = './checkpoints/pleasant-cherry-152_i6h5n74c/' # 0.5 y INTC, (full model)
-    # TODO:
-    ckpt_path = '.'
+    ckpt_path = './checkpoints/eager-sea-755_2rw1ofs3/'  # large model
 else:
     raise ValueError(f'stock {stock} not recognized')
 
@@ -122,22 +106,13 @@ state = ckpt['model']
 
 model = model_cls(training=False, step_rescale=1.0)
 
-
-# entire test set after training data
+param_count = sum(x.size for x in jax.tree_leaves(state.params))
+print('param count:', param_count)
 
 data_dir = args.data_dir + stock
-# if stock == 'GOOG':
-#     data_dir = args.data_dir + '/GOOG/'
-# elif stock == 'INTC':
-    # data_dir = '/nfs/home/peern/LOBS5/data/test_set/INTC/'
-
 ds = inference.get_dataset(data_dir, n_messages, n_eval_messages)
 
-# rng, rng_ = jax.random.split(rng)
-
 print('Generating...')
-# m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = inference.sample_new(
-# saves data to disk
 inference.sample_new(
     n_samples,
     batch_size,
@@ -152,5 +127,6 @@ inference.sample_new(
     v.ENCODING,
     stock,
     save_folder=args.save_folder + '/' + stock + '/',
+    sample_all=args.sample_all,
 )
 print('DONE.')

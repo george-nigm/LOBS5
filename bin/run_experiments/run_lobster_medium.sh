@@ -6,4 +6,5 @@ python run_train.py --C_init=trunc_standard_normal --prenorm=True --batchnorm=Tr
                     --warmup_end=1 --weight_decay=0.05 --msg_seq_len=500 \
                     --use_book_data=True --use_simple_book=False --book_transform=True \
                     --masking=causal \
-                    --num_devices=8 --n_data_workers=4
+                    --num_devices=8 --n_data_workers=4 \
+                    --restore='/nfs/home/peern/LOBS5/checkpoints/spring-armadillo-756_4g99ra9s/'
