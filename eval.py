@@ -2,7 +2,7 @@ import os
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 else:
     # Forces all generated worker processes to not run on GPU.
     #  Required at this high level, because the init func in the 

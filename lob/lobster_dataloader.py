@@ -373,10 +373,10 @@ class LOBSTER_Dataset(Dataset):
         self._message_cache = OrderedDict()
         self.vocab = Vocab()
         self.mask_fn = mask_fn
-        if self.mask_fn==LOBSTER_Dataset.no_mask:
-            self.seq_len=self.n_messages* Message_Tokenizer.MSG_LEN
-        else:
-            NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
+        # if self.mask_fn==LOBSTER_Dataset.no_mask:
+        self.seq_len=self.n_messages* Message_Tokenizer.MSG_LEN
+        # else:
+            # NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
         self.rng = np.random.default_rng(seed)
         self.randomize_offset = randomize_offset
         self._reset_offsets()
@@ -396,10 +396,10 @@ class LOBSTER_Dataset(Dataset):
             else:
                 b = np.load(self.book_files[0], mmap_mode='r', allow_pickle=True)
                 self.d_book = b.shape[1]
-            if self.mask_fn==LOBSTER_Dataset.no_mask:
-                self.L_book=self.n_messages
-            else:
-                NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
+            # if self.mask_fn==LOBSTER_Dataset.no_mask:
+            self.L_book=self.n_messages
+            # else:
+            #     NotImplementedError("Need to confirm syntax for other mask funcs to ensure backward compat.")
         else:
             self.d_book = 0
             self.L_book = 0
@@ -655,7 +655,7 @@ class LOBSTER(SequenceDataset):
     _name_ = "lobster"
     l_output = 0
 
-    _collate_arg_names = ['book_data'] #['book_data'] #['timesteps']
+    _collate_arg_names = [] #['book_data'] #['timesteps']
 
     @classmethod
     def _collate_fn(cls, batch, *args, **kwargs):

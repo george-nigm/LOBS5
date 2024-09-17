@@ -1,8 +1,10 @@
 import os
-import jax
+# import jax
 from jax import random
-import jax.numpy as jnp
-import flax
+# import jax.numpy as jnp
+# import flax
+# import random
+import numpy as np
 import orbax.checkpoint as ocp
 import wandb
 
@@ -19,7 +21,6 @@ def train(args):
     """
     Main function to train over a certain number of epochs
     """
-
     best_test_loss = 100000000
     best_test_acc = -10000.0
 
@@ -50,7 +51,7 @@ def train(args):
 
     # Get dataset creation function
     ds = 'lobster-prediction'
-    #create_dataset_fn =  Datasets[ds]
+    # create_dataset_fn =  Datasets[ds]
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
@@ -161,6 +162,7 @@ def train(args):
 
         print('Training on', args.num_devices, 'devices.')
         train_rng, skey = random.split(train_rng)
+        # train_rng, skey = np.array([random.randint(1e9, 1e10) for _ in range(2)]),np.array([random.randint(1e9, 1e10) for _ in range(2)])
 
 
         #Pass an initial hidden state to be used in case of the 'RNN' forward pass being used. 

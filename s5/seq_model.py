@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as np
 from flax import linen as nn
+import torch
 from .layers import SequenceLayer
 
 
@@ -39,9 +40,9 @@ class StackedEncoderModel(nn.Module):
         Initializes a linear encoder and the stack of S5 layers.
         """
         if self.use_embed_layer:
-            self.encoder = nn.Embed(self.vocab_size, self.d_model)
+            self.encoder = torch.nn.Embedding(self.vocab_size, self.d_model).cuda()
         else:
-            self.encoder = nn.Dense(self.d_model)
+            self.encoder = torch.nn.Linear(self.d_model).cuda()
 
         #NOTE:  popjaxrl S5 doesn't have an encoding layer, tbd if this makes a differnce. 
 
@@ -71,7 +72,7 @@ class StackedEncoderModel(nn.Module):
         """
         #jax.debug.print("Before encoder in StackedEncoderModel {}",x.shape)
         #jax.debug.print("call x_m[0:5] before msg_enc.encoder : {}",x[0:5][0])
-        x = self.encoder(x)
+        x = self.encoder(torch.from_numpy(x).cuda())
         #jax.debug.print("call x_m[0:5] after msg_enc.encoder : {}",x[0:5][0])
 
         #jax.debug.print("After encoder in StackedEncoderModel {}",x.shape)

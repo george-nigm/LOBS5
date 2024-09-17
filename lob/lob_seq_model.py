@@ -1,9 +1,12 @@
 from functools import partial
-from typing import Tuple
-import jax
-import jax.numpy as jnp
-from flax import linen as nn
+from typing import Optional, Tuple
+# import jax
+import jax.numpy as np
+# from flax import linen as nn
+# import numpy as np
+import flax.linen as nn
 from s5.layers import SequenceLayer
+import torch
 from s5.seq_model import StackedEncoderModel, masked_meanpool
 
 
@@ -80,7 +83,7 @@ class LobPredModel(nn.Module):
             if self.padded:
                 x = masked_meanpool(x, length)
             else:
-                x = jnp.mean(x, axis=0)
+                x = np.mean(x, axis=0)
 
         elif self.mode in ["last"]:
             # Just take the last state
@@ -112,7 +115,7 @@ class LobPredModel(nn.Module):
             if self.padded:
                 x = masked_meanpool(x, length)
             else:
-                x = jnp.mean(x, axis=0)
+                x = np.mean(x, axis=0)
 
         elif self.mode in ["last"]:
             # Just take the last state
@@ -133,6 +136,8 @@ BatchLobPredModel = nn.vmap(
     out_axes=0,
     variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
     split_rngs={"params": False, "dropout": True}, axis_name='batch')
+
+# BatchLobPredModel = LobPredModel
 
 
 class LobBookModel(nn.Module):
@@ -318,23 +323,25 @@ class FullLobPredModel(nn.Module):
 
         x_m = self.message_out_proj(x_m.T).T
         x_b = self.book_out_proj(x_b.T).T
-        x = jnp.concatenate([x_m, x_b], axis=1)
+        x = np.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
-        x = self.fused_s5(x, jnp.ones(x.shape[0]))
+        x = self.fused_s5(x, np.ones(x.shape[0]))
 
         if self.mode in ["pool"]:
-            x = jnp.mean(x, axis=0)
+            x = np.mean(x, axis=0)
         elif self.mode in ["last"]:
             x = x[-1]
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last]")
 
         x = self.decoder(x)
-        return nn.log_softmax(x, axis=-1)
+        return nn.functional.log_softmax(x, axis=-1)
     
 
 
 # Here we call vmap to parallelize across a batch of input sequences
+# BatchFullLobPredModel = FullLobPredModel
+
 BatchFullLobPredModel = nn.vmap(
     FullLobPredModel,
     in_axes=(0, 0, 0, 0),
@@ -348,9 +355,9 @@ class PaddedLobPredModel(nn.Module):
     ssm: nn.Module
     d_output: int
     d_model: int
-    d_book: int
     n_message_layers: int
     n_fused_layers: int
+    d_book: Optional[int] = None
     n_book_pre_layers: int = 1
     n_book_post_layers: int = 1
     activation: str = "gelu"
@@ -361,12 +368,15 @@ class PaddedLobPredModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
+    use_book_data: bool = True
 
     def setup(self):
         """
         Initializes the S5 stacked encoder and a linear decoder.
         """
         # nn.checkpoint()
+        if self.use_book_data and self.d_book is None:
+            raise ValueError("Specifying d_book is required if use_book_data is True")
         self.message_encoder = StackedEncoderModel(
             ssm=self.ssm,
             d_model=self.d_model,
@@ -385,39 +395,42 @@ class PaddedLobPredModel(nn.Module):
         # applied to transposed message output to get seq len for fusion
         #self.message_out_proj = nn.Dense(self.d_model)  
         # nn.checkpoint()
-        self.book_encoder = LobBookModel(
-            ssm=self.ssm,
-            d_book=self.d_book,
-            d_model=self.d_model,
-            n_pre_layers=self.n_book_pre_layers,
-            n_post_layers=self.n_book_post_layers,
-            activation=self.activation,
-            dropout=self.dropout,
-            training=self.training,
-            prenorm=self.prenorm,
-            batchnorm=self.batchnorm,
-            bn_momentum=self.bn_momentum,
-            step_rescale=self.step_rescale,
-        )
+        if self.use_book_data:
+            self.book_encoder = LobBookModel(
+                ssm=self.ssm,
+                d_book=self.d_book,
+                d_model=self.d_model,
+                n_pre_layers=self.n_book_pre_layers,
+                n_post_layers=self.n_book_post_layers,
+                activation=self.activation,
+                dropout=self.dropout,
+                training=self.training,
+                prenorm=self.prenorm,
+                batchnorm=self.batchnorm,
+                bn_momentum=self.bn_momentum,
+                step_rescale=self.step_rescale,
+            )
 
 
-        # applied to transposed book output to get seq len for fusion
-        #self.book_out_proj = nn.Dense(self.d_model)
-        # nn.checkpoint()
+            # applied to transposed book output to get seq len for fusion
+            #self.book_out_proj = nn.Dense(self.d_model)
+            # nn.checkpoint()
 
-        self.fused_s5 = StackedEncoderModel(
-            ssm=self.ssm,
-            d_model=self.d_model,
-            n_layers=self.n_fused_layers,
-            activation=self.activation,
-            dropout=self.dropout,
-            training=self.training,
-            prenorm=self.prenorm,
-            batchnorm=self.batchnorm,
-            bn_momentum=self.bn_momentum,
-            step_rescale=self.step_rescale,
-        )
-        self.decoder = nn.Dense(self.d_output)
+            self.fused_s5 = StackedEncoderModel(
+                ssm=self.ssm,
+                d_model=self.d_model,
+                n_layers=self.n_fused_layers,
+                activation=self.activation,
+                dropout=self.dropout,
+                training=self.training,
+                prenorm=self.prenorm,
+                batchnorm=self.batchnorm,
+                bn_momentum=self.bn_momentum,
+                step_rescale=self.step_rescale,
+            )
+        else:
+            self.fused_s5 = self.message_encoder
+        self.decoder = torch.nn.Linear(self.d_model, self.d_output)
 
     def __call__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
         """
@@ -432,46 +445,48 @@ class PaddedLobPredModel(nn.Module):
         """
         #jax.debug.print("x_m shape: {}",x_m.shape)
 
-        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+        #x_b = np.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
         #jax.debug.print("call x_m[0:5] before msg_enc : {}",x_m[0:5])
+        if self.use_book_data:
+            x_m = self.message_encoder(x_m, message_integration_timesteps)
+            #jax.debug.print("call x_m[0:5] after msg_enc : {}",x_m[0:5][0])
+            x_b = self.book_encoder(x_b, book_integration_timesteps)
 
-        x_m = self.message_encoder(x_m, message_integration_timesteps)
-        #jax.debug.print("call x_m[0:5] after msg_enc : {}",x_m[0:5][0])
-        x_b = self.book_encoder(x_b, book_integration_timesteps)
+            # repeat book input to match message length
+            #Move this repeat to the dataloading and edit so that alignment works with shifted tokens. 
+            #x_b = np.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
+            #REPEAT SHOULD NO LONGER BE NEEDED DUE TO REPEATING HAPPENING IN DATALOADER
 
-        # repeat book input to match message length
-        #Move this repeat to the dataloading and edit so that alignment works with shifted tokens. 
-        #x_b = jnp.repeat(x_b, x_m.shape[0] // x_b.shape[0], axis=0)
-        #REPEAT SHOULD NO LONGER BE NEEDED DUE TO REPEATING HAPPENING IN DATALOADER
+            # token_index = 5 # TODO
 
-        # token_index = 5 # TODO
-
-        # # Calculate the repeat counts for each segment
-        # K = x_m.shape[0] // x_b.shape[0] # TODO number of tokens in one message
-        # repeats = [K - token_index] + [K] * (x_b.shape[0] - 2) + [token_index]
-        # x_b = jnp.concatenate([jnp.repeat(x_b[i:i+1], repeats[i], axis=0) for i in range(x_b.shape[0])], axis=0)
-        
+            # # Calculate the repeat counts for each segment
+            # K = x_m.shape[0] // x_b.shape[0] # TODO number of tokens in one message
+            # repeats = [K - token_index] + [K] * (x_b.shape[0] - 2) + [token_index]
+            # x_b = np.concatenate([np.repeat(x_b[i:i+1], repeats[i], axis=0) for i in range(x_b.shape[0])], axis=0)
             
-        x = jnp.concatenate([x_m, x_b], axis=1)
+                
+            x = np.concatenate([x_m, x_b], axis=1)
+        else:
+            x = x_m
         # TODO: again, check integration time steps make sense here
-        x = self.fused_s5(x, jnp.ones(x.shape[0]))
+        x = self.fused_s5(x, np.ones(x.shape[0]))
 
-        jax.debug.print("x output shape model {}",x.shape)
+        # jax.debug.print("x output shape model {}",x.shape)
 
         if self.mode in ["pool"]:
-            x = jnp.mean(x, axis=0)
+            x = np.mean(x, axis=0)
         elif self.mode in ["last"]:
             x = x[-1]
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last]")
         
-        jax.debug.print("x output shape after pool/last {}",x.shape)
+        # jax.debug.print("x output shape after pool/last {}",x.shape)
 
 
         x = self.decoder(x)
-        jax.debug.print("x output shape after decoder {}",x.shape)
+        # jax.debug.print("x output shape after decoder {}",x.shape)
 
-        return nn.log_softmax(x, axis=-1)
+        return nn.functional.log_softmax(x, axis=-1)
 
 
     #FOR AR version....
@@ -499,12 +514,12 @@ class PaddedLobPredModel(nn.Module):
 
         hiddens_m,x_m = self.message_encoder.__call_rnn__(hiddens_m, x_m,d_m, message_integration_timesteps)
         hiddens_b,x_b = self.book_encoder.__call_rnn__(hiddens_b,x_b,d_b ,book_integration_timesteps)
-        x = jnp.concatenate([x_m, x_b], axis=1)
+        x = np.concatenate([x_m, x_b], axis=1)
         # TODO: again, check integration time steps make sense here
-        hiddens_fused,x = self.fused_s5.__call_rnn__(hiddens_fused, x, d_f, jnp.ones(x.shape[0]))
+        hiddens_fused,x = self.fused_s5.__call_rnn__(hiddens_fused, x, d_f, np.ones(x.shape[0]))
 
         """if self.mode in ["pool"]:
-            x = jnp.mean(x, axis=0)
+            x = np.mean(x, axis=0)
         elif self.mode in ["last"]:
             x = x[-1]
         else:
@@ -513,6 +528,7 @@ class PaddedLobPredModel(nn.Module):
         x = self.decoder(x)
         return (hiddens_m, hiddens_b, hiddens_fused),nn.log_softmax(x, axis=-1)
 
+    @nn.compact
     def __call_ar__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
         """
         Compute the size d_output log softmax output given a
@@ -526,27 +542,32 @@ class PaddedLobPredModel(nn.Module):
         """
         #Uncomment to debug if no longer working in data-loader. 
 
-        x_m = self.message_encoder(x_m, message_integration_timesteps)
-        x_b = self.book_encoder(x_b, book_integration_timesteps)
+        if self.use_book_data:
+            x_m = self.message_encoder(x_m, message_integration_timesteps)
+            x_b = self.book_encoder(x_b, book_integration_timesteps)
 
-        #Works because book already repeated when loading data. 
-        x = jnp.concatenate([x_m, x_b], axis=1)
+            #Works because book already repeated when loading data. 
+            x = np.concatenate([x_m, x_b], axis=1)
+        else:
+            x = x_m
+        var = {"embedding": x_m}
+        self.variable("message_encoder_", "encoder", lambda _: var, {})
         # TODO: again, check integration time steps make sense here
-        x = self.fused_s5(x, jnp.ones(x.shape[0]))
+        x = self.fused_s5(x, np.ones(x.shape[0]))
 
         #Removed the pooling to enable each token to be a target,
         #  not just a random one in the last message. 
         """
         if self.mode in ["pool"]:
-            x = jnp.mean(x, axis=0)
+            x = np.mean(x, axis=0)
         elif self.mode in ["last"]:
             x = x[-1]
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last]")
         """
-        x =self.decoder(x)
+        x =self.decoder(x.to("cpu"))
         
-        x=nn.log_softmax(x, axis=-1)
+        x=torch.nn.functional.log_softmax(x, dim=-1)
         return x
     
     @staticmethod
@@ -573,24 +594,28 @@ OldBatchPaddedLobPredModel = nn.vmap(
     variable_axes=variable_axes_args,
     split_rngs=split_rngs_args, axis_name='batch',)
 
-BatchPaddedLobPredModel = nn.vmap(
-    PaddedLobPredModel,
-    in_axes=(0, 0, 0, 0),
-    out_axes=0,
-    variable_axes=variable_axes_args,
-    split_rngs=split_rngs_args, axis_name='batch',
-    methods={'__call__':{'in_axes':(0, 0, 0, 0),
-                         'out_axes':0,
-                         'variable_axes':variable_axes_args,
-                         'split_rngs':split_rngs_args,
-                         'axis_name':'batch'},
-            '__call_rnn__':{'in_axes':(0,0, 0, 0, 0, 0,0,0),
-                         'out_axes':0,
-                         'variable_axes':variable_axes_args,
-                         'split_rngs':split_rngs_args,
-                         'axis_name':'batch'},
-            '__call_ar__':{'in_axes':(0, 0, 0, 0),
-                         'out_axes':0,
-                         'variable_axes':variable_axes_args,
-                         'split_rngs':split_rngs_args,
-                         'axis_name':'batch'}})
+# OldBatchPaddedLobPredModel = PaddedLobPredModel
+
+# BatchPaddedLobPredModel = nn.vmap(
+#     PaddedLobPredModel,
+#     in_axes=(0, 0, 0, 0),
+#     out_axes=0,
+#     variable_axes=variable_axes_args,
+#     split_rngs=split_rngs_args, axis_name='batch',
+#     methods={'__call__':{'in_axes':(0, 0, 0, 0),
+#                          'out_axes':0,
+#                          'variable_axes':variable_axes_args,
+#                          'split_rngs':split_rngs_args,
+#                          'axis_name':'batch'},
+#             '__call_rnn__':{'in_axes':(0,0, 0, 0, 0, 0,0,0),
+#                          'out_axes':0,
+#                          'variable_axes':variable_axes_args,
+#                          'split_rngs':split_rngs_args,
+#                          'axis_name':'batch'},
+#             '__call_ar__':{'in_axes':(0, 0, 0, 0),
+#                          'out_axes':0,
+#                          'variable_axes':variable_axes_args,
+#                          'split_rngs':split_rngs_args,
+#                          'axis_name':'batch'}})
+
+BatchPaddedLobPredModel = PaddedLobPredModel

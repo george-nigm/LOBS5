@@ -1,14 +1,16 @@
 from functools import partial
 import numpy as onp
 import jax
-import jax.numpy as np
+# import jax.numpy as np
 # from jax.nn import one_hot
 from tqdm import tqdm
+import numpy as np
 from flax.training import train_state
 from flax import jax_utils
 import optax
 from typing import Any, Dict, Optional, Tuple, Union
 from lob.encoding import Message_Tokenizer
+from lob.lob_seq_model import PaddedLobPredModel
 
 # from lob.lob_seq_model import LobPredModel
 
@@ -94,7 +96,7 @@ def map_nested_fn(fn):
     return map_fn
 
 
-def create_train_state(model_cls,
+def create_train_state(model_cls: type[PaddedLobPredModel],
                        rng,
                        padded,
                        retrieval,
@@ -157,12 +159,12 @@ def create_train_state(model_cls,
             )
         else:
             # dummy_input = (np.ones((bsz, seq_len, in_dim), dtype=np.int32) , )
-            dummy_input = (np.ones((bsz, seq_len, ), dtype=np.int32) , )
-            integration_timesteps = (np.ones((bsz, seq_len, )), )
+            dummy_input = (np.ones((bsz, seq_len, ), dtype=np.int32) , np.array([]))
+            integration_timesteps = (np.ones((bsz, seq_len, )), np.array([]))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
-    
+
     jax.debug.print("Dummy input shapes (msg,book) ({}, \n {})",dummy_input[0].shape,dummy_input[1].shape)
     #RNN mode and initialisation needs to go in here if we need it. 
 
@@ -171,12 +173,13 @@ def create_train_state(model_cls,
                            *dummy_input, *integration_timesteps,
                            method='__call_ar__' 
                            )
-    
     if batchnorm:
-        params = variables["params"]#.unfreeze()
-        batch_stats = variables["batch_stats"]
+        # params = variables["params"]#.unfreeze()
+        params = variables
+        batch_stats = variables.get("batch_stats", {})
     else:
-        params = variables["params"]#.unfreeze()
+        params = variables
+        # params = variables["params"]#.unfreeze()
         # Note: `unfreeze()` is for using Optax.
 
     print(params['message_encoder']['encoder']['embedding'].shape)
@@ -384,16 +387,16 @@ def prep_batch(
 
     return inputs, labels, integration_times
 
-@partial(
-#    jax.vmap,
-    jax.pmap,
-    axis_name="batch_devices",
-    static_broadcasted_argnums=(2,),
-    # in_axes=(0, 0, None, None, 0, 0, 0),
-    in_axes=(0, 0, None, 0, 0, 0),
-    # out_axes=(0, 0, 0),
-    # devices=global_devices
-)
+# @partial(
+# #    jax.vmap,
+#     jax.pmap,
+#     axis_name="batch_devices",
+#     static_broadcasted_argnums=(2,),
+#     # in_axes=(0, 0, None, None, 0, 0, 0),
+#     in_axes=(0, 0, None, 0, 0, 0),
+#     # out_axes=(0, 0, 0),
+#     # devices=global_devices
+# )
 def _prep_batch_par(
         inputs: jax.Array,
         targets: jax.Array,
@@ -410,7 +413,8 @@ def _prep_batch_par(
     :param in_dim:      (int) dimension of input.
     :return:
     """
-
+    # TODO: properly handle batch dimension after getting rid of vmap
+    inputs = inputs.reshape((inputs.shape[1], inputs.shape[2]))
     assert inputs.shape[1] == seq_len, f'inputs: {inputs.shape} seq_len {seq_len}'
     # inputs = one_hot(inputs, in_dim)
 
@@ -435,7 +439,7 @@ def _prep_batch_par(
     # CAVE: squeeze very important for training!
     return full_inputs, np.squeeze(targets.astype(np.int32)), integration_timesteps
 
-@partial(jax.jit, static_argnums=(0,), backend='gpu')# backend='cpu')
+# @partial(jax.jit, static_argnums=(0,), backend='gpu')# backend='cpu')
 def device_reshape(
         num_devices: int,
         inputs: jax.Array,
@@ -541,8 +545,8 @@ def train_epoch(
     return state,loss_mean , ce_means,step
 
 
-@partial(jax.vmap,in_axes=(0,0,None),out_axes=(0,0))
-@partial(jax.jit,static_argnums=(2,))
+# @partial(jax.vmap,in_axes=(0,0,None),out_axes=(0,0))
+# @partial(jax.jit,static_argnums=(2,))
 def repeat_book(msg,book,shift_start):
     #DEFINITION OF START BOOK:
     if msg.shape[0]>book.shape[0]:
@@ -554,14 +558,14 @@ def repeat_book(msg,book,shift_start):
     #     book=np.concatenate([pad,book[:-1]])
     return (msg,book)
 
-@partial(
-    jax.pmap,
-    axis_name="batch_devices",
-    static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
-    in_axes=(0, None, 0, 0, 0, None),
-    # out_axes=(0, 0),
-    # devices=global_devices
-)
+# @partial(
+#     jax.pmap,
+#     axis_name="batch_devices",
+#     static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
+#     in_axes=(0, None, 0, 0, 0, None),
+#     # out_axes=(0, 0),
+#     # devices=global_devices
+# )
 def train_step(
         state: train_state.TrainState,
         rng: jax.dtypes.prng_key,  # 3
@@ -571,15 +575,20 @@ def train_step(
         batchnorm: bool, # 7
     ):
     #print('tracing par_loss_and_grad')
-
-    batch_inputs=repeat_book(*batch_inputs,True)
+    if len(batch_inputs) == 2:
+        batch_inputs=repeat_book(*batch_inputs,False)
+        x_m, x_b = batch_inputs
+        message_integration_timesteps, book_integration_timesteps = batch_integration_timesteps
+    else:
+        x_m, x_b = batch_inputs[0], None
+        message_integration_timesteps, book_integration_timesteps = batch_integration_timesteps[0], None
     # batch_integration_timesteps=repeat_book(*batch_integration_timesteps)
 
     def loss_fn(params):
         if batchnorm:
             logits, mod_vars = state.apply_fn( 
                 {"params": params, "batch_stats": state.batch_stats},
-                *batch_inputs, *batch_integration_timesteps,
+                x_m, x_b, message_integration_timesteps, book_integration_timesteps,
                 rngs={"dropout": rng},
                 mutable=["intermediates", "batch_stats"],
                 method='__call_ar__'
@@ -587,7 +596,7 @@ def train_step(
         else:
             logits, mod_vars = state.apply_fn(
                 {"params": params},
-                *batch_inputs, *batch_integration_timesteps,
+                x_m, x_b, message_integration_timesteps, book_integration_timesteps,
                 rngs={"dropout": rng},
                 mutable=["intermediates"],
                 method='__call_ar__'
@@ -597,7 +606,6 @@ def train_step(
         # jax.debug.print("Shape of Logits: {}",logits.shape)
         # jax.debug.print("Shape of Labels: {}", batch_labels.shape)
 
-        
         ce=cross_entropy_loss(logits, batch_labels)
         ce=np.mean(ce,axis=0)
         # jax.debug.print("Shape of CE: {}", ce.shape)
@@ -606,7 +614,10 @@ def train_step(
         # jax.debug.print("Shape of loss: {}", loss.shape)
         return loss, (mod_vars, logits,ce)
 
-    (loss, (mod_vars, logits,ce)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+    (loss, (mod_vars, logits,ce)) = loss_fn(state.params)
+    grads = []
+    breakpoint()
+    (loss_, (mod_vars_, logits_,ce_)), grads_ = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
 
     # UPDATE
     # calculate means over device dimension (first)
@@ -623,14 +634,14 @@ def train_step(
     #return loss, mod_vars, grads, state
     return state, loss, ce
 
-@partial(
-    jax.pmap,
-    axis_name="batch_devices",
-    static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
-    in_axes=(0, None, 0, 0, 0, None, None),
-    # out_axes=(0, 0),
-    # devices=global_devices
-)
+# @partial(
+#     jax.pmap,
+#     axis_name="batch_devices",
+#     static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
+#     in_axes=(0, None, 0, 0, 0, None, None),
+#     # out_axes=(0, 0),
+#     # devices=global_devices
+# )
 def train_step_rnn(
         state: train_state.TrainState,
         rng: jax.dtypes.prng_key,  # 3
@@ -709,14 +720,14 @@ def train_step_rnn(
     #return loss, mod_vars, grads, state
     return state, loss
 
-@partial(
-    jax.pmap,
-    axis_name="batch_devices",
-    static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
-    in_axes=(0, None, 0, 0, 0, None),
-    # out_axes=(0, 0),
-    # devices=global_devices
-)
+# @partial(
+#     jax.pmap,
+#     axis_name="batch_devices",
+#     static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
+#     in_axes=(0, None, 0, 0, 0, None),
+#     # out_axes=(0, 0),
+#     # devices=global_devices
+# )
 def train_step_old(
         state: train_state.TrainState,
         rng: jax.dtypes.prng_key,  # 3
@@ -797,13 +808,13 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
     aveloss, aveaccu = np.mean(concat_loss), np.mean(np.array(accuracies))
     return aveloss, aveaccu, ce_means,acc_means
 
-@partial(
-    jax.pmap,
-    axis_name="batch_devices",
-    static_broadcasted_argnums=(4,5),
-    in_axes=(0, 0, 0, 0, None, None, None),
-    # devices=global_devices
-)
+# @partial(
+#     jax.pmap,
+#     axis_name="batch_devices",
+#     static_broadcasted_argnums=(4,5),
+#     in_axes=(0, 0, 0, 0, None, None, None),
+#     # devices=global_devices
+# )
 def eval_step(
         batch_inputs,
         batch_labels,

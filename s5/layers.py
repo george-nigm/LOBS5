@@ -1,5 +1,7 @@
 from flax import linen as nn
 import jax
+import torch
+import numpy as np
 
 
 class SequenceLayer(nn.Module):
@@ -32,25 +34,44 @@ class SequenceLayer(nn.Module):
     def setup(self):
         """Initializes the ssm, batch/layer norm and dropout
         """
-        self.seq = self.ssm(step_rescale=self.step_rescale)
+        self.seq = self.ssm().to("cuda") #step_rescale=self.step_rescale
+
 
         if self.activation in ["full_glu"]:
-            self.out1 = nn.Dense(self.d_model)
-            self.out2 = nn.Dense(self.d_model)
+            self.out1 = torch.nn.Linear(self.d_model, self.d_model).cuda()
+            self.out2 = torch.nn.Linear(self.d_model, self.d_model).cuda()
         elif self.activation in ["half_glu1", "half_glu2"]:
-            self.out2 = nn.Dense(self.d_model)
+            self.out2 = torch.nn.Linear(self.d_model, self.d_model).cuda()
 
         if self.batchnorm:
-            self.norm = nn.BatchNorm(use_running_average=not self.training,
-                                     momentum=self.bn_momentum, axis_name='batch')
+            # TODO: Specify batch size better
+            self.norm = torch.nn.BatchNorm1d(11_000, momentum=self.bn_momentum).cuda()
         else:
-            self.norm = nn.LayerNorm()
+            self.norm = torch.nn.LayerNorm().cuda()
 
-        self.drop = nn.Dropout(
-            self.dropout,
-            broadcast_dims=[0],
-            deterministic=not self.training,
-        )
+        self.drop = torch.nn.Dropout(self.dropout).cuda()
+
+
+        # JAX IMPLEMENTATION
+        # ----------------------------------------------------------------------------
+        # if self.activation in ["full_glu"]:
+        #     self.out1 = nn.Dense(self.d_model)
+        #     self.out2 = nn.Dense(self.d_model)
+        # elif self.activation in ["half_glu1", "half_glu2"]:
+        #     self.out2 = nn.Dense(self.d_model)
+
+        # if self.batchnorm:
+        #     self.norm = nn.BatchNorm(use_running_average=not self.training,
+        #                              momentum=self.bn_momentum, axis_name='batch')
+        # else:
+        #     self.norm = nn.LayerNorm()
+
+        # self.drop = nn.Dropout(
+        #     self.dropout,
+        #     broadcast_dims=[0],
+        #     deterministic=not self.training,
+        # )
+        # ------------------------------------------------------------------------------
 
     def __call__(self, x):
         """
@@ -61,29 +82,35 @@ class SequenceLayer(nn.Module):
             output sequence (float32): (L, d_model)
         """
         #jax.debug.print("call x before prenorm : {}",x)
-
+        if not isinstance(x, torch.Tensor):
+            x = torch.from_numpy(np.array(x)).cuda()
         skip = x
         if self.prenorm:
             x = self.norm(x)
         
         #jax.debug.print("call x before ssm : {}",x)
-        x = self.seq(x)
+        # xt = jax.block_until_ready(x)
+        x = self.seq(x)#.cpu().numpy()
+
+        gelu = torch.nn.GELU()
+        sigmoid = torch.nn.Sigmoid()
+
         #jax.debug.print("call x_m after ssm : {}",x)
         if self.activation in ["full_glu"]:
-            x = self.drop(nn.gelu(x))
-            x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
+            x = self.drop(gelu(x))
+            x = self.out1(x) * sigmoid(self.out2(x))
             x = self.drop(x)
         elif self.activation in ["half_glu1"]:
-            x = self.drop(nn.gelu(x))
-            x = x * jax.nn.sigmoid(self.out2(x))
+            x = self.drop(gelu(x))
+            x = x * sigmoid(self.out2(x))
             x = self.drop(x)
         elif self.activation in ["half_glu2"]:
             # Only apply GELU to the gate input
-            x1 = self.drop(nn.gelu(x))
-            x = x * jax.nn.sigmoid(self.out2(x1))
+            x1 = self.drop(gelu(x))
+            x = x * sigmoid(self.out2(x1))
             x = self.drop(x)
         elif self.activation in ["gelu"]:
-            x = self.drop(nn.gelu(x))
+            x = self.drop(gelu(x))
         else:
             raise NotImplementedError(
                    "Activation: {} not implemented".format(self.activation))
@@ -94,6 +121,39 @@ class SequenceLayer(nn.Module):
         x = skip + x
         if not self.prenorm:
             x = self.norm(x)
+
+
+        # JAX IMPLEMTENTATION 
+        # -------------------------------------------------------------------
+
+        # #jax.debug.print("call x_m after ssm : {}",x)
+        # if self.activation in ["full_glu"]:
+        #     x = self.drop(nn.gelu(x))
+        #     x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
+        #     x = self.drop(x)
+        # elif self.activation in ["half_glu1"]:
+        #     x = self.drop(nn.gelu(x))
+        #     x = x * jax.nn.sigmoid(self.out2(x))
+        #     x = self.drop(x)
+        # elif self.activation in ["half_glu2"]:
+        #     # Only apply GELU to the gate input
+        #     x1 = self.drop(nn.gelu(x))
+        #     x = x * jax.nn.sigmoid(self.out2(x1))
+        #     x = self.drop(x)
+        # elif self.activation in ["gelu"]:
+        #     x = self.drop(nn.gelu(x))
+        # else:
+        #     raise NotImplementedError(
+        #            "Activation: {} not implemented".format(self.activation))
+        
+        # #jax.debug.print("call x_m[0:5] after activation : {}",x[0:2][0][0:2])
+
+
+        # x = skip + x
+        # if not self.prenorm:
+        #     x = self.norm(x)
+
+        # -------------------------------------------------------------------
 
 
         return x

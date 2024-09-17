@@ -2,33 +2,26 @@ from __future__ import annotations
 import json
 import os
 from argparse import Namespace
-from glob import glob
 from functools import partial
 from typing import Any, Optional, Tuple, Union
+from jax import random
 import jax
 import jax.numpy as np
 from jax import random
-import flax
 from flax import jax_utils
-import orbax
 import orbax.checkpoint as ocp
 from flax.training.train_state import TrainState
-from jax.scipy.linalg import block_diag
 from flax.training import checkpoints
-from flax import linen as nn
 from orbax import checkpoint
-from lob.encoding import Vocab
 from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel,OldBatchPaddedLobPredModel, FullLobPredModel#, ParFullLobPredModel
 
-#from lob.lob_seq_model import BatchLobPredModel
-from lob.train_helpers import create_train_state#, eval_step, prep_batch, cross_entropy_loss, compute_accuracy
-from s5.ssm import init_S5SSM
-from s5.ssm_init import make_DPLR_HiPPO
+# from lob.lob_seq_model import BatchLobPredModel
+from lob.train_helpers import create_train_state
+# from s5.ssm_init import make_DPLR_HiPPO
 # from s5.dataloading import make_data_loader
 # from lob.lobster_dataloader import LOBSTER_Dataset, LOBSTER
 
-import lob.validation_helpers as valh
-
+from mamba_ssm import Mamba2
 
 def deduplicate_trainstate(
         state: TrainState,
@@ -75,31 +68,31 @@ def save_checkpoint(
     )
 
 
-# def load_checkpoint(
-#         state: TrainState,
-#         path: str,
-#         config_dict: dict,
-#         step: Optional[int] = None,
-#     ) -> TrainState:
-#     ckpt = {
-#         'model': state,
-#         'config': config_dict,
-#         'metrics': {
-#             'loss_train': np.nan,
-#             'loss_val': np.nan,
-#             'loss_test': np.nan,
-#             'acc_val': np.nan,
-#             'acc_test': np.nan,
-#         }
-#     }
-#     orbax_checkpointer = checkpoint.PyTreeCheckpointer()
-#     restored = checkpoints.restore_checkpoint(
-#         path,
-#         ckpt,
-#         step=step,
-#         orbax_checkpointer=orbax_checkpointer
-#     )
-#     return restored
+def load_checkpoint(
+        state: TrainState,
+        path: str,
+        config_dict: dict,
+        step: Optional[int] = None,
+    ) -> TrainState:
+    ckpt = {
+        'model': state,
+        'config': config_dict,
+        'metrics': {
+            'loss_train': np.nan,
+            'loss_val': np.nan,
+            'loss_test': np.nan,
+            'acc_val': np.nan,
+            'acc_test': np.nan,
+        }
+    }
+    orbax_checkpointer = checkpoint.PyTreeCheckpointer()
+    restored = checkpoints.restore_checkpoint(
+        path,
+        ckpt,
+        step=step,
+        orbax_checkpointer=orbax_checkpointer
+    )
+    return restored
 
 def load_metadata(
         path: str,
@@ -159,7 +152,6 @@ def init_train_state(
                                   partial[BatchFullLobPredModel],
                                   partial[BatchPaddedLobPredModel],
                                   partial[OldBatchPaddedLobPredModel]]]:
-
     in_dim = n_classes
 
     ssm_size = args.ssm_size_base
@@ -170,31 +162,35 @@ def init_train_state(
 
     # determine the size of initial blocks
     block_size = int(ssm_size / args.blocks)
-
+    
     key = random.PRNGKey(args.jax_seed)
     init_rng, train_rng = random.split(key, num=2)
+    # init_rng= torch.randint(int(1e9), int(1e10), (2,))
+    # key = random.PRNGKey(args.jax_seed)
+    # init_rng, train_rng = random.split(key, num=2)
 
     # Initialize state matrix A using approximation to HiPPO-LegS matrix
-    Lambda, _, B, V, B_orig = make_DPLR_HiPPO(block_size)
+    # Lambda, _, B, V, B_orig = make_DPLR_HiPPO(block_size)
+
 
     if args.conj_sym:
         block_size = block_size // 2
         ssm_size = ssm_size // 2
 
-    Lambda = Lambda[:block_size]
-    V = V[:, :block_size]
-    Vc = V.conj().T
+    # Lambda = Lambda[:block_size]
+    # V = V[:, :block_size]
+    # Vc = V.conj().T
 
-    # If initializing state matrix A as block-diagonal, put HiPPO approximation
-    # on each block
-    Lambda = (Lambda * np.ones((args.blocks, block_size))).ravel()
-    V = block_diag(*([V] * args.blocks))
-    Vinv = block_diag(*([Vc] * args.blocks))
+    # # If initializing state matrix A as block-diagonal, put HiPPO approximation
+    # # on each block
+    # Lambda = (Lambda * np.ones((args.blocks, block_size))).ravel()
+    # V = block_diag(*([V] * args.blocks))
+    # Vinv = block_diag(*([Vc] * args.blocks))
 
     if print_shapes:
-        print("Lambda.shape={}".format(Lambda.shape))
-        print("V.shape={}".format(V.shape))
-        print("Vinv.shape={}".format(Vinv.shape))
+        # print("Lambda.shape={}".format(Lambda.shape))
+        # print("V.shape={}".format(V.shape))
+        # print("Vinv.shape={}".format(Vinv.shape))
         print("book_seq_len", book_seq_len)
         print("book_dim", book_dim)
 
@@ -202,21 +198,26 @@ def init_train_state(
     retrieval = False
     speech = False
 
-    ssm_init_fn = init_S5SSM(
-        H=args.d_model,
-        P=ssm_size,
-        Lambda_re_init=Lambda.real,
-        Lambda_im_init=Lambda.imag,
-        V=V,
-        Vinv=Vinv,
-        C_init=args.C_init,
-        discretization=args.discretization,
-        dt_min=args.dt_min,
-        dt_max=args.dt_max,
-        conj_sym=args.conj_sym,
-        clip_eigs=args.clip_eigs,
-        bidirectional=args.bidirectional
+    ssm_init_fn = partial(Mamba2,
+        d_model=args.d_model,
+        d_state=ssm_size,
+        expand=2,
     )
+    # ssm_init_fn = init_S5SSM(
+    #     H=args.d_model,
+    #     P=ssm_size,
+    #     Lambda_re_init=Lambda.real,
+    #     Lambda_im_init=Lambda.imag,
+    #     V=V,
+    #     Vinv=Vinv,
+    #     C_init=args.C_init,
+    #     discretization=args.discretization,
+    #     dt_min=args.dt_min,
+    #     dt_max=args.dt_max,
+    #     conj_sym=args.conj_sym,
+    #     clip_eigs=args.clip_eigs,
+    #     bidirectional=args.bidirectional
+    # )
     
     if args.use_book_data:
         # if args.num_devices > 1:
@@ -275,18 +276,21 @@ def init_train_state(
             raise NotImplementedError("Message only model not implemented for multi-device training")
         
         model_cls = partial(
-            BatchLobPredModel,
+            BatchPaddedLobPredModel,
             ssm=ssm_init_fn,
             d_output=n_classes,
             d_model=args.d_model,
-            n_layers=args.n_layers,
-            padded=padded,
+            # n_layers=args.n_layers,
+            n_message_layers=args.n_layers,   # TODO: make this better
+            n_fused_layers=args.n_layers,   # TODO: make this better
+            # padded=padded,
             activation=args.activation_fn,
             dropout=args.p_dropout,
             mode=args.mode,
             prenorm=args.prenorm,
             batchnorm=args.batchnorm,
             bn_momentum=args.bn_momentum,
+            use_book_data=False,
         )
 
     # initialize training state

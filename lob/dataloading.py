@@ -51,7 +51,6 @@ def create_lobster_prediction_dataset(
 	)
 	dataset_obj.setup()
  
-	# breakpoint()
 
 	print("Using mask function:", mask_fn)
 
