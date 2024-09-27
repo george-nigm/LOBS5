@@ -1,4 +1,4 @@
- python3 eval.py --restore="/data1/sascha/data/checkpoints/toasty-pine-206_7lo414ol/" \
+ python3 run_eval.py --restore="/data1/sascha/data/checkpoints/toasty-pine-206_7lo414ol/" \
                         --dir_name="/data1/sascha/data/GOOG2017to2019/" \
                         --restore_step=9 \
                         --n_data_workers=4 \

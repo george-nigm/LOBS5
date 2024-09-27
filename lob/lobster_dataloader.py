@@ -6,6 +6,7 @@ import sys
 from typing import Sequence
 import numpy as np
 from collections import OrderedDict
+import math
 
 #import os
 #os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
@@ -133,8 +134,9 @@ class LOBSTER_Dataset(Dataset):
     
     @staticmethod
     def inference_mask(seq,order_books=None):
-        """ Identity function, shouldn't even return the labels. 
+        """ Identity function, shouldn't even return the labels.
         """
+        seq=np.concatenate([[Vocab.START_TOK],seq])
         return (seq,order_books), np.array(0)
 
     # @staticmethod
@@ -343,6 +345,7 @@ class LOBSTER_Dataset(Dataset):
             # and hence the book state after the message is
             # already available (shifts by one)
             inference=False,
+            limit_seq_per_file=math.inf
             ) -> None:
 
 
@@ -382,7 +385,7 @@ class LOBSTER_Dataset(Dataset):
         self._reset_offsets()
         self._set_book_dims()
         self._seqs_per_file = np.array(
-            [(self._get_num_rows(f) - self.seq_offsets[i]) // n_messages
+            [min((self._get_num_rows(f) - self.seq_offsets[i]) // n_messages,limit_seq_per_file)
              for i, f in enumerate(message_files)])
         # store at which observations files start
         self._seqs_cumsum = np.concatenate(([0], np.cumsum(self._seqs_per_file)))
@@ -392,7 +395,7 @@ class LOBSTER_Dataset(Dataset):
     def _set_book_dims(self):
         if self.use_book_data:
             if self.book_transform:
-                self.d_book = self.book_depth + 1
+                self.d_book = self.book_depth + 3
             else:
                 b = np.load(self.book_files[0], mmap_mode='r', allow_pickle=True)
                 self.d_book = b.shape[1]
@@ -429,6 +432,7 @@ class LOBSTER_Dataset(Dataset):
             return list(zip(*[self[i] for i in idx]))
 
         file_idx, seq_idx = self._get_seq_location(idx)
+        # print(f"lobster_dataloader.py: File index is {file_idx}, seq idx is {seq_idx} and offset for file is {self.seq_offsets[file_idx]}")
         
         # load sequence from file directly without cache
         if self.n_cache_files == 0:
@@ -451,6 +455,7 @@ class LOBSTER_Dataset(Dataset):
         seq_end = seq_start + self.n_messages
         
         X_raw = np.array(X[seq_start: seq_end])
+        # print(X_raw[0])
         # encode message
 
         X = encode_msgs(X_raw, self.vocab.ENCODING)
@@ -462,10 +467,10 @@ class LOBSTER_Dataset(Dataset):
             # the book state with the same index (prior to the message)
 
 
-            book = book[seq_start + self.inference: seq_end + self.inference].copy()
+            book = book[seq_start: seq_end + self.inference].copy()
     
             if self.return_raw_msgs:
-                book_l2_init = book[0, 1:].copy()
+                book_l2_init = book[0, 3:].copy()
             # t0=time.time()
             # tranform from L2 (price volume) representation to fixed volume image 
             if self.book_transform:
@@ -487,6 +492,7 @@ class LOBSTER_Dataset(Dataset):
             X = X.reshape(-1)
             X, y = self.mask_fn(np.array(X), book)
             X,book=X
+            # print(book[0])
             y=y.reshape(-1)
             
             # TODO: look into aux_data (could we still use time when available?)
@@ -573,7 +579,8 @@ class LOBSTER_Sampler(Sampler):
 
     def __iter__(self):
         # reset days and active indices whenever new iterator is created (e.g. new epoch)
-        self.reset()
+        print("lobster_dataloader.py: omitting the reset function. ")
+        # self.reset()
 
         while len(self.days_unused) > 0 or len(self.active_indices) >= self.batch_size:
             batch = []
@@ -692,6 +699,7 @@ class LOBSTER(SequenceDataset):
             "n_cache_files": 0,
             "book_depth": 500,
             "return_raw_msgs": False,
+            "rand_offset": True,
         }
 
     def setup(self):
@@ -743,7 +751,7 @@ class LOBSTER(SequenceDataset):
             mask_fn=self.mask_fn,
             seed=self.rng.randint(0, sys.maxsize),
             n_cache_files=self.n_cache_files,
-            randomize_offset=True,
+            randomize_offset=self.rand_offset,
             book_files=self.train_book_files,
             use_simple_book=self.use_simple_book,
             book_transform=self.book_transform,

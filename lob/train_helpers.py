@@ -9,6 +9,7 @@ from flax import jax_utils
 import optax
 from typing import Any, Dict, Optional, Tuple, Union
 from lob.encoding import Message_Tokenizer
+import sys
 
 # from lob.lob_seq_model import LobPredModel
 
@@ -471,6 +472,7 @@ def train_epoch(
         debug_profiler,
         curtail_epochs,
         init_hiddens,
+        epoch,
     ):
 
     """
@@ -483,10 +485,6 @@ def train_epoch(
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
     #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
     for batch_idx, batch in enumerate(tqdm(trainloader)):
-        # # CAVE TODO: REMOVE!
-        # if batch_idx > 10:
-        #     break
-        # inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim, num_devices)
 
         if not debug_loading:
             if (step>1) & (step<3) & debug_profiler:
@@ -506,7 +504,7 @@ def train_epoch(
             #     init_hiddens)
 
 
-            state, loss, ce = train_step(
+            state, loss, ce, logits = train_step(
                 state,
                 drop_rng,
                 inputs,
@@ -517,6 +515,15 @@ def train_epoch(
             if debug_profiler:
                 loss.block_until_ready()
             
+            if (batch_idx==0) & (epoch%100==0):
+                np.set_printoptions(threshold=sys.maxsize)
+                with open(f'/data1/sascha/data/losses/losses_batch_{batch_idx}_training.txt', 'w') as f:
+                    print( ce, file=f)
+                print("Printing logits of shape ", logits.shape, " to file")
+                with open(f'/data1/sascha/data/losses/logits_batch_{batch_idx}_training.txt', 'w') as f:
+                    print( logits[0,0,0:44,:], file=f)
+                np.set_printoptions()
+                print('Done Printing')
 
             # losses are already averaged across devices (--> should be all the same here)
             batch_losses.append(loss[0])
@@ -608,6 +615,8 @@ def train_step(
 
     (loss, (mod_vars, logits,ce)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
 
+
+
     # UPDATE
     # calculate means over device dimension (first)
     loss = jax.lax.pmean(loss, axis_name="batch_devices")
@@ -621,7 +630,7 @@ def train_step(
         state = state.apply_gradients(grads=grads)
 
     #return loss, mod_vars, grads, state
-    return state, loss, ce
+    return state, loss, ce, logits
 
 @partial(
     jax.pmap,
@@ -766,17 +775,39 @@ def train_step_old(
     return state, loss
 
 
-def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, curtail_epoch=None, ignore_times=False, step_rescale=1.0):
+def validate(state,
+             apply_fn,
+             testloader,
+             seq_len,
+             in_dim,
+             batchnorm,
+             num_devices,
+             epoch,
+             curtail_epoch=None,
+             ignore_times=False,
+             step_rescale=1.0,
+             apply_method='__call_ar__',
+             init_hiddens=(np.array([0]))):
     """Validation function that loops over batches"""
     # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     losses, accuracies, preds = [], [], []
     for batch_idx, batch in enumerate(tqdm(testloader)):
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, num_devices)
+        # print("eval step with method: ", apply_method)
         loss, acc, pred = eval_step(
-            inputs, labels, integration_timesteps, state, apply_fn, batchnorm)
+            inputs, labels, integration_timesteps, state, apply_fn, batchnorm,apply_method,init_hiddens)
         # losses = np.append(losses, loss)
         # accuracies = np.append(accuracies, acc)
 
+        if (batch_idx==0) & (epoch%100==0): 
+            np.set_printoptions(threshold=sys.maxsize)
+            with open(f'/data1/sascha/data/losses/losses_batch_{batch_idx}_testing_applying_{apply_method}.txt', 'w') as f:
+                print(loss, file=f)
+            print("Printing logits of shape ", pred.shape, " to file")
+            with open(f'/data1/sascha/data/losses/logits_batch_{batch_idx}_testing_applying_{apply_method}.txt', 'w') as f:
+                print(pred[0,0,0:44,:], file=f)
+            np.set_printoptions()
+            print("Done Printing")
         if ignore_times:
             indx=np.arange(0,inputs[0].shape[-1])
             modulo=indx%Message_Tokenizer.MSG_LEN
@@ -800,8 +831,8 @@ def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_device
 @partial(
     jax.pmap,
     axis_name="batch_devices",
-    static_broadcasted_argnums=(4,5),
-    in_axes=(0, 0, 0, 0, None, None, None),
+    static_broadcasted_argnums=(4,5,6),
+    in_axes=(0, 0, 0, 0, None, None, None,None),
     # devices=global_devices
 )
 def eval_step(
@@ -812,21 +843,99 @@ def eval_step(
         #model,
         apply_fn,
         batchnorm,
-        ignore_times=False,
+        apply_method,
+        init_hiddens,
     ):
     batch_inputs=repeat_book(*batch_inputs,True)
-    if batchnorm:
-        logits = apply_fn({"params": state.params, "batch_stats": state.batch_stats},
-                             *batch_inputs, *batch_integration_timesteps,
-                             method='__call_ar__',
-                             )
-    else:
-        logits = apply_fn({"params": state.params},
-                             *batch_inputs, *batch_integration_timesteps,
-                             method='__call_ar__',
-                             )
+
+    if apply_method == '__call_ar__':
+        if batchnorm:
+            logits = apply_fn({"params": state.params, "batch_stats": state.batch_stats},
+                                *batch_inputs, *batch_integration_timesteps,
+                                method=apply_method,
+                                )
+        else:
+            logits = apply_fn({"params": state.params},
+                                *batch_inputs, *batch_integration_timesteps,
+                                method=apply_method,
+                                )
+    elif apply_method == '__call_rnn__':
+        dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*3
+
+        if batchnorm:
+            hiddens,logits=apply_fn(
+                        {"params": state.params, "batch_stats": state.batch_stats},
+                        init_hiddens,
+                        *batch_inputs,
+                        *dones,
+                        *batch_integration_timesteps,
+                        method='__call_rnn__'
+                    )
+        else:
+            hiddens,logits=apply_fn(
+                        {"params": state.params},
+                        init_hiddens,
+                        *batch_inputs,
+                        *dones,
+                        *batch_integration_timesteps,
+                        method='__call_rnn__'
+                    )
+    elif apply_method == 'scan_rnn':
+        dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*3
+        hiddens,logits=eval_rnn_scan(apply_fn,
+                                     init_hiddens,
+                                     state,
+                                     batch_inputs,
+                                     dones,
+                                     batch_integration_timesteps,
+                                     batchnorm)
+
+
 
     losses = cross_entropy_loss(logits, batch_labels)  
     accs = compute_accuracy(logits, batch_labels)
 
     return losses, accs, logits
+
+
+def eval_rnn_scan(apply_fn,hiddens,state,batch_inputs,batch_dones,batch_inttimes,batchnorm):
+    def apply_fn_scan(carry,x):
+        (hiddens,state)=carry
+        (batch_inputs,batch_dones,batch_inttimes)=x
+        if batchnorm:
+            hiddens,logits=apply_fn(
+                    {"params": state.params, "batch_stats": state.batch_stats},
+                    hiddens,
+                    *batch_inputs,
+                    *batch_dones,
+                    *batch_inttimes,
+                    method='__call_rnn__'
+                )
+        else:
+            hiddens,logits=apply_fn(
+                    {"params": state.params},
+                    hiddens,
+                    *batch_inputs,
+                    *batch_dones,
+                    *batch_inttimes,
+                    method='__call_rnn__'
+                )
+        return (hiddens,state),logits
+    #FIXME : Poor practice, but just for debugging purposes. 
+    Ntoks=11000
+
+    init=(hiddens,state)
+    xs=(batch_inputs,batch_dones,batch_inttimes)
+    
+    xs=jax.tree_util.tree_map(partial(swap_leading,Ntoks),xs)
+    
+    carry_out,logits=jax.lax.scan(apply_fn_scan,init,xs)
+    (hiddens,state)
+    logits=np.concatenate(logits,axis=-2)
+    return hiddens,logits
+    
+def swap_leading(targetsize,x):
+    x=np.expand_dims(x,0)
+    x=np.swapaxes(x,0,x.shape.index(targetsize))
+    return x
+

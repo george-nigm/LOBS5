@@ -3,11 +3,11 @@ import os
 import sys
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # os.environ['XLA_FLAGS'] ='--xla_gpu_deterministic_ops=true'
 
 
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".95"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".90"
 
 import torch
 torch.multiprocessing.set_start_method('spawn')
@@ -50,19 +50,21 @@ from s5.ssm import *
 # from s5.ssm_init import make_DPLR_HiPPO
 # from s5.dataloading import make_data_loader
 # from lob_seq_model import LobPredModel
-from encoding import Vocab, Message_Tokenizer
+from lob.encoding import Vocab, Message_Tokenizer
 # from lobster_dataloader import LOBSTER_Dataset, LOBSTER_Subset, LOBSTER_Sampler, LOBSTER
 
 import preproc
 # import inference
 from lob import inference_no_errcorr as inference
-import validation_helpers as valh
+import lob.validation_helpers as valh
 from lob.init_train import init_train_state, load_checkpoint, load_metadata, load_args_from_checkpoint
 # import lob.encoding as encoding
 
 
 import lob.evaluation as eval
 from preproc import transform_L2_state
+
+
 
 ##################################################
 
@@ -77,8 +79,8 @@ if __name__ == "__main__":
 
 
     if run_args.stock == 'GOOG':
-        data_dir = '/data1/sascha/data/GOOG2017to2019'
-        ckpt_path='/data1/sascha/data/checkpoints/toasty-pine-206_7lo414ol'
+        data_dir = '/data1/sascha/data/lobster_preproced/GOOG2019/'
+        ckpt_path='/data1/sascha/LOBS5/checkpoints/solar-glade-442_kx0b24ws/'
     elif run_args.stock == 'INTC':
         raise NotImplementedError("Nothing trained for INTC yet")
     elif run_args.stock == 'TSLA':
@@ -89,11 +91,10 @@ if __name__ == "__main__":
     ##################################################
 
     n_gen_msgs = 1000  #500 # how many messages to generate into the future
-    n_messages_conditional = 500
-    n_eval_messages = 1000  # how many to load from dataset 
+    n_messages_conditional = 0
+    n_eval_messages = n_gen_msgs  # how many to load from dataset 
     eval_seq_len = (n_eval_messages-1) * Message_Tokenizer.MSG_LEN
     cond_seq_len = (n_messages_conditional) * Message_Tokenizer.MSG_LEN
-
     data_levels = 10
     # TODO: deprecated - remove from functions
     sim_book_levels = 20 # 10  # order book simulator levels
@@ -103,13 +104,13 @@ if __name__ == "__main__":
 
     v = Vocab()
     n_classes = len(v)
-    book_dim = 501 #b_enc.shape[1]
+    book_dim = 503 #b_enc.shape[1]
     eval_book_seq_len = eval_seq_len
 
 
     rng = jax.random.key(42)
     rng, rng_ = jax.random.split(rng)
-    sample_top_n = -1
+    sample_top_n = 1
     tick_size = 100
 
     # load train state from disk
@@ -132,6 +133,7 @@ if __name__ == "__main__":
     ckpt = load_checkpoint(
         new_train_state,
         ckpt_path,
+        step=90,
         train=False,
     )
     state = ckpt['model']
@@ -146,7 +148,6 @@ if __name__ == "__main__":
     ##################################################
 
     import lob.evaluation as eval
-    from preproc import transform_L2_state
 
     # n_gen_msgs = 100  #500 # how many messages to generate into the future
     # n_messages = 500
@@ -162,7 +163,12 @@ if __name__ == "__main__":
     msg_files = sorted(glob(str(data_dir) + '/*message*.npy'))
     book_files = sorted(glob(str(data_dir) + '/*book*.npy'))
 
-    ds = inference.get_dataset(data_dir, n_messages_conditional, n_eval_messages)
+    ds = inference.get_dataset(data_dir,
+                               n_messages_conditional,
+                               n_eval_messages,
+                            #    day_indeces= [0],
+                            #    limit_seq=4 
+                               )
 
     print("Dataset length: ", len(ds))
     # ds = LOBSTER_Dataset(
@@ -195,8 +201,8 @@ if __name__ == "__main__":
 
 
 
-    n_samples = 160
-    batch_size = 16
+    n_samples = 512
+    batch_size = 32
 
     # m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = inference.sample_new(
     # saves data to disk
@@ -213,9 +219,8 @@ if __name__ == "__main__":
         args.batchnorm,
         v.ENCODING,
         run_args.stock,
-        save_folder='/data1/sascha/data/GOOG_toastypine/',
+        save_folder='/data1/sascha/data/generated_data/post_debug',
         sample_top_n=sample_top_n,
         args=args,
-        conditional= True,
-        init_time = (jnp.array([0]),jnp.array([0])),
+        conditional= False,
     )

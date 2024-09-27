@@ -14,7 +14,7 @@ os.environ["NCCL_DEBUG"]="INFO"
 #os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 if __name__ == "__main__":
-	os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+	os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 else:
 	# Forces all generated worker processes to not run on GPU.
 	#  Required at this high level, because the init func in the 
@@ -26,7 +26,7 @@ from lob.dataloading import Datasets
 if __name__ == "__main__":
 	import argparse
 	from s5.utils.util import str2bool
-	os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+	os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.9"
 	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 
@@ -161,7 +161,10 @@ if __name__ == "__main__":
 					help="Set flag to True to use the TB profiler.")
 	parser.add_argument("--curtail_epochs", type=int, default=None,
 				help="End epoch after n steps. Default is None, never. ")
-	
+	parser.add_argument("--random_offsets_train", type=str2bool, default=True,
+				help="Whether or not the training data is offset randomly at each epoch.")
+	parser.add_argument("--shuffle_train", type=str2bool, default=True,
+				help="Whether or not the training data shuffled.")
 	
 
 	args = parser.parse_args()

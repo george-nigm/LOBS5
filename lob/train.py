@@ -78,7 +78,11 @@ def train(args):
             use_simple_book=args.use_simple_book,
             book_transform=args.book_transform,
             n_data_workers=args.n_data_workers,
+            shuffle_train=args.shuffle_train,
+            rand_offset=args.random_offsets_train,
         )
+
+    
 
     print(f"[*] Starting S5 Training on {ds} =>> Initializing...")
     if args.debug_loading:
@@ -113,13 +117,13 @@ def train(args):
     step = 0  # for per step learning rate decay
     steps_per_epoch = int(train_size/args.bsz)
 
-    
+    # print("USING VERY INFREQUENT CHECKPOINTING FOR TINY EPOCH SIZE ")
 
     mgr_options = ocp.CheckpointManagerOptions(
         save_interval_steps=1,
         create=True,
         max_to_keep=10,
-        keep_period=10,
+        keep_period=5,
         # step_prefix=f'{run.name}_{run.id}',
         # enable_async_checkpointing=False,
     )
@@ -185,19 +189,23 @@ def train(args):
                                               args.debug_loading,
                                               args.enable_profiler,
                                               args.curtail_epochs,
-                                              init_hidden,)
-        # reinit training loader, so that sequences are initialised with
-        del trainloader
-        # different offsets
-        trainloader = create_lobster_train_loader(
-            lobster_dataset,
-            int(random.randint(skey, (1,), 0, 100000)[0]),
-            args.bsz,
-            num_workers=args.n_data_workers,
-            reset_train_offsets=True)
+                                              init_hidden,
+                                              epoch)
+
+        if args.random_offsets_train:
+            # reinit training loader, so that sequences are initialised with
+            del trainloader
+            # # different offsets
+            trainloader = create_lobster_train_loader(
+                lobster_dataset,
+                int(random.randint(skey, (1,), 0, 100000)[0]),
+                args.bsz,
+                num_workers=args.n_data_workers,
+                reset_train_offsets=args.random_offsets_train,
+                shuffle=args.shuffle_train)
 
         if valloader is not None:
-            print(f"[*] Running Epoch {epoch + 1} Validation...")
+            print(f"[*] Running Epoch {epoch + 1} Validation ") #on train set (With call)...
             (val_loss,
               val_acc,
                 val_ce_means,
@@ -209,9 +217,11 @@ def train(args):
                                         in_dim,
                                         args.batchnorm,
                                         args.num_devices,
-                                        curtail_epoch=args.curtail_epochs)
+                                        epoch,
+                                        curtail_epoch=args.curtail_epochs,
+                                        apply_method='__call_ar__')
 
-            print(f"[*] Running Epoch {epoch + 1} Test...")
+            print(f"[*] Running Epoch {epoch + 1} Test ") #on train set (With Call RNN)...
             (test_loss, test_acc,
               test_ce_means,test_acc_means) = validate(state,
                                            #model_cls,
@@ -221,11 +231,14 @@ def train(args):
                                            in_dim,
                                            args.batchnorm,
                                            args.num_devices,
-                                           curtail_epoch=args.curtail_epochs,)
+                                           epoch,
+                                           curtail_epoch=args.curtail_epochs,
+                                           apply_method='__call_ar__')
+                                        #    init_hiddens=init_hidden)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
-                f"\tTrain Loss: {train_loss:.5f} -- Val Loss: {val_loss:.5f} --Test Loss: {test_loss:.5f} --"
+                f"\tTrain Loss: {train_loss:.5f} -- Val Loss (AR): {val_loss:.5f} --Test Loss (RNN): {test_loss:.5f} --"
                 f" Val Accuracy: {val_acc:.4f}"
                 f" Test Accuracy: {test_acc:.4f}"
             )
@@ -233,15 +246,20 @@ def train(args):
         else:
             # else use test set as validation set (e.g. IMDB)
             print(f"[*] Running Epoch {epoch + 1} Test...")
-            (val_loss, val_acc,
+            # print("Testing on train data (diff offset) for debugging purposes")
+            (test_loss, test_acc,
               test_ce_means,test_acc_means) = validate(state,
                                          #model_cls,
                                          val_model.apply,
-                                         testloader,
+                                         valloader,
                                          seq_len,
                                          in_dim,
                                          args.batchnorm,
-                                         args.num_devices)
+                                         args.num_devices,
+                                         epoch,
+                                         curtail_epoch=args.curtail_epochs)
+            val_loss=test_loss
+            val_acc=test_acc
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -255,10 +273,10 @@ def train(args):
             'config': vars(args),
             'metrics': {
                 'loss_train': float(train_loss),
-                'loss_val': float(val_loss),
-                'loss_test': float(test_loss),
-                'acc_val': float(val_acc),
-                'acc_test': float(test_acc),
+                'loss_val_ar': float(val_loss),
+                'loss_test_rnn': float(test_loss),
+                'acc_val_ar': float(val_acc),
+                'acc_test_rnn': float(test_acc),
             }
         }
         save_checkpoint(ckpt_mgr, ckpt, epoch)
@@ -269,6 +287,8 @@ def train(args):
             best_val_loss = val_loss
         else:
             count += 1
+
+
 
         if val_acc > best_acc:
             # Increment counters etc.
@@ -309,8 +329,8 @@ def train(args):
                     "count": count,
                     "Learning rate count": lr_count,
                     "Opt acc": opt_acc,
-                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
+                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'][0],
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'][0],
                     "Training CE by token":ce_table
                 }
             )
@@ -333,6 +353,7 @@ def train(args):
         wandb.run.summary["Best Epoch"] = best_epoch
         wandb.run.summary["Best Test Loss"] = best_test_loss
         wandb.run.summary["Best Test Accuracy"] = best_test_acc
+        # print("IGNORING EARLY STOPPING FOR TINY EPOCH SIZE ")
 
         if count > args.early_stop_patience:
             break

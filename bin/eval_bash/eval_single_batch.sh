@@ -1,0 +1,9 @@
+ python3 run_eval.py --restore="/data1/sascha/LOBS5/checkpoints/playful-capybara-434_jqdbfkt9/" \
+                        --dir_name="/data1/sascha/data/lobster_preproced/GOOG2019/" \
+                        --restore_step=200 \
+                        --n_data_workers=0 \
+                        --bsz=4 \
+                        --num_devices=1 \
+                        --USE_WANDB=True \
+                        --ignore_times=False \
+                        --curtail_epoch=0 \

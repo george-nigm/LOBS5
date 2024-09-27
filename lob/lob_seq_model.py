@@ -511,7 +511,7 @@ class PaddedLobPredModel(nn.Module):
             raise NotImplementedError("Mode must be in ['pool', 'last]")"""
 
         x = self.decoder(x)
-        return (hiddens_m, hiddens_b, hiddens_fused),nn.log_softmax(x, axis=-1)
+        return (hiddens_m, hiddens_b, hiddens_fused), nn.log_softmax(x, axis=-1)
 
     def __call_ar__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
         """
