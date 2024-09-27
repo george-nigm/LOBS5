@@ -33,7 +33,7 @@ def transform_L2_state(
         input and output is the change in mid price.
         Converts sizes to negative sizes for ask side (sell orders).
     """
-    delta_p_mid, book = book[:1], book[1:]
+    delta_p_mid_and_time, book = book[:3], book[3:]
     book = book.reshape((-1,2))
     mid_price = jnp.ceil((book[0, 0] + book[1, 0]) / (2*tick_size)).__mul__(tick_size).astype(int)
     book = book.at[:, 0].set((book[:, 0] - mid_price) // tick_size)
@@ -45,11 +45,17 @@ def transform_L2_state(
 
     mybook = jnp.zeros(price_levels, dtype=jnp.int32)
     mybook = mybook.at[book[:, 0]].set(book[:, 1])
+
+    # Norm seconds to be in [0,1] representing percent of day. 
+    delta_p_mid_and_time.at[1].set((delta_p_mid_and_time[1]-34200)/23400)
+    # Norm nanoseconds to be fraction of a second
+    delta_p_mid_and_time.at[2].set(delta_p_mid_and_time[2]/1e9)
+
     
     # set ask volume to negative (sell orders)
     mybook = mybook.at[price_levels // 2:].set(mybook[price_levels // 2:] * -1)
     mybook = jnp.concatenate((
-        delta_p_mid.astype(jnp.float32),
+        delta_p_mid_and_time.astype(jnp.float32),
         mybook.astype(jnp.float32) / 1000
     ))
 
@@ -74,7 +80,7 @@ def transform_L2_state_gpu(
         input and output is the change in mid price.
         Converts sizes to negative sizes for ask side (sell orders).
     """
-    delta_p_mid, book = book[:1], book[1:]
+    delta_p_mid_and_time, book = book[:3], book[3:]
     book = book.reshape((-1,2))
     mid_price = jnp.ceil((book[0, 0] + book[1, 0]) / (2*tick_size)).__mul__(tick_size).astype(int)
     book = book.at[:, 0].set((book[:, 0] - mid_price) // tick_size)
@@ -87,15 +93,21 @@ def transform_L2_state_gpu(
     mybook = jnp.zeros(price_levels, dtype=jnp.int32)
     mybook = mybook.at[book[:, 0]].set(book[:, 1])
     
+    # Norm seconds to be in [0,1] representing percent of day. 
+    delta_p_mid_and_time=delta_p_mid_and_time.astype(jnp.float32)
+    delta_p_mid_and_time=delta_p_mid_and_time.at[1].set((delta_p_mid_and_time[1]-34200)/23400)
+    # Norm nanoseconds to be fraction of a second
+    delta_p_mid_and_time=delta_p_mid_and_time.at[2].set(delta_p_mid_and_time[2]/1e9)
+
     # set ask volume to negative (sell orders)
     mybook = mybook.at[price_levels // 2:].set(mybook[price_levels // 2:] * -1)
     mybook = jnp.concatenate((
-        delta_p_mid.astype(jnp.float32),
+        delta_p_mid_and_time.astype(jnp.float32),
         mybook.astype(jnp.float32) / 1000
     ))
 
     # return mybook.astype(jnp.float32) #/ divide_by
-    return mybook 
+    return mybook
 
 
 @partial(np.vectorize,signature="(c),(),()->(d)")
@@ -111,11 +123,12 @@ def transform_L2_state_numpy(
         input and output is the change in mid price.
         Converts sizes to negative sizes for ask side (sell orders).
     """
-    delta_p_mid, book = book[:1], book[1:]
+    delta_p_mid_and_time, book = book[:3], book[3:]
     book = book.reshape((-1,2))
     # print(book)
     mid_price = np.ceil((book[0, 0] + book[1, 0]) / (2*tick_size)).__mul__(tick_size).astype(int)
     book=book.copy()
+    delta_p_mid_and_time=delta_p_mid_and_time.copy()
     book[:, 0]=((book[:, 0] - mid_price) // tick_size)
     # print(book)
     # change relative prices to indices
@@ -131,10 +144,17 @@ def transform_L2_state_numpy(
     # print(book_ind[:, 1])
     mybook[book_ind[:, 0]]=(book_ind[:, 1])
     
+    delta_p_mid_and_time=delta_p_mid_and_time.astype(np.float32)
+    # Norm seconds to be in [0,1] representing percent of day. 
+    delta_p_mid_and_time[1]=((delta_p_mid_and_time[1]-34200)/23400)
+    # Norm nanoseconds to be fraction of a second
+    delta_p_mid_and_time[2]=(delta_p_mid_and_time[2]/1e9)
+
+
     # set ask volume to negative (sell orders)
     mybook[price_levels // 2:]=(mybook[price_levels // 2:] * -1)
     mybook = np.concatenate((
-        delta_p_mid.astype(np.float32),
+        delta_p_mid_and_time,
         mybook.astype(np.float32) / 1000
     ))
 
@@ -266,28 +286,45 @@ def process_book_files(
         if filter_above_lvl is not None:
             messages, book = filter_by_lvl(messages, book, filter_above_lvl)
 
+
+
         # convert to n_price_series separate volume time series (each tick is a price level)
         # NOTE: this conversion can now be done fast in the data loader, so we can skip this step
         if use_raw_book_repr:
-            # make sure reference price is never none --> forward fill most recent price
-            best_ask = book.iloc[:, 0].replace({9999999999: np.nan}).ffill().astype(int)
-            best_bid = book.iloc[:, 2].replace({-9999999999: np.nan}).ffill().astype(int)
-            p_ref = ((best_ask + best_bid) / 2).round(-2).astype(int)
-            mid_diff = p_ref.div(100).diff().fillna(0).astype(int)
-            # prepend delta mid price column to book data
-            book = np.concatenate((mid_diff.values.reshape(-1,1), book.values), axis=1)
+            book=augment_book_state(book,messages)
         else:
-            book = process_book(book, price_levels=n_price_series)
+            book = process_book(book,messages, price_levels=n_price_series)
 
         np.save(b_path, book, allow_pickle=True)
 
+
+def augment_book_state(book: pd.DataFrame,
+                       message: pd.DataFrame):
+    best_ask = book.iloc[:, 0].replace({9999999999: np.nan}).ffill().astype(int)
+    best_bid = book.iloc[:, 2].replace({-9999999999: np.nan}).ffill().astype(int)
+    p_ref = ((best_ask + best_bid) / 2).round(-2).astype(int)
+    mid_diff = p_ref.div(100).diff().fillna(0).astype(int)
+
+    message.insert(0, 'time_s', message.time.astype(int))
+    message.rename(columns={'time': 'time_ns'}, inplace=True)
+    message.time_ns = ((message.time_ns % 1) * 1000000000).astype(int)
+
+    times=message[['time_s','time_ns']]
+    times=times.values.reshape(-1,2)
+    # prepend delta mid price column to book data
+    book = np.concatenate((mid_diff.values.reshape(-1,1),times, book.values), axis=1)
+    return book
+
 def process_book(
         b: pd.DataFrame,
+        m: pd.DataFrame,
         price_levels: int
     ) -> np.ndarray:
 
     # mid-price rounded to nearest tick (100)
-    p_ref = ((b.iloc[:, 0] + b.iloc[:, 2]) / 2).round(-2).astype(int)
+    best_ask = b.iloc[:, 0].replace({9999999999: np.nan}).ffill().astype(int)
+    best_bid = b.iloc[:, 2].replace({-9999999999: np.nan}).ffill().astype(int)
+    p_ref = ((best_ask + best_bid) / 2).round(-2).astype(int)
     b_indices = b.iloc[:, ::2].sub(p_ref, axis=0).div(100).astype(int)
     b_indices = b_indices + price_levels // 2
     b_indices.columns = list(range(b_indices.shape[1]))
@@ -311,13 +348,21 @@ def process_book(
 
     # prepend column with reference price changes (in ticks)
     mid_diff = p_ref.div(100).diff().fillna(0).astype(int).values
-    return np.concatenate([mid_diff[:, None], mybook], axis=1)
+
+    m.insert(0, 'time_s', m.time.astype(int))
+    m.rename(columns={'time': 'time_ns'}, inplace=True)
+    m.time_ns = ((m.time_ns % 1) * 1000000000).astype(int)
+
+    times=m[['time_s','time_ns']]
+    times=times.values.reshape(-1,2)
+
+    return np.concatenate([mid_diff[:, None],times, mybook], axis=1)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/data1/sascha/data/data/GOOG/raw/',
+    parser.add_argument("--data_dir", type=str, default='/data1/sascha/data/goog_unzip_2019/GOOG/',
 		     			help="where to load data from")
-    parser.add_argument("--save_dir", type=str, default='/data1/sascha/data/data/GOOG/',
+    parser.add_argument("--save_dir", type=str, default='/data1/sascha/data/lobster_preproced/GOOG2019/',
 		     			help="where to save processed data")
     parser.add_argument("--filter_above_lvl", type=int,
                         help="filters down from levels present in the data to specified number of price levels")

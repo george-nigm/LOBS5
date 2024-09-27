@@ -29,6 +29,8 @@ def create_lobster_prediction_dataset(
 		book_depth: int = 500,
 		n_data_workers: int = 0,
 		return_raw_msgs: bool = False,
+		shuffle_train=True,
+		rand_offset=True,
 	) -> ReturnType:
 	""" 
 	"""
@@ -48,6 +50,7 @@ def create_lobster_prediction_dataset(
 		book_depth=book_depth,
 		n_cache_files=1e7,  # large number to keep everything in cache
 		return_raw_msgs=return_raw_msgs,
+		rand_offset=rand_offset,
 	)
 	dataset_obj.setup()
  
@@ -60,7 +63,7 @@ def create_lobster_prediction_dataset(
 	#		dataset_obj.dataset_train, n_files_shuffle=5, batch_size=1, seed=seed)
 	
 	trn_loader = create_lobster_train_loader(
-		dataset_obj, seed, bsz, n_data_workers, reset_train_offsets=False)
+		dataset_obj, seed, bsz, n_data_workers, reset_train_offsets=rand_offset,shuffle=shuffle_train)
 	# NOTE: drop_last=True recompiles the model for a smaller batch size
 	val_loader = make_data_loader(
 		dataset_obj.dataset_val, dataset_obj, seed=seed, batch_size=bsz,
@@ -81,7 +84,7 @@ def create_lobster_prediction_dataset(
 	return (dataset_obj, trn_loader, val_loader, tst_loader, aux_loaders, 
 	 		N_CLASSES, SEQ_LENGTH, IN_DIM, BOOK_SEQ_LEN, BOOK_DIM, TRAIN_SIZE)
 
-def create_lobster_train_loader(dataset_obj, seed, bsz, num_workers, reset_train_offsets=False):
+def create_lobster_train_loader(dataset_obj, seed, bsz, num_workers, reset_train_offsets=False,shuffle=True):
 	if reset_train_offsets:
 		dataset_obj.reset_train_offsets()
 	# use sampler to only get individual samples and automatic batching from dataloader
@@ -90,7 +93,7 @@ def create_lobster_train_loader(dataset_obj, seed, bsz, num_workers, reset_train
 		dataset_obj,
 		seed=seed,
 		batch_size=bsz,
-		shuffle=True,  # TODO: remove later
+		shuffle=shuffle,  # TODO: remove later
 		num_workers=num_workers,
 		worker_init_fn=force_cpu)
 	return trn_loader

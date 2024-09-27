@@ -2,7 +2,7 @@ import os
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 else:
     # Forces all generated worker processes to not run on GPU.
     #  Required at this high level, because the init func in the 
@@ -84,7 +84,10 @@ def eval(eval_args):
             use_simple_book=args.use_simple_book,
             book_transform=args.book_transform,
             n_data_workers=args.n_data_workers,
+            shuffle_train=args.shuffle_train,
+            rand_offset=args.random_offsets_train,
         )
+    
 
     print(f"[*] Starting S5 Eval on {ds} =>> Loading the states...")
     state, model_cls = init_train_state(
@@ -126,29 +129,34 @@ def eval(eval_args):
 
 
         if valloader is not None:
-            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Validation...")
+            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Validation on train set (With call)...")
             val_loss, val_acc,val_ce_by_tok, val_acc_by_tok = validate(state,
                                          #model_cls,
                                          eval_model.apply,
-                                         valloader,
+                                         trainloader,
                                          seq_len,
                                          in_dim,
                                          args.batchnorm,
                                          args.num_devices,
+                                         epoch,
                                          curtail_epoch=args.curtail_epoch,
-                                         ignore_times=args.ignore_times,)
+                                         ignore_times=args.ignore_times,
+                                         apply_method='__call_ar__')
 
-            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test...")
+            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test on train set (With Scan RNN)...")
             test_loss, test_acc, test_ce_by_tok, test_acc_by_tok  = validate(state,
                                            #model_cls,
                                            eval_model.apply,
-                                           testloader,
+                                           trainloader,
                                            seq_len,
                                            in_dim,
                                            args.batchnorm,
                                            args.num_devices,
+                                           epoch,
                                            curtail_epoch=args.curtail_epoch,
-                                            ignore_times=args.ignore_times,)
+                                           ignore_times=args.ignore_times,
+                                           apply_method='__call_rnn__',
+                                           init_hiddens=init_hidden)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -163,23 +171,24 @@ def eval(eval_args):
             test_loss, test_acc, test_ce_by_tok, test_acc_by_tok  = validate(state,
                                            #model_cls,
                                            eval_model.apply,
-                                           testloader,
+                                           trainloader,
                                            seq_len,
                                            in_dim,
                                            args.batchnorm,
                                            args.num_devices,
+                                           epoch,
                                            curtail_epoch=args.curtail_epoch)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
-                f"\t --Test Loss: {val_loss:.5f} --"
-                f" Test Accuracy: {val_acc:.4f}"
+                f"\t --Test Loss: {test_loss:.5f} --"
+                f" Test Accuracy: {test_acc:.4f}"
             )
 
 
-        ce_table.add_column(name="val_ce_"+str(epoch),data=val_ce_by_tok.tolist())
+        # ce_table.add_column(name="val_ce_"+str(epoch),data=val_ce_by_tok.tolist())
         ce_table.add_column(name="test_ce_"+str(epoch),data=test_ce_by_tok.tolist())
-        ce_table.add_column(name="val_acc_"+str(epoch),data=val_acc_by_tok.tolist())
+        # ce_table.add_column(name="val_acc_"+str(epoch),data=val_acc_by_tok.tolist())
         ce_table.add_column(name="test_acc_"+str(epoch),data=test_acc_by_tok.tolist())
         ce_table=wandb.Table(columns=ce_table.columns,data=ce_table.data)
         
@@ -187,18 +196,18 @@ def eval(eval_args):
         if valloader is not None:
             wandb.log(
                 {
-                    "Val loss": val_loss,
-                    "Val Accuracy": val_acc,
-                    "Test Loss": test_loss,
-                    "Test Accuracy": test_acc,
+                    "'Call' loss": val_loss,
+                    "'Call' Accuracy": val_acc,
+                    "'Call_Rnn' Loss": test_loss,
+                    "'Call_Rnn' Accuracy": test_acc,
                     "Training CE by token":ce_table
                 }
             )
         else:
             wandb.log(
                 {
-                    "Val loss": val_loss,
-                    "Val Accuracy": val_acc,
+                    "Val loss": test_loss,
+                    "Val Accuracy": test_acc,
                     "Training CE by token":ce_table
                 }
             )
@@ -211,7 +220,7 @@ def eval(eval_args):
 
 if __name__ == "__main__":
     import argparse
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.85"
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
     from s5.utils.util import str2bool
