@@ -14,6 +14,9 @@ import sys
 # from lob.lob_seq_model import LobPredModel
 
 
+TIME_START_I=9
+TIME_END_I =13
+
 # num_devices_global = 2
 # global_devices = jax.local_devices()[0: num_devices_global]
 
@@ -606,6 +609,10 @@ def train_step(
 
         
         ce=cross_entropy_loss(logits, batch_labels)
+
+        ce=ce.reshape(ce.shape[0],-1,Message_Tokenizer.MSG_LEN)
+        ce=ce.at[:,:,TIME_START_I:TIME_END_I].set(0)
+        ce=ce.reshape(ce.shape[0],-1)
         ce=np.mean(ce,axis=0)
         # jax.debug.print("Shape of CE: {}", ce.shape)
         # average cross-ent loss
