@@ -476,6 +476,7 @@ def train_epoch(
         curtail_epochs,
         init_hiddens,
         epoch,
+        ignore_times,
     ):
 
     """
@@ -506,7 +507,7 @@ def train_epoch(
             #     batchnorm,
             #     init_hiddens)
 
-
+            print("Gets to train")
             state, loss, ce, logits = train_step(
                 state,
                 drop_rng,
@@ -514,19 +515,20 @@ def train_epoch(
                 labels,
                 integration_times,
                 batchnorm,
+                ignore_times,
             )
             if debug_profiler:
                 loss.block_until_ready()
-            
-            if (batch_idx==0) & (epoch%100==0):
-                np.set_printoptions(threshold=sys.maxsize)
-                with open(f'/data1/sascha/data/losses/losses_batch_{batch_idx}_training.txt', 'w') as f:
-                    print( ce, file=f)
-                print("Printing logits of shape ", logits.shape, " to file")
-                with open(f'/data1/sascha/data/losses/logits_batch_{batch_idx}_training.txt', 'w') as f:
-                    print( logits[0,0,0:44,:], file=f)
-                np.set_printoptions()
-                print('Done Printing')
+            print("completes train step")
+            # if (batch_idx==0) & (epoch%100==0):
+            #     np.set_printoptions(threshold=sys.maxsize)
+            #     with open(f'/data1/sascha/data/losses/losses_batch_{batch_idx}_training.txt', 'w') as f:
+            #         print( ce, file=f)
+            #     print("Printing logits of shape ", logits.shape, " to file")
+            #     with open(f'/data1/sascha/data/losses/logits_batch_{batch_idx}_training.txt', 'w') as f:
+            #         print( logits[0,0,0:44,:], file=f)
+            #     np.set_printoptions()
+            #     print('Done Printing')
 
             # losses are already averaged across devices (--> should be all the same here)
             batch_losses.append(loss[0])
@@ -567,18 +569,19 @@ def repeat_book(msg,book,shift_start):
 @partial(
     jax.pmap,
     axis_name="batch_devices",
-    static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
-    in_axes=(0, None, 0, 0, 0, None),
+    static_broadcasted_argnums=(5,6),  # TODO: revert to 5 for batchnorm in pmap
+    in_axes=(0, None, 0, 0, 0, None, None),
     # out_axes=(0, 0),
     # devices=global_devices
 )
 def train_step(
         state: train_state.TrainState,
-        rng: jax.dtypes.prng_key,  # 3
-        batch_inputs: Tuple[jax.Array, jax.Array], # 4
-        batch_labels: jax.Array, # 5
-        batch_integration_timesteps: Tuple[jax.Array, jax.Array], # 6
-        batchnorm: bool, # 7
+        rng: jax.dtypes.prng_key,  # 1
+        batch_inputs: Tuple[jax.Array, jax.Array], # 2
+        batch_labels: jax.Array, # 3
+        batch_integration_timesteps: Tuple[jax.Array, jax.Array], # 4
+        batchnorm: bool, # 5
+        ignore_times:bool, #6
     ):
     #print('tracing par_loss_and_grad')
 
@@ -609,10 +612,13 @@ def train_step(
 
         
         ce=cross_entropy_loss(logits, batch_labels)
+        if ignore_times:
+            ce=ce.reshape(ce.shape[0],-1,Message_Tokenizer.MSG_LEN)
+            ce_1=ce[:,:,:TIME_START_I]
+            ce_2=ce[:,:,(TIME_END_I+1):]
+            ce=np.concatenate([ce_1,ce_2],axis=2)
+            ce=ce.reshape(ce.shape[0],-1)
 
-        ce=ce.reshape(ce.shape[0],-1,Message_Tokenizer.MSG_LEN)
-        ce=ce.at[:,:,TIME_START_I:TIME_END_I].set(0)
-        ce=ce.reshape(ce.shape[0],-1)
         ce=np.mean(ce,axis=0)
         # jax.debug.print("Shape of CE: {}", ce.shape)
         # average cross-ent loss
@@ -698,6 +704,9 @@ def train_step_rnn(
             ce=cross_entropy_loss(logits, batch_labels)
             # jax.debug.print("Shape of CE: {}", ce.shape)
             # average cross-ent loss
+            ce=ce.reshape(ce.shape[0],-1,Message_Tokenizer.MSG_LEN)
+            ce=ce.at[:,:,TIME_START_I:TIME_END_I].set(0)
+            ce=ce.reshape(ce.shape[0],-1)
             loss = np.mean(ce)
             return (hiddens),(loss,mod_vars)
         # jax.debug.print("Shape of loss: {}", loss.shape)
@@ -802,23 +811,20 @@ def validate(state,
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, num_devices)
         # print("eval step with method: ", apply_method)
         loss, acc, pred = eval_step(
-            inputs, labels, integration_timesteps, state, apply_fn, batchnorm,apply_method,init_hiddens)
+            inputs, labels, integration_timesteps, state, apply_fn, batchnorm,apply_method,init_hiddens,ignore_times)
         # losses = np.append(losses, loss)
         # accuracies = np.append(accuracies, acc)
 
-        if (batch_idx==0) & (epoch%100==0): 
-            np.set_printoptions(threshold=sys.maxsize)
-            with open(f'/data1/sascha/data/losses/losses_batch_{batch_idx}_testing_applying_{apply_method}.txt', 'w') as f:
-                print(loss, file=f)
-            print("Printing logits of shape ", pred.shape, " to file")
-            with open(f'/data1/sascha/data/losses/logits_batch_{batch_idx}_testing_applying_{apply_method}.txt', 'w') as f:
-                print(pred[0,0,0:44,:], file=f)
-            np.set_printoptions()
-            print("Done Printing")
-        if ignore_times:
-            indx=np.arange(0,inputs[0].shape[-1])
-            modulo=indx%Message_Tokenizer.MSG_LEN
-            loss=loss.at[:,:,~((modulo<5) | (modulo>8))].set(0)
+        # if (batch_idx==0) & (epoch%100==0): 
+        #     np.set_printoptions(threshold=sys.maxsize)
+        #     with open(f'/data1/sascha/data/losses/losses_batch_{batch_idx}_testing_applying_{apply_method}.txt', 'w') as f:
+        #         print(loss, file=f)
+        #     print("Printing logits of shape ", pred.shape, " to file")
+        #     with open(f'/data1/sascha/data/losses/logits_batch_{batch_idx}_testing_applying_{apply_method}.txt', 'w') as f:
+        #         print(pred[0,0,0:44,:], file=f)
+        #     np.set_printoptions()
+        #     print("Done Printing")
+
 
         losses.append(loss)
         accuracies.append(acc)
@@ -838,8 +844,8 @@ def validate(state,
 @partial(
     jax.pmap,
     axis_name="batch_devices",
-    static_broadcasted_argnums=(4,5,6),
-    in_axes=(0, 0, 0, 0, None, None, None,None),
+    static_broadcasted_argnums=(4,5,6,8),
+    in_axes=(0, 0, 0, 0, None, None, None,None,None),
     # devices=global_devices
 )
 def eval_step(
@@ -852,6 +858,7 @@ def eval_step(
         batchnorm,
         apply_method,
         init_hiddens,
+        ignore_times,
     ):
     batch_inputs=repeat_book(*batch_inputs,True)
 
@@ -900,7 +907,23 @@ def eval_step(
 
 
     losses = cross_entropy_loss(logits, batch_labels)  
+    if ignore_times:
+        ce=losses
+        ce=ce.reshape(ce.shape[0],-1,Message_Tokenizer.MSG_LEN)
+        ce_1=ce[:,:,:TIME_START_I]
+        ce_2=ce[:,:,(TIME_END_I+1):]
+        ce=np.concatenate([ce_1,ce_2],axis=2)
+        ce=ce.reshape(ce.shape[0],-1)
+        losses=ce
     accs = compute_accuracy(logits, batch_labels)
+    if ignore_times:
+        ce=accs
+        ce=ce.reshape(ce.shape[0],-1,Message_Tokenizer.MSG_LEN)
+        ce_1=ce[:,:,:TIME_START_I]
+        ce_2=ce[:,:,(TIME_END_I+1):]
+        ce=np.concatenate([ce_1,ce_2],axis=2)
+        ce=ce.reshape(ce.shape[0],-1)
+        accs=ce
 
     return losses, accs, logits
 

@@ -88,6 +88,7 @@ def train(args):
     if args.debug_loading:
         state=None
         val_model=None
+        init_hidden=None
     else:
         state, model_cls = init_train_state(
             args,
@@ -109,6 +110,12 @@ def train(args):
             state = ckpt['model']
         
         val_model = model_cls(training=False, step_rescale=1)
+        init_hidden=model_cls().initialize_carry(batch_size=args.bsz//args.num_devices,
+                                                hidden_size=(ssm_size // pow(2,int(args.conj_sym))),
+                                                n_message_layers=args.n_message_layers,
+                                                n_book_pre_layers=args.n_book_pre_layers ,
+                                                n_book_post_layers=args.n_book_post_layers,
+                                                n_fused_layers=args.n_layers,)
     
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
@@ -136,7 +143,12 @@ def train(args):
         metadata=vars(args)
     )
 
-    dt = [[x] for (x,) in zip([*range(seq_len)])]
+
+    if args.ignore_times:
+        # Removing the 5 abs time tokens from the length of the sequence.  
+        dt = [[x] for (x,) in zip([*range(seq_len-5*args.msg_seq_len)])]
+    else:
+        dt = [[x] for (x,) in zip([*range(seq_len)])]
     ce_table=wandb.Table(columns=["tok"] ,data=dt)
 
     
@@ -168,12 +180,7 @@ def train(args):
 
 
         #Pass an initial hidden state to be used in case of the 'RNN' forward pass being used. 
-        init_hidden=model_cls().initialize_carry(batch_size=args.bsz//args.num_devices,
-                                                hidden_size=(ssm_size // pow(2,int(args.conj_sym))),
-                                                n_message_layers=args.n_message_layers,
-                                                n_book_pre_layers=args.n_book_pre_layers ,
-                                                n_book_post_layers=args.n_book_post_layers,
-                                                n_fused_layers=args.n_layers,)
+
 
 
         state, train_loss,ce_by_tok ,step = train_epoch(state,
@@ -190,7 +197,8 @@ def train(args):
                                               args.enable_profiler,
                                               args.curtail_epochs,
                                               init_hidden,
-                                              epoch)
+                                              epoch,
+                                              args.ignore_times)
 
         if args.random_offsets_train:
             # reinit training loader, so that sequences are initialised with
@@ -219,7 +227,8 @@ def train(args):
                                         args.num_devices,
                                         epoch,
                                         curtail_epoch=args.curtail_epochs,
-                                        apply_method='__call_ar__')
+                                        apply_method='__call_ar__',
+                                        ignore_times=args.ignore_times)
 
             print(f"[*] Running Epoch {epoch + 1} Test ") #on train set (With Call RNN)...
             (test_loss, test_acc,
@@ -233,8 +242,8 @@ def train(args):
                                            args.num_devices,
                                            epoch,
                                            curtail_epoch=args.curtail_epochs,
-                                           apply_method='__call_ar__')
-                                        #    init_hiddens=init_hidden)
+                                           apply_method='__call_ar__',
+                                           ignore_times=args.ignore_times)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -257,7 +266,8 @@ def train(args):
                                          args.batchnorm,
                                          args.num_devices,
                                          epoch,
-                                         curtail_epoch=args.curtail_epochs)
+                                         curtail_epoch=args.curtail_epochs,
+                                         ignore_times=args.ignore_times)
             val_loss=test_loss
             val_acc=test_acc
 

@@ -14,7 +14,7 @@ os.environ["NCCL_DEBUG"]="INFO"
 #os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".99"
 if __name__ == "__main__":
-	os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+	os.environ["CUDA_VISIBLE_DEVICES"] = "3,6"
 else:
 	# Forces all generated worker processes to not run on GPU.
 	#  Required at this high level, because the init func in the 
@@ -26,7 +26,7 @@ from lob.dataloading import Datasets
 if __name__ == "__main__":
 	import argparse
 	from s5.utils.util import str2bool
-	os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+	os.environ["CUDA_VISIBLE_DEVICES"] = "3,6"
 	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.9"
 	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 
@@ -92,10 +92,12 @@ if __name__ == "__main__":
 							 "lecun_normal sample from lecun normal, then multiply by V\\ " \
 							 "complex_normal: sample directly from complex standard normal")
 	parser.add_argument("--discretization", type=str, default="zoh", choices=["zoh", "bilinear"])
-	parser.add_argument("--mode", type=str, default="pool", choices=["pool", "last"],
+	parser.add_argument("--mode", type=str, default="none", choices=["none","pool", "last","ema"],
 						help="options: (for classification tasks) \\" \
+							 " none: no aggregation, raw output at decoder stage \\" \
 							 " pool: mean pooling \\" \
-							 "last: take last element")
+							 "last: take last element \\" \
+							 "ema : take exponential moving avg across all")
 	parser.add_argument("--activation_fn", default="half_glu1", type=str,
 						choices=["full_glu", "half_glu1", "half_glu2", "gelu"])
 	parser.add_argument("--conj_sym", type=str2bool, default=True,
@@ -165,6 +167,8 @@ if __name__ == "__main__":
 				help="Whether or not the training data is offset randomly at each epoch.")
 	parser.add_argument("--shuffle_train", type=str2bool, default=True,
 				help="Whether or not the training data shuffled.")
+	parser.add_argument("--ignore_times", type=str2bool, default=False,
+                    help="Ignore the loss due to predicting the time.")
 	
 
 	args = parser.parse_args()
