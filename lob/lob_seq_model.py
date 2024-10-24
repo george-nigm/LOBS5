@@ -518,7 +518,7 @@ class PaddedLobPredModel(nn.Module):
             raise NotImplementedError("Must double check before running rnn")
 
         x = self.decoder(x)
-        return (hiddens_m, hiddens_b, hiddens_fused,ema), nn.log_softmax(x, axis=-1)
+        return (hiddens_m, hiddens_b, hiddens_fused, ema), nn.log_softmax(x, axis=-1)
 
     def __call_ar__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
         """
@@ -558,9 +558,9 @@ class PaddedLobPredModel(nn.Module):
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last','none','ema']")
         
-        jax.debug.print("x output shape after pool/last/ema/none shape {}, 1st five: \n {}",x.shape,x[:5,:5])
+        # jax.debug.print("x output shape after pool/last/ema/none shape {}, 1st five: \n {}",x.shape,x[:5,:5])
         x = self.decoder(x)
-        jax.debug.print("x output shape after decoder {}, 1st five: \n {}",x.shape,x[:5,:5])
+        # jax.debug.print("x output shape after decoder {}, 1st five: \n {}",x.shape,x[:5,:5])
 
         
         x=nn.log_softmax(x, axis=-1)
@@ -579,7 +579,7 @@ class PaddedLobPredModel(nn.Module):
         h_tuple_init=(StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_message_layers),
                       LobBookModel.initialize_carry(batch_size,hidden_size,n_book_pre_layers,n_book_post_layers),
                       StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_fused_layers),
-                      None)
+                      jnp.zeros((1,hidden_size)))
         return h_tuple_init
 
 split_rngs_args={"params": False, "dropout": True}
