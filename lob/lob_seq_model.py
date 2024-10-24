@@ -647,7 +647,7 @@ def numpy_ewma_v2(data, window):
 
 @partial(jax.jit, static_argnums=(1,))
 @partial(jax.vmap,in_axes=(1,None,1),out_axes=(1,1))
-def ewma_vectorized_safe(data, alpha, first_offset, row_size=1000, dtype=None, order='C'):
+def ewma_vectorized_safe(data, alpha, first_offset, row_size=3, dtype=None, order='C'):
     """
     Reshapes data before calculating EWMA, then iterates once over the rows
     to calculate the offset without precision issues
@@ -748,7 +748,7 @@ def ewma_vectorized_safe(data, alpha, first_offset, row_size=1000, dtype=None, o
         # process trailing data in the 2nd slice of the out parameter
         out_trail=ewma_vectorized(data[-trailing_n:], alpha, offset=out_main_view[-1, -1],
                         dtype=dtype, order='C')
-        out=jnp.concatenate([out_main_view,out_trail])
+        out=jnp.concatenate([out,out_trail])
     return (out,out[-1:])
 
 def get_max_row_size(alpha, dtype=float):
