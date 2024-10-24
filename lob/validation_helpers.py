@@ -328,9 +328,7 @@ def apply_model(
     )
     batch_inputs=repeat_book(*batch_inputs,shift_start)
 
-    dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*len(hidden_state)
-
-
+    dones=(np.zeros_like(batch_inputs[0],dtype=bool),)*(len(hidden_state)-1)
     if batchnorm:
         hidden_state,logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
                             hidden_state,*batch_inputs, *dones, *batch_integration_timesteps,
