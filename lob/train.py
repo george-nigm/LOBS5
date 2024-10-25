@@ -115,7 +115,8 @@ def train(args):
                                                 n_message_layers=args.n_message_layers,
                                                 n_book_pre_layers=args.n_book_pre_layers ,
                                                 n_book_post_layers=args.n_book_post_layers,
-                                                n_fused_layers=args.n_layers,)
+                                                n_fused_layers=args.n_layers,
+                                                h_size_ema=ssm_size)
     
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss

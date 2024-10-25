@@ -465,7 +465,7 @@ class PaddedLobPredModel(nn.Module):
         elif self.mode in ["none"]:
             pass
         elif self.mode in ['ema']:
-            x=ewma_vectorized_safe(x,2 /(22 + 1.0))
+            x,_=ewma_vectorized_safe(x,2 /(22 + 1.0),jnp.zeros((1,x.shape[1])),jnp.array(1))
             #FIXME: Provide the ntoks argument for averaging as an arg.
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last','none','ema']")
@@ -495,6 +495,7 @@ class PaddedLobPredModel(nn.Module):
             output (float32): (d_output)
         """
         hiddens_m, hiddens_b,hiddens_fused,ema = hiddens_tuple
+        fo,override=ema
 
         # print("Shapes:",x_m.shape,x_b.shape,d_m.shape,d_b.shape)
 
@@ -513,12 +514,14 @@ class PaddedLobPredModel(nn.Module):
         elif self.mode in ["none"]:
             pass
         elif self.mode in ['ema']:
-             x,ema=ewma_vectorized_safe(x,2 /(22 + 1.0),ema)
+             print("x",x)
+             print("ema",ema)
+             x,fo=ewma_vectorized_safe(x,2 /(22 + 1.0),fo,override)
         else:
             raise NotImplementedError("Must double check before running rnn")
 
         x = self.decoder(x)
-        return (hiddens_m, hiddens_b, hiddens_fused, ema), nn.log_softmax(x, axis=-1)
+        return (hiddens_m, hiddens_b, hiddens_fused, (fo,jnp.zeros_like(override))), nn.log_softmax(x, axis=-1)
 
     def __call_ar__(self, x_m, x_b, message_integration_timesteps, book_integration_timesteps):
         """
@@ -553,7 +556,7 @@ class PaddedLobPredModel(nn.Module):
         elif self.mode in ["none"]:
             pass
         elif self.mode in ['ema']:
-            x,_=ewma_vectorized_safe(x,2 /(22 + 1.0),None)
+            x,_=ewma_vectorized_safe(x,2 /(22 + 1.0),jnp.zeros((1,x.shape[1])),jnp.array(1))
             #FIXME: Provide the ntoks argument for averaging as an arg.
         else:
             raise NotImplementedError("Mode must be in ['pool', 'last','none','ema']")
@@ -571,15 +574,15 @@ class PaddedLobPredModel(nn.Module):
                          n_message_layers,
                          n_book_pre_layers,
                          n_book_post_layers,
-                         n_fused_layers,):
+                         n_fused_layers,
+                         h_size_ema):
         # Use a dummy key since the default state init fn is just zeros.
-        jnp.zeros((batch_size,))
 
 
         h_tuple_init=(StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_message_layers),
                       LobBookModel.initialize_carry(batch_size,hidden_size,n_book_pre_layers,n_book_post_layers),
                       StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_fused_layers),
-                      jnp.zeros((1,hidden_size)))
+                      (jnp.zeros((batch_size,1,h_size_ema)),jnp.ones((batch_size,1,1))))
         return h_tuple_init
 
 split_rngs_args={"params": False, "dropout": True}
@@ -646,8 +649,8 @@ def numpy_ewma_v2(data, window):
 
 
 @partial(jax.jit, static_argnums=(1,))
-@partial(jax.vmap,in_axes=(1,None,1),out_axes=(1,1))
-def ewma_vectorized_safe(data, alpha, first_offset, row_size=1000, dtype=None, order='C'):
+@partial(jax.vmap,in_axes=(1,None,1,None),out_axes=(1,1))
+def ewma_vectorized_safe(data, alpha, first_offset,override_fo, row_size=1000, dtype=None, order='C'):
     """
     Reshapes data before calculating EWMA, then iterates once over the rows
     to calculate the offset without precision issues
@@ -699,10 +702,12 @@ def ewma_vectorized_safe(data, alpha, first_offset, row_size=1000, dtype=None, o
     trailing_n = int(data.size % row_size)  # the amount of data leftover
     # jax.debug.print("Trailing n {}",trailing_n)
 
-    if first_offset is None:
-        first_offset = data[0]
-    else:
-        first_offset=first_offset[0]
+    first_offset=jnp.where(override_fo,data[0],first_offset[0])
+
+    # if override_fo:
+    #     first_offset = data[0]
+    # else:
+    #     first_offset=first_offset[0]
 
     if trailing_n > 0:
         # set temporary results to slice view of out parameter

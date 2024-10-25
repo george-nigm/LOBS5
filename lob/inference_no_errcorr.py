@@ -619,11 +619,19 @@ def _generate_token(
         b_tok: jax.Array ,
         hidden: Tuple,
         token_index : int,
-        rng 
+        rng,
     ):
     # syntactically valid tokens for current message position
     valid_mask = valh.get_valid_mask(valid_mask_array, token_index)
     # jax.debug.print("Calling apply model with token {} at index {}",m_tok,token_index)
+    
+
+    # TODO Turn hidden[4] to none here, and use dummy 0 for input. 
+    # if start_ema:
+    #     hidden=hidden[:3]+(None,)
+
+    # jax.debug.print("Start ema{}",start_ema)
+    # print(start_ema)
     hidden, logits = valh.apply_model(hidden,
                               m_tok,
                               b_tok,
@@ -694,6 +702,7 @@ def _generate_msg(
         rng: jax.dtypes.prng_key,
         hidden: Tuple,
         time_i: jax.Array,
+        ema_start:bool,
         b_seq_real:Optional[jax.Array]=None,
     ) -> Tuple[jax.Array, LobState, jax.Array, jax.Array, jax.Array, jax.Array, int]:
     """
@@ -922,10 +931,12 @@ def generate(
         init_token=m_seq_cond[-1:]
         init_book=b_seq_cond[-1:]
         init_time=valh.get_first_time(m_seq_cond,encoder)
+        init_ema=False
     else:
         #If unconditional generation, then the initial token
         #  and book have one less dimension.   
         hidden_state=init_hidden
+        init_ema=True
         # FIXME: Currently wrong and incomplete. 
         # Needs to just be START token and init book state.
         assert (m_seq_cond.ndim==1) & (m_seq_cond.shape[0]==1), "m_seq_cond needs to be a scalar (start tok?)"
@@ -1174,8 +1185,10 @@ def sample_new(
                                         n_message_layers=args.n_message_layers,
                                         n_book_pre_layers=args.n_book_pre_layers ,
                                         n_book_post_layers=args.n_book_post_layers,
-                                        n_fused_layers=args.n_layers,)
+                                        n_fused_layers=args.n_layers,
+                                        h_size_ema=args.ssm_size_base)
 
+    jax.debug.print("Init hidden is: \n {}",len(init_hidden))
     # Assumes only a single hidden state is given and needs to be duplicated. TODO Add a flag. 
     init_hidden_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_hidden)
 
