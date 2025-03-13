@@ -1,3 +1,6 @@
+import os
+import numpy as np  # or use onp if preferred
+
 from datetime import datetime
 import functools
 from glob import glob
@@ -776,7 +779,6 @@ def _generate_msg(
 
     return msg_decoded, sim_state, m_seq, b_seq, book_l2, p_mid_new, n_msg_todo
 
-
 def _make_generate_msg_scannable(
         sim: OrderBook,
         train_state: TrainState,
@@ -1086,7 +1088,6 @@ def sample_new(
         b_seq_pv = jnp.array(b_seq_pv)
         msg_seq_raw = jnp.array(msg_seq_raw)
         book_l2_init = jnp.array(book_l2_init)
-
         # transform book to volume image representation for model
         b_seq = transform_L2_state_batch(b_seq_pv, n_vol_series, tick_size)
 
@@ -1111,20 +1112,6 @@ def sample_new(
             # TODO: consider passing nOrders, nTrades
         )
 
-        # book state after initialisation (replayed messages)
-        # actually, this is already part of the input data --> only needed for comparison
-        # l2_book_states_init = sim_init.get_L2_states_vmap(sim_states_init, l2_state_n)
-
-        # run actual messages on sim_eval (once) to compare
-        # convert m_seq_raw_eval to sim_msgs
-        # msgs_eval = msgs_to_jnp(m_seq_raw_eval[: n_gen_msgs])
-        # sim_state_eval, l2_book_states_eval, _ = sim_init.process_orders_array_l2(sim_state_init, msgs_eval, l2_state_n)
-
-        # print('m_seq_inp.shape', m_seq_inp.shape)
-        # print('b_seq_inp.shape', b_seq_inp.shape)
-        # print('sim_states_init.asks.shape', sim_states_init.asks.shape)
-        # print('sim_states_init.bids.shape', sim_states_init.bids.shape)
-        # print('sim_states_init.trades.shape', sim_states_init.trades.shape)
         m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = generate_batched(
             sim_init,
             train_state,
@@ -1219,3 +1206,258 @@ def book_to_lobster_format(
     b_seq_ = pd.DataFrame(b_seq)
 
     return b_seq_
+
+def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled,
+                        l2_book_states_halved, sim_init, sim_states_init, encoder):
+    TIMEs_i = msgs_decoded_doubled[:, -1:, 8].astype(jnp.int32)
+    TIMEns_i = msgs_decoded_doubled[:, -1:, 9].astype(jnp.int32)
+    tick_size = 100
+
+    mid_price = ((l2_book_states_halved[:, 0] + l2_book_states_halved[:, 2]) / 2).astype(jnp.int32)
+    mid_price = mid_price[:, None]
+
+    ORDER_ID_i = 501
+    EVENT_TYPE_i = 4
+    DIRECTION_i = 1
+    PRICE_i = mid_price  
+    SIZE_i = 75
+    DTs_i = 0
+    DTns_i = 0
+    PRICE_REF_i = 0
+    SIZE_REF_i = 0
+    TIMEs_REF_i = 0
+    TIMEns_REF_i = 0
+
+    p_abs = mid_price + PRICE_REF_i * tick_size
+
+    PRICE_ABS_i = 3
+    batch_size = TIMEns_i.shape[0]
+
+    # Construct the new message with explicit dtype=int32 everywhere.
+    ins_msg = jnp.concatenate([
+        jnp.full((batch_size, 1), ORDER_ID_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), EVENT_TYPE_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), DIRECTION_i, dtype=jnp.int32),
+        mid_price,
+        PRICE_i,
+        jnp.full((batch_size, 1), SIZE_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), DTs_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), DTns_i, dtype=jnp.int32),
+        TIMEs_i,
+        TIMEns_i,
+        jnp.full((batch_size, 1), PRICE_REF_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), SIZE_REF_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), TIMEs_REF_i, dtype=jnp.int32),
+        jnp.full((batch_size, 1), TIMEns_REF_i, dtype=jnp.int32)
+    ], axis=1)
+    msg_decoded = ins_msg
+    new_part = msg_decoded
+
+    # Prepare additional variables, ensuring they are int32.
+    batched_side = jnp.array([DIRECTION_i] * batch_size, dtype=jnp.int32)
+    batched_time_s_ref = jnp.array([TIMEs_REF_i] * batch_size, dtype=jnp.int32)
+    batched_time_ns_ref = jnp.array([TIMEns_REF_i] * batch_size, dtype=jnp.int32)
+    batched_EVENT_TYPE = jnp.array([EVENT_TYPE_i] * batch_size, dtype=jnp.int32)
+    batched_quantity = jnp.array([SIZE_i] * batch_size, dtype=jnp.int32)
+    batched_p_abs = p_abs
+    new_order_id = 999
+    batched_new_order_id = jnp.array([new_order_id] * batch_size, dtype=jnp.int32)
+
+    batched_get_order = jax.vmap(sim_init.get_order_at_time, in_axes=(0, 0, 0, 0))
+    orig_orders = batched_get_order(sim_states_init, batched_side, batched_time_s_ref, batched_time_ns_ref)
+    order_id_ref = orig_orders[:, 2]
+    order_id = jnp.where((batched_EVENT_TYPE == 2) | (batched_EVENT_TYPE == 3),
+                         order_id_ref,
+                         batched_new_order_id)
+
+    # Squeeze to proper shapes.
+    batched_EVENT_TYPE = batched_EVENT_TYPE[:, None].squeeze(-1)
+    batched_side = batched_side[:, None].squeeze(-1)
+    batched_quantity = batched_quantity[:, None].squeeze(-1)
+    order_id = order_id[:, None].squeeze(-1)
+    batched_p_abs = batched_p_abs.squeeze(-1)
+    batched_time_s = TIMEs_i.squeeze(-1)
+    batched_time_ns = TIMEns_i.squeeze(-1)
+
+    batched_construct_sim_msg = jax.vmap(construct_sim_msg)
+    batched_sim_msg = batched_construct_sim_msg(
+        batched_EVENT_TYPE,
+        batched_side,
+        batched_quantity,
+        batched_p_abs,
+        order_id,
+        batched_time_s,
+        batched_time_ns,
+    )
+
+    # Update msg_decoded with batched_p_abs and order_id
+    msg_decoded = msg_decoded.at[:, PRICE_ABS_i].set(batched_p_abs).at[:, ORDER_ID_i].set(order_id)
+
+    dummy_msg_single = construct_dummy_sim_msg()  # assumed to return an int32 array
+    dummy_msg = jnp.tile(dummy_msg_single, (batch_size, 1))
+
+    # Use a conditional to choose which message to use.
+    sim_msg, msg_decoded = jax.lax.cond(
+        jnp.isnan(new_part).any(),
+        lambda _: (dummy_msg, msg_decoded),
+        lambda _: (batched_sim_msg, msg_decoded),
+        operand=None
+    )
+
+    # Encode the message
+    msg_encoded = jax.vmap(lambda m: encoding.encode_msg(m, encoder))(msg_decoded)
+    shift = msg_encoded.shape[1]
+    UPDATED_m_seq_gen_doubled = jnp.concatenate([m_seq_gen_doubled[:, shift:], msg_encoded], axis=1)
+    shift_msgs = msg_decoded[:, None, :].shape[1]
+    UPDATED_msgs_decoded_doubled = jnp.concatenate([msgs_decoded_doubled[:, shift_msgs:, :], msg_decoded[:, None, :]], axis=1)
+
+    new_sim_state = jax.vmap(sim_init.process_order_array)(sim_states_init, sim_msg)
+    new_b_state = jax.vmap(sim_init.get_L2_state, in_axes=(0, None))(new_sim_state, l2_state_n)
+    new_b_state = new_b_state[:, None, :]
+    new_state_slice = new_b_state[:, 0, :]
+    old_last_time_step = b_seq_gen_doubled[:, -1, :]
+    updated_last_time_step = jnp.concatenate([new_state_slice, old_last_time_step[:, 80:]], axis=1)
+    new_b_seq = jnp.concatenate([b_seq_gen_doubled[:, 1:, :], updated_last_time_step[:, None, :]], axis=1)
+    new_l2_book_states_halved = updated_last_time_step[:, :40]
+    return UPDATED_m_seq_gen_doubled, new_b_seq, UPDATED_msgs_decoded_doubled, new_l2_book_states_halved
+
+
+
+def run_generation_scenario(
+        n_samples: int,
+        batch_size: int,
+        ds: LOBSTER_Dataset,
+        rng: jax.dtypes.prng_key,
+        seq_len: int,
+        n_msgs: int,
+        n_gen_msgs: int,
+        train_state: TrainState,
+        model: nn.Module,
+        batchnorm: bool,
+        encoder: Dict[str, Tuple[jax.Array, jax.Array]],
+        stock_symbol: str,
+        n_vol_series: int = 500,
+        save_folder: str = './data_saved/',
+        tick_size: int = 100,
+        sample_top_n: int = -1,
+        sample_all: bool = False,
+        num_insertions: int = 2,
+        num_coolings: int = 2,
+        ):
+
+    rng, rng_ = jax.random.split(rng)
+    if sample_all:
+        sample_i = jnp.arange(
+            len(ds) // batch_size * batch_size,
+            dtype=jnp.int32
+        ).reshape(-1, batch_size).tolist()
+    else:
+        assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
+
+        sample_i = jax.random.choice(
+            rng_,
+            jnp.arange(len(ds), dtype=jnp.int32),
+            shape=(n_samples // batch_size, batch_size),
+            replace=False
+        ).tolist()
+    rng, rng_ = jax.random.split(rng)
+
+    Path(save_folder + f'/data_scenario_cond/').mkdir(exist_ok=True, parents=True)
+    Path(save_folder + f'/data_scenario_real/').mkdir(exist_ok=True, parents=True)
+    Path(save_folder + f'/data_scenario_gen/').mkdir(exist_ok=True, parents=True)
+
+    transform_L2_state_batch = jax.jit(
+        jax.vmap(
+            transform_L2_state,
+            in_axes=(0, None, None)
+        ),
+        static_argnums=(1, 2)
+    )
+
+    num_iterations = num_insertions + num_coolings
+
+    for batch_i in tqdm(sample_i):
+        print('BATCH', batch_i)
+
+        for iteration in range(1,num_iterations+1):
+            print('\nITERATION ', iteration)
+            
+            if iteration == 1:
+                m_seq, _, b_seq_pv, msg_seq_raw, book_l2_init = ds[batch_i]
+                m_seq = jnp.array(m_seq)
+                b_seq_pv = jnp.array(b_seq_pv)
+                msg_seq_raw = jnp.array(msg_seq_raw)
+                book_l2_init = jnp.array(book_l2_init)
+                b_seq = transform_L2_state_batch(b_seq_pv, n_vol_series, tick_size)
+            else:
+                m_seq = m_seq_gen_doubled
+                b_seq = b_seq_gen_doubled
+                msg_seq_raw = msgs_decoded_doubled
+                book_l2_init = l2_book_states_halved
+
+            m_seq_inp = m_seq[:, : seq_len]
+            b_seq_inp = b_seq[: , : n_msgs]
+            m_seq_raw_inp = msg_seq_raw[:, : n_msgs]
+
+            print(f'{iteration}: book_l2_init shape: {book_l2_init.shape}:\n{book_l2_init}\n')
+            print(f'{iteration}: m_seq_raw_inp shape: {m_seq_raw_inp.shape}:\n{m_seq_raw_inp}\n')
+
+
+            sim_init, sim_states_init = get_sims_vmap(
+                book_l2_init,
+                m_seq_raw_inp,
+            )
+
+            m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = generate_batched(
+                sim_init,
+            train_state,
+            model,
+            batchnorm,
+            encoder,
+            sample_top_n,
+            tick_size,
+            m_seq_inp,
+            b_seq_inp,
+            n_gen_msgs,
+            sim_states_init,
+            jax.random.split(rng_, batch_size),
+             )
+
+            m_seq_gen_doubled = jnp.concatenate([m_seq_gen, m_seq_gen], axis=1)
+            b_seq_gen_doubled = jnp.concatenate([b_seq_gen, b_seq_gen], axis=1)
+            msgs_decoded_doubled = jnp.concatenate([msgs_decoded, msgs_decoded], axis=1)
+            l2_book_states_halved = l2_book_states[:, -1, :40]
+
+            mid_price = ((l2_book_states_halved[:, 0] + l2_book_states_halved[:, 2]) / 2).astype(jnp.int32)
+            print(f'midprice after {iteration}-th iteration and {500*iteration} generated messages =', mid_price)
+            
+            if iteration <= num_insertions:
+                m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled, l2_book_states_halved = insert_custom_end(m_seq_gen_doubled, 
+                                                                                                                      b_seq_gen_doubled, 
+                                                                                                                      msgs_decoded_doubled, 
+                                                                                                                      l2_book_states_halved, 
+                                                                                                                      sim_init, 
+                                                                                                                      sim_states_init, 
+                                                                                                                      encoder)
+                print(f'\nAGGRESSIVE MESSAGE INSERTED - {iteration}\n\n')
+            if iteration > num_insertions:
+                print('f\nGENERATE FORWARD WITHOUT AGGRESSIVE ORDER - {iteration}\n\n')
+
+            m_seq_np = np.array(jax.device_get(m_seq_gen_doubled))
+            b_seq_np = np.array(jax.device_get(b_seq_gen_doubled))
+            msgs_decoded_np = np.array(jax.device_get(msgs_decoded_doubled))
+            l2_book_states_np = np.array(jax.device_get(l2_book_states_halved))
+            mid_price_np = np.array(jax.device_get(mid_price))
+
+            base_save_folder = os.path.join(os.getcwd(), 'data_saved')
+            os.makedirs(os.path.join(base_save_folder, 'm_seq_gen_doubled'), exist_ok=True)
+            os.makedirs(os.path.join(base_save_folder, 'b_seq_gen_doubled'), exist_ok=True)
+            os.makedirs(os.path.join(base_save_folder, 'msgs_decoded_doubled'), exist_ok=True)
+            os.makedirs(os.path.join(base_save_folder, 'l2_book_states_halved'), exist_ok=True)
+            os.makedirs(os.path.join(base_save_folder, 'mid_price'), exist_ok=True)
+            
+            np.save(os.path.join(base_save_folder, 'm_seq_gen_doubled', f'm_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), m_seq_np)
+            np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), b_seq_np)
+            np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_doubled_batch_{batch_i}_iter_{iteration}.npy'), msgs_decoded_np)
+            np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'l2_book_states_halved_batch_{batch_i}_iter_{iteration}.npy'), l2_book_states_np)
+            np.save(os.path.join(base_save_folder, 'mid_price', f'mid_price_batch_{batch_i}_iter_{iteration}.npy'), mid_price_np)
