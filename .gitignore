@@ -167,6 +167,7 @@ raw_datasets/
 
 # data
 data/
+data_saved/
 
 checkpoints*/
 nohup.out
