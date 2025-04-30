@@ -367,7 +367,6 @@ class LOBSTER_Dataset(Dataset):
         
         X_raw = jnp.array(X[seq_start: seq_end])
         # encode message
-        
         X = encoding.encode_msgs(X_raw, self.vocab.ENCODING)
 
         # apply mask and extract prediction target token

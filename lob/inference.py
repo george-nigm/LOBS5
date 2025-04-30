@@ -153,7 +153,7 @@ def get_sim(
     ) -> Tuple[OrderBook, jax.Array]:
     """"""
     # reset simulator : args are (nOrders, nTrades)
-    sim = OrderBook(nOrders, nTrades)
+    sim = OrderBook()
     # init simulator at the start of the sequence
     sim_state = sim.reset(init_l2_book)
     # replay sequence in simulator (actual)
@@ -939,12 +939,16 @@ def generate(
             # syntactically valid tokens for current message position
             valid_mask = valh.get_valid_mask(valid_mask_array, mask_i)
             m_seq, _ = valh.mask_last_msg_in_seq(m_seq, mask_i)
-            input = (
-                one_hot(
-                    jnp.expand_dims(m_seq, axis=0), vocab_len
-                ).astype(float),
-                jnp.expand_dims(b_seq, axis=0)
-            )
+
+            # input = (
+            #     one_hot(
+            #         jnp.expand_dims(m_seq, axis=0), vocab_len
+            #     ).astype(float),
+            #     jnp.expand_dims(b_seq, axis=0)
+            # )
+
+            input = (jnp.expand_dims(m_seq, axis=0), jnp.expand_dims(b_seq, axis=0))
+
             integration_timesteps = (
                 jnp.ones((1, len(m_seq))), 
                 jnp.ones((1, len(b_seq)))
@@ -1754,3 +1758,151 @@ def study_impact(
         for metric in all_metrics[0].keys()
     }
     return all_metrics
+
+
+
+
+# ========================================= #
+
+def generate_insertion_loop(
+    m_seq: jax.Array,
+    b_seq_pv: jax.Array,
+    msg_seq_raw: jax.Array,
+    book_l2_init: jax.Array,
+    seq_len: int,
+    n_msgs: int,
+    train_state: TrainState,
+    model: nn.Module,
+    batchnorm: bool,
+    encoder: Dict[str, Tuple[jax.Array, jax.Array]],
+    rng: jax.dtypes.prng_key,
+    n_vol_series: int = 500,
+    data_levels: int = 10,
+    num_iterations: int = 10,
+    n_gen_msgs: int = 500,
+    market_order_volume: int = 75,
+):
+    """
+    This function repeats the following loop num_iterations times:
+      1. Generate n_gen_msgs (500) new messages using the current state.
+      2. Insert one market order of buying 'market_order_volume' (75) volume.
+         The market order is constructed so that it immediately executes
+         against the current best ask and correctly references a limit order.
+    It returns the updated message and book sequences and the simulator state.
+    """
+    # Transform the raw book sequence to the volume image representation.
+    b_seq = jnp.array(transform_L2_state(b_seq_pv, n_vol_series, 100))
+    
+    # Split the data into input sequences.
+    m_seq_inp = m_seq[:seq_len]
+    b_seq_inp = b_seq[:n_msgs]
+    m_seq_raw_inp = msg_seq_raw[:n_msgs]
+    
+    # Initialise the simulator by replaying the initial raw messages.
+    sim, sim_state = get_sim(book_l2_init, m_seq_raw_inp)
+    
+    l = Message_Tokenizer.MSG_LEN  # length of a single message
+
+    # Loop for num_iterations: each iteration generates messages then injects a market order.
+    for i in range(num_iterations):
+        # --- Step 1: Generate 500 messages ---
+        # Here, generate_single_rollout returns updated m_seq, b_seq, and raw message sequences.
+
+        print(f'Round {i} \n\n')
+
+        # print(f'm_seq_inp : {m_seq_inp} \n\n')
+        # print(f'b_seq_inp : {b_seq_inp} \n\n')
+        # print(f'm_seq_raw_inp : {m_seq_raw_inp} \n\n')
+        # print(f'n_gen_msgs : {n_gen_msgs} \n\n')
+        # print(f'sim : {sim} \n\n')
+        # print(f'sim_state : {sim_state} \n\n')
+        # print(f'train_state : {train_state} \n\n')
+        # print(f'model: {model} \n\n')
+        # print(f'batchnorm : {batchnorm} \n\n')
+        # print(f'encoder : {encoder} \n\n')
+        # print(f'rng: {rng} \n\n')
+
+        m_seq_inp, b_seq_inp, m_seq_raw_inp, _ = generate_single_rollout(
+            m_seq_inp, b_seq_inp, m_seq_raw_inp,
+            n_gen_msgs, sim, sim_state,
+            train_state, model, batchnorm, encoder, rng
+        )
+        
+        # --- Step 2: Insert a market order (buy 75 volume) ---
+        tick_size = 100
+
+        # Calculate the current mid-price from the simulator state.
+        best_ask = sim.get_best_ask(sim_state)
+        best_bid = sim.get_best_bid(sim_state)
+        if best_ask > 0 and best_bid > 0:
+            p_mid_old = (best_ask + best_bid) / 2
+        elif best_ask < 0 and best_bid < 0:
+            raise ValueError("No valid prices in the book")
+        elif best_ask < 0:
+            p_mid_old = best_bid + tick_size
+        else:
+            p_mid_old = best_ask - tick_size
+        p_mid_old = (p_mid_old // tick_size) * tick_size
+
+        # For a market order buying, we use side = 1 and set level = 1 so that the
+        # order will match with the current best ask.
+        side = 1      # Buy order.
+        level = 1     # Level 1 corresponds to best ask on the opposite side.
+        # Here, we take the current best ask price as the execution price.
+        abs_price = sim.get_best_price(sim_state, 0)  # best ask
+        rel_price = (abs_price - p_mid_old) // tick_size
+
+        # Use a new order id (here simply as an increasing number)
+        new_order_id = 1000 + i
+        # Use the timestamp from the last raw message.
+        time_init_s = m_seq_raw_inp[-1, DTs_i]
+        time_init_ns = m_seq_raw_inp[-1, DTns_i]
+        delta_t_s, delta_t_ns = 0, 0
+        time_s, time_ns = time_init_s, time_init_ns
+
+        # Check marketability: for a buy order, the order is marketable if its price
+        # equals the current best ask.
+        is_marketable = (side == level) and (abs_price == sim.get_best_price(sim_state, 1 - side))
+        if is_marketable:
+            event_type = 4  # Execution message.
+            sim_msg, market_msg, msg_raw = get_sim_msg_exec(
+                event_type, market_order_volume, side, rel_price,
+                delta_t_s, delta_t_ns, time_s, time_ns,
+                p_mid_old, m_seq, m_seq_raw_inp, new_order_id,
+                sim, sim_state, tick_size, encoder
+            )
+        else:
+            # As a fallback (which should not usually happen if the book is non-empty),
+            # create a new limit order.
+            event_type = 1
+            sim_msg, market_msg, msg_raw = get_sim_msg_new(
+                p_mid_old, event_type, market_order_volume, side, rel_price,
+                delta_t_s, delta_t_ns, time_s, time_ns, new_order_id,
+                sim, sim_state, tick_size, encoder
+            )
+
+        # Update the message sequences with the inserted market order.
+        m_seq_inp = jnp.concatenate([m_seq_inp[l:], market_msg])
+        m_seq_raw_inp = jnp.concatenate([
+            m_seq_raw_inp[1:], jnp.expand_dims(msg_raw, axis=0)
+        ])
+
+        # Feed the market order message to the simulator to update the book state.
+        sim_state = sim.process_order_array(sim_state, sim_msg)
+
+        # Update the book state sequence.
+        best_ask_new = sim.get_best_ask(sim_state)
+        best_bid_new = sim.get_best_bid(sim_state)
+        p_mid_new = (best_ask_new + best_bid_new) // 2
+        p_mid_new = (p_mid_new // tick_size) * tick_size
+        p_change = ((p_mid_new - p_mid_old) // tick_size).astype(jnp.int32)
+        book = sim.get_L2_state(sim_state, l2_state_n)
+        new_book_raw = jnp.concatenate([jnp.array([p_change]), book]).reshape(1, -1)
+        new_book = preproc.transform_L2_state(new_book_raw, 500, 100)
+        b_seq_inp = jnp.concatenate([b_seq_inp[1:], new_book])
+        
+        info(f"Iteration {i+1}: Generated {n_gen_msgs} messages and inserted market order (buy {market_order_volume}).")
+        print(f"Iteration {i+1}: Generated {n_gen_msgs} messages and inserted market order (buy {market_order_volume}).")
+        print(f"p_mid_new: {p_mid_new}")
+    
+    return m_seq_inp, b_seq_inp, m_seq_raw_inp, sim_state
