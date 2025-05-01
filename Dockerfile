@@ -142,6 +142,6 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 # docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t ${USER}_docker .
 
-# docker run --rm --gpus '"device=2,3,5"' -d -it -v $(pwd):/app --name ${USER}_container ${USER}_docker /bin/bash
+# docker run --rm --gpus '"device=2,3,4"' -d -it -v $(pwd):/app --name ${USER}_container ${USER}_docker /bin/bash
 
 # docker run --rm --gpus '"device=2"' -d -it -v $(pwd):/app --name ${USER}_container ${USER}_docker /bin/bash

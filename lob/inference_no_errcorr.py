@@ -1213,16 +1213,6 @@ def book_to_lobster_format(
     return b_seq_
 
 def track_midprices_during_messages(midprices, proc_msgs_numb, m_seq_raw_inp, book_l2_init, tick_size, step_size):
-    # if m_seq_raw_inp.shape[1] == 500:
-    #     for idx, i in enumerate(range(step_size, m_seq_raw_inp.shape[1] + 1, step_size)):
-    #         print(f'Im using m_seq_raw_inp[:, :{i}, :]')
-    #         sim_init, sim_states_init = get_sims_vmap(book_l2_init, m_seq_raw_inp[:, :i, :])
-    #         mid_price = batched_get_safe_mid_price(sim_init, sim_states_init, tick_size)
-    #         midprices.append(mid_price)
-    #         print(f'midprice after processing {proc_msgs_numb+(idx+1)*step_size} messages =', mid_price)
-    # else:
-    #     print(m_seq_raw_inp.shape[1])
-
     for idx, i in enumerate(range(step_size, m_seq_raw_inp.shape[1] + 1, step_size)):
         print(f'Im using m_seq_raw_inp[:, :{i}, :]')
         sim_init, sim_states_init = get_sims_vmap(book_l2_init, m_seq_raw_inp[:, :i, :])
@@ -1362,13 +1352,6 @@ def run_generation_scenario(
     save_folder.joinpath('data_scenario_real').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('data_scenario_gen').mkdir(exist_ok=True, parents=True)
 
-
-    # base_save_folder = os.path.join(os.getcwd(), 'save_folder')
-    # os.makedirs(os.path.join(base_save_folder, 'm_seq_gen_doubled'), exist_ok=True)
-    # os.makedirs(os.path.join(base_save_folder, 'b_seq_gen_doubled'), exist_ok=True)
-    # os.makedirs(os.path.join(base_save_folder, 'msgs_decoded_doubled'), exist_ok=True)
-    # os.makedirs(os.path.join(base_save_folder, 'l2_book_states_halved'), exist_ok=True)
-    # os.makedirs(os.path.join(base_save_folder, 'mid_price'), exist_ok=True)
 
     save_folder.joinpath('m_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('b_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
