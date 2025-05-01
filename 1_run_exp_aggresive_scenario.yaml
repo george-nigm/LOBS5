@@ -1,13 +1,13 @@
 save_folder: "/app/data_saved/"
-batch_size: 4
-n_samples: 16
+batch_size: 1
+n_samples: 1
 
 # generation
 n_gen_msgs: 50
-midprice_step_size: 1
+midprice_step_size: 50
 
-num_insertions: 10
-num_coolings: 50
+num_insertions: 1
+num_coolings: 1
 
 EVENT_TYPE_i: 4
 DIRECTION_i: 0

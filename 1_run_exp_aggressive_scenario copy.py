@@ -65,6 +65,17 @@ import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 
 from lob.init_train import init_train_state, load_checkpoint, load_metadata, load_args_from_checkpoint
 
+generate_batched = jax.jit(
+    jax.vmap(
+        inference.generate,
+        in_axes=(
+            None, None, None, None,
+            None, None, None,    0,
+               0, None,    0,    0
+        )
+    ),
+    static_argnums=(0, 2, 3, 5, 6, 9)
+)
 
 
 def track_midprices_during_messages(midprices, proc_msgs_numb, m_seq_raw_inp, book_l2_init, tick_size, step_size):
