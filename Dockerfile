@@ -144,4 +144,7 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 # docker run --rm --gpus '"device=2,3,4"' -d -it -v $(pwd):/app --name ${USER}_container ${USER}_docker /bin/bash
 
-# docker run --rm --gpus '"device=2"' -d -it -v $(pwd):/app --name ${USER}_container ${USER}_docker /bin/bash
+
+# docker run --rm --gpus '"device=2,3,4"' -v $(pwd):/app --name georgenigm_docker georgenigm_docker /bin/bash
+
+# docker run --rm --gpus '"device=2,3,4"' -d -v $(pwd):/app --name georgenigm_docker_job georgenigm_docker /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario.py &> job.log"
