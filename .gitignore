@@ -167,6 +167,7 @@ raw_datasets/
 
 # data
 data/
+data_saved/
 
 checkpoints*/
 nohup.out
@@ -176,3 +177,9 @@ figures/
 *.pkl
 *.out
 *.prof
+.vscode/**.json
+
+
+**.npy
+**.7z
+**.csv

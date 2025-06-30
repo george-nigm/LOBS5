@@ -1,6 +1,7 @@
 """ Datasets for core experimental results """
 from pathlib import Path
 import random
+import re
 import sys
 from typing import Sequence
 import numpy as np
@@ -22,7 +23,7 @@ from jax.nn import one_hot
 
 import lob.encoding as encoding
 from lob.encoding import Vocab, Message_Tokenizer
-from lob.preproc import transform_L2_state
+from preproc import transform_L2_state
 from s5.dataloaders.base import default_data_path, SequenceDataset
 from s5.utils import permutations
 default_data_path = Path(__file__).parent.parent.absolute()
@@ -116,6 +117,47 @@ class LOBSTER_Dataset(Dataset):
         seq[-1, msk_pos] = Vocab.MASK_TOK
         seq[-1, hid_pos] = Vocab.HIDDEN_TOK
         return seq, y
+    
+    
+    # @staticmethod
+    # def sliding_window_mask(seq, rng):
+        
+    #     """ 
+    #     Generate N sequences where each sequence masks one different token 
+    #     in the latest message.
+    #     """
+    #     seq = seq.copy()
+    #     N = seq.shape[1]  # Number of tokens in a message
+    #     sliding_window_seqs = []
+    #     target_tokens = []
+
+    #     for i in range(N):
+    #         temp_seq = seq.copy()
+    #         y = temp_seq[-1, i]
+    #         temp_seq[-1, i] = Vocab.MASK_TOK
+    #         sliding_window_seqs.append(temp_seq)
+    #         target_tokens.append(y)
+        
+    #     return sliding_window_seqs, target_tokens
+    
+
+    @staticmethod
+    def sliding_window_mask(seq, rng):
+        """ 
+        Generate N sequences where each sequence masks one different token 
+        in the latest message.
+        """
+        def sliding_window_step(carry, i):
+            seq, rng = carry
+            temp_seq = seq.copy()
+            y = temp_seq[-1, i]
+            temp_seq = temp_seq.at[-1, i].set(Vocab.MASK_TOK)
+            return (seq, rng), (temp_seq, y)
+        N = seq.shape[1]
+        initial_carry = (seq, rng)
+        _, results = jax.lax.scan(sliding_window_step, initial_carry, jnp.arange(N))
+        sliding_window_seqs, target_tokens = results
+        return sliding_window_seqs, target_tokens
 
     @staticmethod
     def causal_mask(seq, rng):
@@ -218,10 +260,19 @@ class LOBSTER_Dataset(Dataset):
             # if given, also load and return raw sequences
             # -> used for inference (not training!)
             return_raw_msgs=False,
+            # for inference, the last message is not masked
+            # and hence the book state after the message is
+            # already available (shifts by one)
+            inference=False,
             ) -> None:
 
         assert len(message_files) > 0
         assert not (use_simple_book and book_transform)
+
+        # shift book state by 1 for inference tasks,
+        # because the most recent message is not masked (=complete)
+        # and the new book state is already available
+        self.inference = inference
 
         self.message_files = message_files #
         if book_files is not None:
@@ -271,7 +322,7 @@ class LOBSTER_Dataset(Dataset):
             self.L_book = 0
     
     def _reset_offsets(self):
-        """ drop a random number of messages from the beggining of every file
+        """ drop a random number of messages from the beginning of every file
             so that sequences don't always contain the same time periods
         """
         if self.randomize_offset:
@@ -298,7 +349,10 @@ class LOBSTER_Dataset(Dataset):
         if self.n_cache_files == 0:
             X = np.load(self.message_files[file_idx], mmap_mode='r')
             if self.use_book_data:
-                book = np.load(self.book_files[file_idx], mmap_mode='r')
+                book = np.load(
+                    self.book_files[file_idx],
+                    mmap_mode='r'
+                )
         else:
             if file_idx not in self._message_cache:
                 self._add_to_cache(file_idx)
@@ -313,7 +367,6 @@ class LOBSTER_Dataset(Dataset):
         
         X_raw = jnp.array(X[seq_start: seq_end])
         # encode message
-        
         X = encoding.encode_msgs(X_raw, self.vocab.ENCODING)
 
         # apply mask and extract prediction target token
@@ -324,7 +377,7 @@ class LOBSTER_Dataset(Dataset):
         if self.use_book_data:
             # first message is already dropped, so we can use
             # the book state with the same index (prior to the message)
-            book = book[seq_start: seq_end].copy()#.reshape(-1)
+            book = book[seq_start + self.inference: seq_end + self.inference].copy()
             if self.return_raw_msgs:
                 book_l2_init = book[0, 1:].copy()
 
@@ -334,13 +387,12 @@ class LOBSTER_Dataset(Dataset):
 
             # use raw price, volume series, rather than volume image
             # subtract initial price to start all sequences around 0
-            if self.use_simple_book:
+            # if self.use_simple_book:
                 # CAVE: first column is Delta mid price
                 # p_mid_0 = (book[0, 1] + book[0, 3]) / 2
                 # book[:, 1::2] = (book[:, 1::2] - p_mid_0)
                 # divide volume by 100
                 #book[:, 2::2] = book[:, 2::2] / 100
-                pass
 
             ret_tuple = X, y, book
         else:
@@ -380,7 +432,17 @@ class LOBSTER_Dataset(Dataset):
         file_idx = np.searchsorted(self._seqs_cumsum, idx+1) - 1
         seq_idx = idx - self._seqs_cumsum[file_idx]
         return file_idx, seq_idx
-    
+
+    def get_date(self, idx):
+        if hasattr(idx, '__len__'):
+            return [self.get_date(i) for i in idx]
+        
+        file_idx, _ = self._get_seq_location(idx)
+        file_name = self.message_files[file_idx].rsplit('/', 1)[1]
+        # file name from path -> STOCK_date_xxx
+        # date_str = self.message_files[file_idx].rsplit('/', 1)[1].split('_', 2)[1]
+        date_str = re.search("([0-9]{4}-[0-9]{2}-[0-9]{2})", file_name)[0]
+        return date_str
 
 class LOBSTER_Sampler(Sampler):
     def __init__(self, dset, n_files_shuffle, batch_size=1, seed=None):

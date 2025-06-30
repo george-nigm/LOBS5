@@ -4,7 +4,7 @@ from lob.encoding import Message_Tokenizer, Vocab
 import pandas as pd
 import jax
 from jax import nn
-from jax.random import PRNGKeyArray
+# from jax.random import PRNGKeyArray
 from jax.experimental import checkify
 import chex
 import flax
@@ -173,7 +173,7 @@ def fill_predicted_toks(
         seq: jax.Array,
         pred_logits: jax.Array,
         top_n: int = 1,
-        rng: jax.random.PRNGKeyArray = None,
+        rng: Optional[jax.dtypes.prng_key] = None,
         MASK_TOK: int = Vocab.MASK_TOK,
     ) -> jax.Array:
     """ Set the predicted token in the given sequence
@@ -192,7 +192,7 @@ def fill_predicted_toks(
 def sample_pred(
         pred: jax.Array,
         top_n: int,
-        rng: jax.random.PRNGKeyArray
+        rng: jax.dtypes.prng_key
     ) -> jax.Array:
     """ Sample from the top_n predicted labels
     """
@@ -320,7 +320,7 @@ def pred_msg(
         state: TrainState,
         model: flax.linen.Module,
         batchnorm: bool,
-        rng: PRNGKeyArray,
+        rng: jax.dtypes.prng_key,
         valid_mask_array: Optional[jax.Array] = None,
         sample_top_n: int = 5,
     ) -> np.ndarray:
@@ -406,8 +406,52 @@ def find_orig_msg(
     occ = find_all_msg_occurances(msg, seq, comp_cols)
     if len(occ) > 0:
         return int(occ.flatten()[0])
+    
 
-def find_all_msg_occurances(
+    
+@partial(jax.jit, static_argnums=(2,3))
+def find_n_msg_occurances(
+        msg: jax.Array,
+        seq: jax.Array,
+        comp_cols: Tuple[str],
+        n_matches: int = 1,
+    ) -> jax.Array:
+    ''' Returns the indices of the LAST (most recent) n matching messages in the sequence seq. '''
+    def get_ref_matches(msg, seq, comp_cols, n_matches):
+        comp_cols_ref = \
+            [c for c in comp_cols if (c + '_ref' in Message_Tokenizer.FIELDS)]
+        comp_i = [idx for c in comp_cols_ref for idx in list(range(*get_idx_from_field(c)))]
+        comp_i_ref = [idx for c in comp_cols_ref for idx in list(range(*get_idx_from_field(c + '_ref')))]
+        if 'direction' in comp_cols:
+            comp_cols_ref += ['direction']  # direction field should be added to ref search
+            comp_i += list(range(*get_idx_from_field('direction')))
+            comp_i_ref += list(range(*get_idx_from_field('direction')))
+        comp_i = sorted(comp_i)
+        comp_i_ref = sorted(comp_i_ref)
+        ref_matches = np.argwhere(
+            (seq[:, comp_i_ref] == msg[comp_i,]).all(axis=1),
+            size=n_matches,
+            fill_value=-1,
+        )
+        return ref_matches.flatten()
+
+    l = Message_Tokenizer.MSG_LEN
+    seq = seq.reshape((-1, Message_Tokenizer.MSG_LEN))
+    comp_i = [idx for c in comp_cols for idx in list(range(*get_idx_from_field(c)))]
+    direct_matches = np.argwhere(
+        (seq[:, comp_i] == msg[comp_i,]).all(axis=1),
+        size=n_matches,
+        fill_value=-1,
+    )
+    matches = jax.lax.cond(
+        direct_matches[0] == -1,
+        get_ref_matches,  # no direct match found
+        lambda *args: direct_matches,  # direct match found
+        msg, seq ,comp_cols, n_matches
+    )
+    return matches
+
+def find_all_msg_occurances_DEPR(
         msg: jax.Array,
         seq: jax.Array,
         comp_cols: Iterable[str],
@@ -493,6 +537,11 @@ def try_find_msg(
         seq_mask: filters to messages with correctly matching price level 
                   CAVE: values of 1 in mask are set to -1 in seq if no perfect match is found
     """
+    def get_match_idx():
+        matches = find_n_msg_occurances(msg, seq, comp_cols)
+        idx = int(matches.flatten()[0])
+        return idx
+
     if seq_mask is not None:
         seq = seq.at[seq_mask, :].set(-1)
 
@@ -501,14 +550,35 @@ def try_find_msg(
         ('event_type', 'direction', 'price', 'size', 'time_s', 'time_ns'),
         ('event_type', 'direction', 'price', 'size'),
     ]
-    n_removed = 0
-    for comp_cols in matching_cols:
-        # remove field from matching criteria
-        matches = find_all_msg_occurances(msg, seq, comp_cols)
-        if len(matches) > 0:
-            idx = int(matches.flatten()[0])
-            debug('found match after removing', n_removed, 'at idx', idx)
-            return idx, n_removed
-        n_removed += 1
-    debug('no match found')
-    return None, None
+
+    # TODO: compare while with scan performance
+    # idx = jax.lax.while_loop(
+    #     lambda cc_and_i : cc_and_i[1] == -1,
+    #     lambda cc_and_i: find_n_msg_occurances(seq, msg, cc[0])[0],  # returns new val passed to first arg fn. until cond is False
+    #     (matching_cols[0], 1),
+    # )
+
+    _, idcs = jax.lax.scan(
+        lambda _, comp_cols: find_n_msg_occurances(seq, msg, comp_cols),
+        0,  # init for carry (not needed)
+        matching_cols
+    )
+    idcs = idcs.flatten()
+    return jnp.where(
+        idcs != 1,
+        idcs,
+        size=1, fill_value=-1
+    )
+    # TODO: also return n_removed (i.e. arghwere, not only where...)
+
+    # n_removed = 0
+    # for comp_cols in matching_cols:
+    #     # remove field from matching criteria
+    #     matches = find_n_msg_occurances(msg, seq, comp_cols)
+    #     if len(matches) > 0:
+    #         idx = int(matches.flatten()[0])
+    #         debug('found match after removing', n_removed, 'at idx', idx)
+    #         return idx, n_removed
+    #     n_removed += 1
+    # debug('no match found')
+    # return None, None

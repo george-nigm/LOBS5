@@ -1,11 +1,17 @@
 from __future__ import annotations
+import json
+import os
 from argparse import Namespace
 from glob import glob
 from functools import partial
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 import jax
 import jax.numpy as np
 from jax import random
+import flax
+from flax import jax_utils
+import orbax
+import orbax.checkpoint as ocp
 from flax.training.train_state import TrainState
 from jax.scipy.linalg import block_diag
 from flax.training import checkpoints
@@ -15,14 +21,24 @@ from lob.encoding import Vocab
 from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel, FullLobPredModel#, ParFullLobPredModel
 
 #from lob.lob_seq_model import BatchLobPredModel
-from lob.train_helpers import create_train_state, eval_step, prep_batch, cross_entropy_loss, compute_accuracy
+from lob.train_helpers import create_train_state#, eval_step, prep_batch, cross_entropy_loss, compute_accuracy
 from s5.ssm import init_S5SSM
 from s5.ssm_init import make_DPLR_HiPPO
-from s5.dataloading import make_data_loader
-from lob.lobster_dataloader import LOBSTER_Dataset, LOBSTER
+# from s5.dataloading import make_data_loader
+# from lob.lobster_dataloader import LOBSTER_Dataset, LOBSTER
 
 import lob.validation_helpers as valh
 
+
+def deduplicate_trainstate(
+        state: TrainState,
+    ) -> TrainState:
+    """
+    """
+    return jax.device_put(
+        jax.tree.map(lambda x: x[0], state),
+        device=jax.devices('gpu')[0]
+    )
 
 def load_args_from_checkpoint(
         checkpoint_path: str,
@@ -40,32 +56,96 @@ def load_args_from_checkpoint(
     args = Namespace(**raw_restored['config'])
     return args
 
+def save_checkpoint(
+        ckpt_mgr: ocp.CheckpointManager,
+        ckpt: dict,
+        epoch: int,
+    ) -> bool:
+    """
+    """
+    return ckpt_mgr.save(
+        epoch,
+        # args=ocp.args.PyTreeSave(ckpt)
+        args=ocp.args.Composite(
+            # train state
+            state=ocp.args.StandardSave(ckpt['model']),
+            # all other dict elements
+            metadata=ocp.args.JsonSave({k: v for k, v in ckpt.items() if k != 'model'}),
+        )
+    )
+
+
+# def load_checkpoint(
+#         state: TrainState,
+#         path: str,
+#         config_dict: dict,
+#         step: Optional[int] = None,
+#     ) -> TrainState:
+#     ckpt = {
+#         'model': state,
+#         'config': config_dict,
+#         'metrics': {
+#             'loss_train': np.nan,
+#             'loss_val': np.nan,
+#             'loss_test': np.nan,
+#             'acc_val': np.nan,
+#             'acc_test': np.nan,
+#         }
+#     }
+#     orbax_checkpointer = checkpoint.PyTreeCheckpointer()
+#     restored = checkpoints.restore_checkpoint(
+#         path,
+#         ckpt,
+#         step=step,
+#         orbax_checkpointer=orbax_checkpointer
+#     )
+#     return restored
+
+def load_metadata(
+        path: str,
+    ) -> Namespace:
+
+    json_path = path + '/metadata/metadata'
+    # load json path to dict
+    with open(json_path, 'r') as f:
+        metadata = json.load(f)
+    return Namespace(**metadata)
 
 def load_checkpoint(
         state: TrainState,
         path: str,
-        config_dict: dict,
+        # config_dict: dict,
         step: Optional[int] = None,
-    ) -> TrainState:
-    ckpt = {
-        'model': state,
-        'config': config_dict,
-        'metrics': {
-            'loss_train': np.nan,
-            'loss_val': np.nan,
-            'loss_test': np.nan,
-            'acc_val': np.nan,
-            'acc_test': np.nan,
-        }
-    }
-    orbax_checkpointer = checkpoint.PyTreeCheckpointer()
-    restored = checkpoints.restore_checkpoint(
-        path,
-        ckpt,
-        step=step,
-        orbax_checkpointer=orbax_checkpointer
+        train: bool = True,
+    ) -> dict[str, Any]:
+
+    mngr = ocp.CheckpointManager(
+        os.path.abspath(path),
+        item_names=('state', 'metadata'),
+        options=ocp.CheckpointManagerOptions(),
+        # metadata=ckpt['config']
     )
-    return restored
+
+    if step is None:
+        step = mngr.latest_step()
+
+    loaded = mngr.restore(
+        step,
+        args=ocp.args.Composite(
+            state=ocp.args.StandardRestore(
+                # only stored trainstate from a single device (as they are all the same)
+                deduplicate_trainstate(state)
+            ),
+            metadata=ocp.args.JsonRestore()
+        )
+    )
+    ckpt = loaded['metadata']
+    # copy train state back to all devices
+    if train:
+        ckpt['model'] = jax_utils.replicate(loaded['state'])
+    else:
+        ckpt['model'] = loaded['state']
+    return ckpt
 
 
 def init_train_state(
@@ -187,7 +267,7 @@ def init_train_state(
         padded,
         retrieval,
         use_book_data=args.use_book_data,
-        in_dim=in_dim,
+        in_dim=1, # in_dim,
         book_dim=book_dim,
         book_seq_len=book_seq_len,
         bsz=args.bsz,

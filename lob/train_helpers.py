@@ -2,14 +2,18 @@ from functools import partial
 import numpy as onp
 import jax
 import jax.numpy as np
-from jax.nn import one_hot
+# from jax.nn import one_hot
 from tqdm import tqdm
 from flax.training import train_state
 from flax import jax_utils
 import optax
 from typing import Any, Dict, Optional, Tuple, Union
 
-from lob.lob_seq_model import LobPredModel
+# from lob.lob_seq_model import LobPredModel
+
+
+# num_devices_global = 2
+# global_devices = jax.local_devices()[0: num_devices_global]
 
 
 # LR schedulers
@@ -142,15 +146,17 @@ def create_train_state(model_cls,
     else:
         if use_book_data:
             dummy_input = (
-                np.ones((bsz, seq_len, in_dim)),
-                np.ones((bsz, book_seq_len, book_dim)),
+                # np.ones((bsz, seq_len, in_dim), dtype=np.int32),  # messages
+                np.ones((bsz, seq_len, ), dtype=np.int32),  # messages
+                np.ones((bsz, book_seq_len, book_dim)),  # books
             )
             integration_timesteps = (
                 np.ones((bsz, seq_len, )),
                 np.ones((bsz, book_seq_len, )),
             )
         else:
-            dummy_input = (np.ones((bsz, seq_len, in_dim)) , )
+            # dummy_input = (np.ones((bsz, seq_len, in_dim), dtype=np.int32) , )
+            dummy_input = (np.ones((bsz, seq_len, ), dtype=np.int32) , )
             integration_timesteps = (np.ones((bsz, seq_len, )), )
 
     model = model_cls(training=True)
@@ -160,10 +166,10 @@ def create_train_state(model_cls,
                            *dummy_input, *integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        params = variables["params"]#.unfreeze()
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
+        params = variables["params"]#.unfreeze()
         # Note: `unfreeze()` is for using Optax.
 
     if opt_config in ["standard"]:
@@ -291,7 +297,7 @@ def create_train_state(model_cls,
         state = train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
     
     # keep copy of state on each device
-    state = jax_utils.replicate(state)
+    state = jax_utils.replicate(state)#, devices=global_devices)
     return state
 
 def get_slices(dims):
@@ -303,10 +309,14 @@ def get_slices(dims):
     return slices
 
 # Train and eval steps
+# @partial(np.vectorize, signature="(c),()->()")
+# def cross_entropy_loss(logits, label):
+#     one_hot_label = jax.nn.one_hot(label, num_classes=logits.shape[-1])
+#     return -np.sum(one_hot_label * logits)
+
 @partial(np.vectorize, signature="(c),()->()")
 def cross_entropy_loss(logits, label):
-    one_hot_label = jax.nn.one_hot(label, num_classes=logits.shape[-1])
-    return -np.sum(one_hot_label * logits)
+    return -np.sum(logits[label])
 
 @partial(np.vectorize, signature="(c),()->()")
 def compute_accuracy(logits, label):
@@ -317,7 +327,7 @@ def prep_batch(
             Tuple[onp.ndarray, onp.ndarray, Dict[str, onp.ndarray]],
             Tuple[onp.ndarray, onp.ndarray]],
         seq_len: int,
-        in_dim: int,
+        # in_dim: int,
         num_devices: int,
     ) -> Tuple[Tuple, np.ndarray, Tuple]:
 
@@ -341,17 +351,19 @@ def prep_batch(
         timestep_msg,
         timestep_book,
     )
+    # print('inputs shape (device_reshape):', inputs.shape)
 
     # split large batch into smaller device batches on the GPUs
     inputs, labels, integration_times = _prep_batch_par(
         inputs,
         targets,
         seq_len,
-        in_dim,
+        # in_dim,
         book_data,
         timestep_msg,
         timestep_book,
     )
+    # print('inputs (targets) shape (_prep_batch_par):', inputs[1].shape)
 
     return inputs, labels, integration_times
 
@@ -359,14 +371,17 @@ def prep_batch(
 #    jax.vmap,
     jax.pmap,
     axis_name="batch_devices",
-    static_broadcasted_argnums=(2, 3),
-    in_axes=(0, 0, None, None, 0, 0, 0),
-    out_axes=(0, 0, 0))
+    static_broadcasted_argnums=(2,),
+    # in_axes=(0, 0, None, None, 0, 0, 0),
+    in_axes=(0, 0, None, 0, 0, 0),
+    # out_axes=(0, 0, 0),
+    # devices=global_devices
+)
 def _prep_batch_par(
         inputs: jax.Array,
         targets: jax.Array,
         seq_len: int,
-        in_dim: int,
+        # in_dim: int,
         book_data: Optional[jax.Array] = None,
         timestep_msg: Optional[jax.Array] = None,
         timestep_book: Optional[jax.Array] = None,
@@ -380,7 +395,7 @@ def _prep_batch_par(
     """
 
     assert inputs.shape[1] == seq_len, f'inputs: {inputs.shape} seq_len {seq_len}'
-    inputs = one_hot(inputs, in_dim)
+    # inputs = one_hot(inputs, in_dim)
 
     # If there is an aux channel containing the integration times, then add that.
     if timestep_msg is not None:
@@ -391,17 +406,17 @@ def _prep_batch_par(
 
     if book_data is not None:
         #book_data = jax.device_put(book_data, jax.devices()[0])
-        full_inputs = (inputs.astype(np.float32), book_data)
+        full_inputs = (inputs.astype(np.int32), book_data)
         if timestep_book is not None:
             #timestep_book = jax.device_put(timestep_book, jax.devices()[0])
             integration_timesteps += (np.diff(timestep_book), )
         else:
             integration_timesteps += (np.ones((len(inputs), seq_len)), )
     else:
-        full_inputs = (inputs.astype(np.float32), )
+        full_inputs = (inputs.astype(np.int32), )
 
     # CAVE: squeeze very important for training!
-    return full_inputs, np.squeeze(targets.astype(np.float32)), integration_timesteps
+    return full_inputs, np.squeeze(targets.astype(np.int32)), integration_timesteps
 
 @partial(jax.jit, static_argnums=(0,), backend='gpu')# backend='cpu')
 def device_reshape(
@@ -431,7 +446,7 @@ def train_epoch(
         #model,
         trainloader,
         seq_len,
-        in_dim,
+        # in_dim,
         batchnorm,
         lr_params,
         num_devices,
@@ -446,7 +461,11 @@ def train_epoch(
 
     #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
     for batch_idx, batch in enumerate(tqdm(trainloader)):
-        inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim, num_devices)
+        # # CAVE TODO: REMOVE!
+        # if batch_idx > 10:
+        #     break
+        # inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim, num_devices)
+        inputs, labels, integration_times = prep_batch(batch, seq_len, num_devices)
 
         rng, drop_rng = jax.random.split(rng)
         state, loss = train_step(
@@ -467,14 +486,16 @@ def train_epoch(
     return state, np.mean(np.array(batch_losses)), step
 
 @partial(
-    jax.pmap, backend='gpu',
+    jax.pmap,
     axis_name="batch_devices",
     static_broadcasted_argnums=(5,),  # TODO: revert to 5 for batchnorm in pmap
     in_axes=(0, None, 0, 0, 0, None),
-    out_axes=(0, 0))
+    # out_axes=(0, 0),
+    # devices=global_devices
+)
 def train_step(
         state: train_state.TrainState,
-        rng: jax.random.PRNGKeyArray,  # 3
+        rng: jax.dtypes.prng_key,  # 3
         batch_inputs: Tuple[jax.Array, jax.Array], # 4
         batch_labels: jax.Array, # 5
         batch_integration_timesteps: Tuple[jax.Array, jax.Array], # 6
@@ -520,22 +541,27 @@ def train_step(
 
 def validate(state, apply_fn, testloader, seq_len, in_dim, batchnorm, num_devices, step_rescale=1.0):
     """Validation function that loops over batches"""
-    losses, accuracies, preds = np.array([]), np.array([]), np.array([])
+    # losses, accuracies, preds = np.array([]), np.array([]), np.array([])
+    losses, accuracies, preds = [], [], []
     for batch_idx, batch in enumerate(tqdm(testloader)):
-        inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim, num_devices)
+        inputs, labels, integration_timesteps = prep_batch(batch, seq_len, num_devices)
         loss, acc, pred = eval_step(
             inputs, labels, integration_timesteps, state, apply_fn, batchnorm)
-        losses = np.append(losses, loss)
-        accuracies = np.append(accuracies, acc)
+        # losses = np.append(losses, loss)
+        # accuracies = np.append(accuracies, acc)
+        losses.append(loss)
+        accuracies.append(acc)
 
-    aveloss, aveaccu = np.mean(losses), np.mean(accuracies)
+    aveloss, aveaccu = np.mean(np.array(losses)), np.mean(np.array(accuracies))
     return aveloss, aveaccu
 
 @partial(
     jax.pmap,
     axis_name="batch_devices",
     static_broadcasted_argnums=(4,5),
-    in_axes=(0, 0, 0, 0, None, None))
+    in_axes=(0, 0, 0, 0, None, None),
+    # devices=global_devices
+)
 def eval_step(
         batch_inputs,
         batch_labels,

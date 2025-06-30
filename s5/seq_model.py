@@ -31,12 +31,17 @@ class StackedEncoderModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
+    use_embed_layer: bool = False
+    vocab_size: int = -1  # only used if use_encode_layer is True
 
     def setup(self):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        self.encoder = nn.Dense(self.d_model)
+        if self.use_embed_layer:
+            self.encoder = nn.Embed(self.vocab_size, self.d_model)
+        else:
+            self.encoder = nn.Dense(self.d_model)
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,

@@ -1,19 +1,16 @@
-from functools import partial
+import os
+import jax
 from jax import random
-import jax.numpy as np
-from jax.scipy.linalg import block_diag
-from flax.training import checkpoints
-import orbax.checkpoint
-from lob.lob_seq_model import BatchFullLobPredModel, BatchLobPredModel, BatchPaddedLobPredModel
-import wandb
+import jax.numpy as jnp
+import flax
+import orbax.checkpoint as ocp
+# import wandb
 
-from lob.init_train import init_train_state, load_checkpoint
-from lob.dataloading import Datasets, create_lobster_prediction_dataset, create_lobster_train_loader
-from lob.lobster_dataloader import LOBSTER, LOBSTER_Dataset
-from lob.train_helpers import create_train_state, reduce_lr_on_plateau,\
-    linear_warmup, cosine_annealing, constant_lr, train_epoch, validate
-from s5.ssm import init_S5SSM
-from s5.ssm_init import make_DPLR_HiPPO
+from lob.init_train import init_train_state, load_checkpoint, save_checkpoint, deduplicate_trainstate
+from lob.dataloading import create_lobster_prediction_dataset, create_lobster_train_loader#, Datasets
+from lob.lobster_dataloader import LOBSTER_Dataset
+from lob.train_helpers import reduce_lr_on_plateau, linear_warmup, \
+    cosine_annealing, constant_lr, train_epoch, validate
 
 
 def train(args):
@@ -25,21 +22,21 @@ def train(args):
     best_test_acc = -10000.0
 
     # for parameter sweep: get args from wandb server
-    if args is None:
-        args = wandb.config
-    else:
-        if args.USE_WANDB:
-            # Make wandb config dictionary
-            run = wandb.init(project=args.wandb_project, job_type='model_training', config=vars(args), entity=args.wandb_entity)
-        else:
-            run = wandb.init(mode='offline')
+    # if args is None:
+    #     args = wandb.config
+    # else:
+    #     if args.USE_WANDB:
+    #         # Make wandb config dictionary
+    #         run = wandb.init(project=args.wandb_project, job_type='model_training', config=vars(args), entity=args.wandb_entity)
+    #     else:
+    #         run = wandb.init(mode='offline')
 
     ssm_size = args.ssm_size_base
     ssm_lr = args.ssm_lr_base
 
     # determine the size of initial blocks
     block_size = int(ssm_size / args.blocks)
-    wandb.log({"block_size": block_size})
+    # wandb.log({"block_size": block_size})
 
     # Set global learning rate lr (e.g. encoders, etc.) as function of ssm_lr
     lr = args.lr_factor * ssm_lr
@@ -86,11 +83,11 @@ def train(args):
         ckpt = load_checkpoint(
             state,
             args.restore,
-            args.__dict__,
+            # args.__dict__,
             step=args.restore_step,
         )
         state = ckpt['model']
-
+    
     # Training Loop over epochs
     best_loss, best_acc, best_epoch = 100000000, -100000000.0, 0  # This best loss is val_loss
     count, best_val_loss = 0, 100000000  # This line is for early stopping purposes
@@ -99,6 +96,23 @@ def train(args):
     steps_per_epoch = int(train_size/args.bsz)
 
     val_model = model_cls(training=False, step_rescale=1)
+
+    mgr_options = ocp.CheckpointManagerOptions(
+        save_interval_steps=1,
+        create=True,
+        max_to_keep=10,
+        keep_period=10,
+        # step_prefix=f'{run.name}_{run.id}',
+        enable_async_checkpointing=False,
+    )
+    ckpt_mgr = ocp.CheckpointManager(
+        os.path.abspath(f'checkpoints/{run.name}_{run.id}/'),
+        # ocp.Checkpointer(ocp.PyTreeCheckpointHandler()),
+        # ocp.Checkpointer(ocp.StandardCheckpointHandler()),
+        item_names=('state', 'metadata'),
+        options=mgr_options,
+        metadata=vars(args)
+    )
 
     for epoch in range(args.epochs):
         print(f"[*] Starting Training Epoch {epoch + 1}...")
@@ -130,7 +144,7 @@ def train(args):
                                               #train_model,
                                               trainloader,
                                               seq_len,
-                                              in_dim,
+                                              #in_dim,
                                               args.batchnorm,
                                               lr_params,
                                               args.num_devices)
@@ -139,7 +153,7 @@ def train(args):
         # different offsets
         trainloader = create_lobster_train_loader(
             lobster_dataset,
-            int(random.randint(skey, (1,), 0, 100000)),
+            int(random.randint(skey, (1,), 0, 100000)[0]),
             args.bsz,
             num_workers=args.n_data_workers,
             reset_train_offsets=True)
@@ -176,11 +190,13 @@ def train(args):
             # else use test set as validation set (e.g. IMDB)
             print(f"[*] Running Epoch {epoch + 1} Test...")
             val_loss, val_acc = validate(state,
-                                         model_cls,
+                                         #model_cls,
+                                         val_model.apply,
                                          testloader,
                                          seq_len,
                                          in_dim,
-                                         args.batchnorm)
+                                         args.batchnorm,
+                                         args.num_devices)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -190,26 +206,17 @@ def train(args):
 
         # save checkpoint
         ckpt = {
-            'model': state,
+            'model': deduplicate_trainstate(state),
             'config': vars(args),
             'metrics': {
-                'loss_train': train_loss,
-                'loss_val': val_loss,
-                'loss_test': test_loss,
-                'acc_val': val_acc,
-                'acc_test': test_acc,
+                'loss_train': float(train_loss),
+                'loss_val': float(val_loss),
+                'loss_test': float(test_loss),
+                'acc_val': float(val_acc),
+                'acc_test': float(test_acc),
             }
         }
-        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        checkpoints.save_checkpoint(
-            ckpt_dir=f'checkpoints/{run.name}_{run.id}',
-            target=ckpt,
-            step=epoch,
-            overwrite=True,
-            keep=2,
-            keep_every_n_steps=10,
-            orbax_checkpointer=orbax_checkpointer
-        )
+        save_checkpoint(ckpt_mgr, ckpt, epoch)
 
         # For early stopping purposes
         if val_loss < best_val_loss:
@@ -239,39 +246,39 @@ def train(args):
             f" {best_test_acc:.4f} at Epoch {best_epoch + 1}\n"
         )
 
-        if valloader is not None:
-            wandb.log(
-                {
-                    "Training Loss": train_loss,
-                    "Val loss": val_loss,
-                    "Val Accuracy": val_acc,
-                    "Test Loss": test_loss,
-                    "Test Accuracy": test_acc,
-                    "count": count,
-                    "Learning rate count": lr_count,
-                    "Opt acc": opt_acc,
-                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-                }
-            )
-        else:
-            wandb.log(
-                {
-                    "Training Loss": train_loss,
-                    "Val loss": val_loss,
-                    "Val Accuracy": val_acc,
-                    "count": count,
-                    "Learning rate count": lr_count,
-                    "Opt acc": opt_acc,
-                    "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
-                }
-            )
-        wandb.run.summary["Best Val Loss"] = best_loss
-        wandb.run.summary["Best Val Accuracy"] = best_acc
-        wandb.run.summary["Best Epoch"] = best_epoch
-        wandb.run.summary["Best Test Loss"] = best_test_loss
-        wandb.run.summary["Best Test Accuracy"] = best_test_acc
+        # if valloader is not None:
+        #     wandb.log(
+        #         {
+        #             "Training Loss": train_loss,
+        #             "Val loss": val_loss,
+        #             "Val Accuracy": val_acc,
+        #             "Test Loss": test_loss,
+        #             "Test Accuracy": test_acc,
+        #             "count": count,
+        #             "Learning rate count": lr_count,
+        #             "Opt acc": opt_acc,
+        #             "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+        #             "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+        #         }
+        #     )
+        # else:
+        #     wandb.log(
+        #         {
+        #             "Training Loss": train_loss,
+        #             "Val loss": val_loss,
+        #             "Val Accuracy": val_acc,
+        #             "count": count,
+        #             "Learning rate count": lr_count,
+        #             "Opt acc": opt_acc,
+        #             "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
+        #             "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+        #         }
+        #     )
+        # wandb.run.summary["Best Val Loss"] = best_loss
+        # wandb.run.summary["Best Val Accuracy"] = best_acc
+        # wandb.run.summary["Best Epoch"] = best_epoch
+        # wandb.run.summary["Best Test Loss"] = best_test_loss
+        # wandb.run.summary["Best Test Accuracy"] = best_test_acc
 
         if count > args.early_stop_patience:
             break

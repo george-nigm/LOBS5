@@ -198,6 +198,8 @@ class FullLobPredModel(nn.Module):
             batchnorm=self.batchnorm,
             bn_momentum=self.bn_momentum,
             step_rescale=self.step_rescale,
+            use_embed_layer=True,
+            vocab_size=self.d_output,
         )
         # applied to transposed message output to get seq len for fusion
         self.message_out_proj = nn.Dense(self.d_model)  
