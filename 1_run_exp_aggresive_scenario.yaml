@@ -1,21 +1,21 @@
 save_folder: "/app/data_saved/"
-batch_size: 1
+batch_size: 1 # seems it's not actually used - check train_helpers.py
 n_samples: 1
 
 # generation
 n_gen_msgs: 50
-midprice_step_size: 50
+midprice_step_size: 10
 
-num_insertions: 1
-num_coolings: 1
+num_insertions: 2
+num_coolings: 2
 
 EVENT_TYPE_i: 4
 DIRECTION_i: 0
 order_volume: 75
 
 # device & data
-bsz: 1
-num_devices: 1
+bsz: 25
+# num_devices: 1
 
 n_messages: 500
 book_dim: 501
@@ -31,4 +31,4 @@ stock: "GOOG"
 tick_size: 100
 rng_seed: 42
 
-ckpt_path: "./app/checkpoints/denim-elevator-754_czg1ss71/"
+ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"

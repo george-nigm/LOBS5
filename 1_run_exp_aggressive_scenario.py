@@ -19,7 +19,6 @@ from lob.encoding import Vocab, Message_Tokenizer
 from lob import inference_no_errcorr as inference
 from lob.init_train import init_train_state, load_checkpoint, load_metadata
 
-
 import os
 import numpy as np  # or use onp if preferred
 
@@ -66,7 +65,6 @@ import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 from lob.init_train import init_train_state, load_checkpoint, load_metadata, load_args_from_checkpoint
 
 
-
 def track_midprices_during_messages(midprices, proc_msgs_numb, m_seq_raw_inp, book_l2_init, tick_size, step_size):
     for idx, i in enumerate(range(step_size, m_seq_raw_inp.shape[1] + 1, step_size)):
         print(f'Im using m_seq_raw_inp[:, :{i}, :]')
@@ -76,7 +74,7 @@ def track_midprices_during_messages(midprices, proc_msgs_numb, m_seq_raw_inp, bo
         print(f'midprice after processing {proc_msgs_numb+(idx+1)*step_size} messages =', mid_price)
     
     proc_msgs_numb = proc_msgs_numb+m_seq_raw_inp.shape[1]
-
+    
     return midprices, proc_msgs_numb
 
 def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled,
@@ -85,7 +83,11 @@ def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled
     
     ORDER_ID_i = 77777777
     sim_init, sim_states_init = inference.get_sims_vmap(l2_book_states_halved[:,-2], msgs_decoded_doubled[:,-1:])
-    PRICE_i = jax.vmap(sim_init.get_best_ask)(sim_states_init)
+    if DIRECTION_i == 0:
+        PRICE_i = jax.vmap(sim_init.get_best_ask)(sim_states_init)
+    if DIRECTION_i == 1:
+        PRICE_i = jax.vmap(sim_init.get_best_bid)(sim_states_init)
+
     PRICE_i = jnp.expand_dims(PRICE_i, axis=-1)
     mid_price = jnp.expand_dims(mid_price, axis=-1)
 
@@ -157,6 +159,19 @@ def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled
     UPDATED_m_seq_gen_doubled = jnp.concatenate([m_seq_gen_doubled, msg_encoded], axis=1)
 
     return UPDATED_m_seq_gen_doubled, b_seq_gen_doubled, UPDATED_msgs_decoded_doubled, new_l2_book_states_halved, p_mid_new
+
+
+generate_batched = jax.jit(
+    jax.vmap(
+        inference.generate,
+        in_axes=(
+            None, None, None, None,
+            None, None, None,    0,
+               0, None,    0,    0
+        )
+    ),
+    static_argnums=(0, 2, 3, 5, 6, 9)
+)
 
 def run_generation_scenario(
         n_samples: int,
@@ -394,7 +409,7 @@ def main():
     DIRECTION_i       = cfg["DIRECTION_i"]
     order_volume      = cfg["order_volume"]
     bsz               = cfg["bsz"]
-    num_devices       = cfg["num_devices"]
+    # num_devices       = cfg["num_devices"]
     n_messages        = cfg["n_messages"]
     book_dim          = cfg["book_dim"]
     n_vol_series      = cfg["n_vol_series"]
@@ -407,10 +422,22 @@ def main():
     rng_seed          = cfg["rng_seed"]
     ckpt_path         = cfg["ckpt_path"]
 
+    num_devices  = jax.local_device_count() 
+    print(f'num_devices: ', num_devices)
+    # batch_size = num_devices
+    
     # Experiment folder
     exp_folder = create_next_experiment_folder(save_folder)
     print("Experiment dir:", exp_folder)
     wandb.run.summary["experiment_dir"] = str(exp_folder)
+
+    with open(exp_folder / "used_config.yaml", "w") as f_out:
+        yaml.dump(cfg, f_out)
+
+    # Log config file as artifact
+    artifact = wandb.Artifact(name="used_config", type="config")
+    artifact.add_file(str(exp_folder / "used_config.yaml"))
+    wandb.log_artifact(artifact)
 
     # Load metadata and model
     print("Loading metadata from", ckpt_path)
