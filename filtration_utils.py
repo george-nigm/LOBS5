@@ -278,3 +278,5 @@ def prepare_volatility_filtered_series(merged, hist_msgs, n_gen_msgs, midprice_s
     x = np.arange(1, max_len + 1)
 
     return x, all_series, merged, hist_steps, gen_block
+
+# add check if the right book state is in the player?
