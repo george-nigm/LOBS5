@@ -177,7 +177,8 @@ get_sims_vmap = jax.jit(
     jax.vmap(
         get_sim,
         in_axes=(0, 0),
-        out_axes=(0, 0)
+        # out_axes=(0, 0)
+        out_axes=(None, 0)
     )
 )
 

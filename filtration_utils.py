@@ -208,7 +208,7 @@ def plot_midprice_series_with_mean_std(
         x=np.concatenate([x, x[::-1]]),
         y=np.concatenate([mean_series + std_series,
                           (mean_series - std_series)[::-1]]),
-        fill='toself', fillcolor='rgba(0,0,0,0.1)',
+        fill='toself', fillcolor='rgba(0,0,0,0.3)',
         line=dict(color='rgba(0,0,0,0)'), hoverinfo='skip',
         showlegend=True, name='±1 std'
     ))
@@ -218,7 +218,7 @@ def plot_midprice_series_with_mean_std(
         name='Mean', line=dict(color='black', width=4)
     ))
 
-    return fig
+    return fig, mean_series, std_series
 
 
 

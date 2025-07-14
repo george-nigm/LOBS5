@@ -1,21 +1,22 @@
 save_folder: "/app/data_saved/"
-batch_size: 1 # seems it's not actually used - check train_helpers.py
-n_samples: 1
+# batch_size: 6
+# n_samples: 240
+# bsz: 24
+
+batch_size: 4
+n_samples: 500
+bsz: 100
 
 # generation
 n_gen_msgs: 50
-midprice_step_size: 10
+midprice_step_size: 1
 
-num_insertions: 2
-num_coolings: 2
+num_insertions: 20
+num_coolings: 40
 
 EVENT_TYPE_i: 4
-DIRECTION_i: 0
+DIRECTION_i: 1 # 0 for buying - 1 for selling! 
 order_volume: 75
-
-# device & data
-bsz: 25
-# num_devices: 1
 
 n_messages: 500
 book_dim: 501
