@@ -149,7 +149,6 @@ def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled
     batched_new_order_id = jnp.array([ORDER_ID_i] * batch_size, dtype=jnp.int32)
     batched_EVENT_TYPE = jnp.array([EVENT_TYPE_i] * batch_size, dtype=jnp.int32)
     batched_side = jnp.array([DIRECTION_i] * batch_size, dtype=jnp.int32)
-
     batched_p_abs = PRICE_i.squeeze(-1)    
     batched_time_s = TIMEs_i.squeeze(-1)
     batched_time_ns = TIMEns_i.squeeze(-1)
@@ -195,7 +194,7 @@ def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled
         jnp.full((batch_size, 1), 0, dtype=jnp.int32),
         jnp.full((batch_size, 1), 0, dtype=jnp.int32),
     ], axis=1)
-
+ 
     new_batched_sim_msg = ins_msg[:, None, :]
     UPDATED_msgs_decoded_doubled = jnp.concatenate([msgs_decoded_doubled, new_batched_sim_msg], axis=1)
 
@@ -274,13 +273,7 @@ def run_generation_scenario(
 
     base_save_folder = save_folder
 
-    transform_L2_state_batch = jax.jit(
-        jax.vmap(
-            transform_L2_state,
-            in_axes=(0, None, None)
-        ),
-        static_argnums=(1, 2)
-    )
+    transform_L2_state_batch = jax.jit(jax.vmap(transform_L2_state, in_axes=(0, None, None)), static_argnums=(1, 2))
 
     num_iterations = num_insertions + num_coolings
 
@@ -430,21 +423,55 @@ def create_next_experiment_folder(save_folder: str) -> Path:
     new_folder.mkdir(parents=True, exist_ok=False)
     return new_folder
 
-def parse_args():
+# def parse_args():
+#     p = argparse.ArgumentParser(description="Run LOB inference scenario")
+#     p.add_argument(
+#         "--config", "-c", 
+#         type=str, 
+#         default="/app/1_run_exp_aggresive_scenario.yaml",
+#         help="Path to your YAML config file"
+#     )
+#     return p.parse_args()
+
+# def main():
+#     print(f"JAX backend platform: {jax.lib.xla_bridge.get_backend().platform}")
+    
+#     args = parse_args()
+#     # load YAML config
+#     with open(args.config, "r") as f:
+#         cfg = yaml.safe_load(f)
+
+def parse_args(config_file):
     p = argparse.ArgumentParser(description="Run LOB inference scenario")
     p.add_argument(
         "--config", "-c", 
         type=str, 
-        default="/app/1_run_exp_aggresive_scenario.yaml",
+        default=f"/app/{config_file}.yaml",
         help="Path to your YAML config file"
     )
     return p.parse_args()
 
 def main():
-    args = parse_args()
+    print(f"JAX backend platform: {jax.lib.xla_bridge.get_backend().platform}")
+
+    args = parse_args(config_file = "1_run_exp_aggresive_scenario")
     # load YAML config
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
+
+    # Check JAX devices and log to console and file
+    jax_devices = jax.devices()
+    accelerator_types = set(d.device_kind for d in jax_devices)
+    device_summary = [f"{d.id}: {d.device_kind}" for d in jax_devices]
+    device_message = f"JAX devices detected: {device_summary}"
+
+    if jax.lib.xla_bridge.get_backend().platform == "gpu":
+        log_message = f"✅ Running on GPU(s): {device_message}"
+    else:
+        log_message = f"⚠️ Running on CPU only: {device_message}"
+
+    print(log_message)
+    logger.info(log_message)
 
     # Initialize WandB
     wandb.init(

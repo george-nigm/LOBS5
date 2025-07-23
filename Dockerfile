@@ -175,4 +175,5 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 #3.2. docker run --rm --gpus '"device=0,1,2,3"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario.py &> job.log"
 
+#3.3. docker run --rm --gpus '"device=4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u historical_scenario.py &> job.log"
 

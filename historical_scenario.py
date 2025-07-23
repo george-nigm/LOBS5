@@ -52,6 +52,7 @@ from preproc import transform_L2_state
 import lob.encoding as encoding
 from lob.encoding import Message_Tokenizer, Vocab
 from lob.lobster_dataloader import LOBSTER_Dataset
+from jax import lax
 
 
 # add git submodule to path to allow imports to work
@@ -65,24 +66,65 @@ import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 from lob.init_train import init_train_state, load_checkpoint, load_metadata, load_args_from_checkpoint
 
 
-def track_midprices_during_messages(midprices, proc_msgs_numb, m_seq_raw_inp, book_l2_init, tick_size, step_size):
-    for idx, i in enumerate(range(step_size, m_seq_raw_inp.shape[1] + 1, step_size)):
-        print(f'Im using m_seq_raw_inp[:, :{i}, :]')
-        sim_init, sim_states_init = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp[:, :i, :])
-        mid_price = inference.batched_get_safe_mid_price(sim_init, sim_states_init, tick_size)
+def track_midprices_during_messages(
+        m_seq_raw_inp: jax.Array,
+        book_l2_init: jax.Array,
+        tick_size: int,
+        step_size: int,
+    ) -> jax.Array:
+    """
+    Sequential version that computes mid‑price after every message.
+    Returns mid‑price after each message, not every step_size.
+
+    Args:
+        m_seq_raw_inp:  (batch, T, msg_dim) – raw decoded messages
+        book_l2_init:   (batch, book_dim) – initial L2 state of the orderbook
+        tick_size:      Tick size of the instrument
+        step_size:      Unused in this variant
+
+    Returns
+    -------
+    midprices : jax.Array
+        Shape (T, batch). mid‑price after each message.
+    """
+    batch_size, T, msg_dim = m_seq_raw_inp.shape
+    print(f"[INFO] Starting tracking midprices for batch size {batch_size}, {T} messages, msg_dim={msg_dim}")
+    print(f"[INFO] Initial book shape: {book_l2_init.shape}")
+
+    midprices = []
+    current_book = book_l2_init
+
+    for t in range(T):
+        msg = m_seq_raw_inp[:, t:t+1, :]  # shape (batch, 1, msg_dim)
+        print(f"[STEP {t}] Processing message {t}, shape: {msg.shape}")
+
+        sim_init, sim_states = inference.get_sims_vmap(current_book, msg)
+        mid_price = inference.batched_get_safe_mid_price(sim_init, sim_states, tick_size)
+        print(f"[STEP {t}] Midprice: {mid_price}")
+
+        full_l2_state = jax.vmap(sim_init.get_L2_state, in_axes=(0, None))(
+            sim_states, current_book.shape[1]
+        )
+        current_book = full_l2_state[:, : current_book.shape[1]]
+        print(f"[STEP {t}] Updated book shape: {current_book.shape}")
+
         midprices.append(mid_price)
-        print(f'midprice after processing {proc_msgs_numb+(idx+1)*step_size} messages =', mid_price)
-    
-    proc_msgs_numb = proc_msgs_numb+m_seq_raw_inp.shape[1]
-    
-    return midprices, proc_msgs_numb
+
+    midprices = jnp.stack(midprices, axis=0)  # (T, batch)
+    print(f"[INFO] Finished. Final midprices shape: {midprices.shape}")
+    return midprices
+
+
 
 def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled,
                         l2_book_states_halved, encoder, mid_price, tick_size = 100, 
                         EVENT_TYPE_i = 4, DIRECTION_i = 0, order_volume = 75):
     
     ORDER_ID_i = 77777777
-    sim_init, sim_states_init = inference.get_sims_vmap(l2_book_states_halved[:,-2], msgs_decoded_doubled[:,-1:])
+    # sim_init, sim_states_init = inference.get_sims_vmap(l2_book_states_halved[:,-2], msgs_decoded_doubled[:,-1:])
+    sim_init, sim_states_init = inference.get_sims_vmap(l2_book_states_halved[:, -2, :], msgs_decoded_doubled[:, -1:]
+)
+    
     if DIRECTION_i == 0:
         PRICE_i = jax.vmap(sim_init.get_best_ask)(sim_states_init)
     if DIRECTION_i == 1:
@@ -160,20 +202,7 @@ def insert_custom_end(m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled
 
     return UPDATED_m_seq_gen_doubled, b_seq_gen_doubled, UPDATED_msgs_decoded_doubled, new_l2_book_states_halved, p_mid_new
 
-
-generate_batched = jax.jit(
-    jax.vmap(
-        inference.generate,
-        in_axes=(
-            None, None, None, None,
-            None, None, None,    0,
-               0, None,    0,    0
-        )
-    ),
-    static_argnums=(0, 2, 3, 5, 6, 9)
-)
-
-def run_generation_scenario(
+def run_historical_scenario(
         n_samples: int,
         batch_size: int,
         ds: LOBSTER_Dataset,
@@ -194,10 +223,18 @@ def run_generation_scenario(
         num_insertions: int = 2,
         num_coolings: int = 2,
         midprice_step_size=100,
-        EVENT_TYPE_i = 4, 
-        DIRECTION_i =0, 
+        EVENT_TYPE_i = 4,
+        DIRECTION_i = 0,
         order_volume = 75
-        ):
+    ):
+    """
+    Manual, step-by-step scenario runner: for each batch, processes messages one at a time,
+    updating the orderbook and tracking midprices, mimicking track_midprices_during_messages.
+    Saves processed messages, books, and midprices for each batch.
+
+    
+    """
+    
 
     rng, rng_ = jax.random.split(rng)
     if sample_all:
@@ -207,7 +244,6 @@ def run_generation_scenario(
         ).reshape(-1, batch_size).tolist()
     else:
         assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
-
         sample_i = jax.random.choice(
             rng_,
             jnp.arange(len(ds), dtype=jnp.int32),
@@ -217,153 +253,112 @@ def run_generation_scenario(
     rng, rng_ = jax.random.split(rng)
 
     save_folder = Path(save_folder)
-
-    save_folder.joinpath('data_scenario_cond').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('data_scenario_real').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('data_scenario_gen').mkdir(exist_ok=True, parents=True)
-
-
-    save_folder.joinpath('m_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('b_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('msgs_decoded_doubled').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('l2_book_states_halved').mkdir(exist_ok=True, parents=True)
+    save_folder.joinpath('b_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('mid_price').mkdir(exist_ok=True, parents=True)
-
     base_save_folder = save_folder
-
-    transform_L2_state_batch = jax.jit(
-        jax.vmap(
-            transform_L2_state,
-            in_axes=(0, None, None)
-        ),
-        static_argnums=(1, 2)
-    )
-
-    num_iterations = num_insertions + num_coolings
 
     for batch_i in tqdm(sample_i):
         print('BATCH', batch_i)
-        proc_msgs_numb = -n_msgs
+        m_seq, _, b_seq_pv, msg_seq_raw, book_l2_init = ds[batch_i]
+        m_seq = jnp.array(m_seq)
+        b_seq_pv = jnp.array(b_seq_pv)
+        msg_seq_raw = jnp.array(msg_seq_raw)
+        book_l2_init = jnp.array(book_l2_init)
 
-        for iteration in range(1,num_iterations+1):
-            print('\nITERATION ', iteration)
-            midprices = []
-            
-            if iteration == 1:
-                m_seq, _, b_seq_pv, msg_seq_raw, book_l2_init = ds[batch_i]
-                m_seq = jnp.array(m_seq)
-                b_seq_pv = jnp.array(b_seq_pv)
-                msg_seq_raw = jnp.array(msg_seq_raw)
-                book_l2_init = jnp.array(book_l2_init)
-                b_seq = transform_L2_state_batch(b_seq_pv, n_vol_series, tick_size)
+        #=============#
+        # Step 1: Prepare positions where to insert messages (accounting for prior insertions)
+        insertion_points = [n_msgs + (i + 1) * n_gen_msgs + i for i in range(num_insertions)]
+        insertion_points = [p for p in insertion_points if p <= msg_seq_raw.shape[1]]
+        print(f"[BATCH {batch_i}] Inserting custom messages at: {insertion_points}")
 
-                m_seq_inp = m_seq[:, : seq_len]
-                b_seq_inp = b_seq[: , : n_msgs]
-                m_seq_raw_inp = msg_seq_raw[:, : n_msgs]
+        # Step 2: Generate placeholder message using same logic as insert_custom_end (just 14-dim msg, no book logic yet)
+        def construct_custom_msg(last_msg):
+            ORDER_ID_i = 77777777
+            EVENT_TYPE = jnp.full((batch_size,), EVENT_TYPE_i)
+            SIDE = jnp.full((batch_size,), DIRECTION_i)
+            PRICE = last_msg[:, 3]  # or use fixed jnp.full((batch_size,), 123456)
+            DISPLAY_FLAG = jnp.ones((batch_size,), dtype=jnp.int32)
+            SIZE = jnp.full((batch_size,), order_volume)
+            zeros = jnp.zeros((batch_size,), dtype=jnp.int32)
+            TIME_s = last_msg[:, 8]
+            TIME_ns = last_msg[:, 9]
 
-                m_seq_np = np.array(jax.device_get(m_seq_inp))
-                b_seq_np = np.array(jax.device_get(b_seq_inp))
-                msgs_decoded_np = np.array(jax.device_get(m_seq_raw_inp))
-                l2_book_states_np = np.array(jax.device_get(book_l2_init))
+            msg = jnp.stack([
+                jnp.full((batch_size,), ORDER_ID_i),
+                EVENT_TYPE,
+                SIDE,
+                PRICE,
+                DISPLAY_FLAG,
+                SIZE,
+                zeros, zeros,
+                TIME_s, TIME_ns,
+                zeros, zeros, zeros, zeros,
+            ], axis=1)
 
-                np.save(os.path.join(base_save_folder, 'm_seq_gen_doubled', f'm_seq_inp_{batch_i}.npy'), m_seq_inp)
-                np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_inp_{batch_i}.npy'), b_seq_inp)
-                np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'm_seq_raw_inp_{batch_i}.npy'), m_seq_raw_inp)
-                np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'book_l2_init_{batch_i}.npy'), book_l2_init)
+            return msg.astype(jnp.int32)
 
-                sim_init, sim_states_init = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp)
-                
-                midprices, proc_msgs_numb = track_midprices_during_messages(midprices, proc_msgs_numb, m_seq_raw_inp, book_l2_init, tick_size, midprice_step_size)
+        # Step 3: Loop and insert messages
+        for i, idx in enumerate(insertion_points):
+            custom_msg = construct_custom_msg(msg_seq_raw[:, idx - 1])
+            msg_seq_raw = jnp.concatenate([
+                msg_seq_raw[:, :idx, :],
+                custom_msg[:, None, :],  # shape (B, 1, 14)
+                msg_seq_raw[:, idx:, :]
+            ], axis=1)
 
-            else: 
-                m_seq = m_seq_gen_doubled
-                b_seq = b_seq_gen_doubled
-                msg_seq_raw = msgs_decoded_doubled
-                m_seq_inp = m_seq
-                b_seq_inp = b_seq
-                m_seq_raw_inp = msg_seq_raw
-                sim_init, sim_states_init = inference.get_sims_vmap(l2_book_states_halved[:,-2], m_seq_raw_inp[:,-1:])
-            
-            # то что мы генерируем - пиздец как неправильно. здесь размерность книги почему-то 500 (старые - что на вход подавались) возвращается хотя должна 50! 
-            m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = generate_batched(
-                sim_init,
-                train_state,
-                model,
-                batchnorm,
-                encoder,
-                sample_top_n,
-                tick_size,
-                m_seq_inp,
-                b_seq_inp,
-                n_gen_msgs,
-                sim_states_init,
-                jax.random.split(rng_, batch_size),
-                )
-            
-            print("\n\n AFTER GENERATION:")
-            print("m_seq_gen shape:", m_seq_gen.shape)
-            print("b_seq_gen shape:", b_seq_gen.shape)
-            print("msgs_decoded shape:", msgs_decoded.shape)
-            print("l2_book_states shape:", l2_book_states.shape)
-            print("num_errors shape:", num_errors.shape)
-            print("\n\n")
+        print(f"[BATCH {batch_i}] msg_seq_raw shape after insertions: {msg_seq_raw.shape}")
+        #=============#
 
-            m_seq_gen_doubled = m_seq_gen
-            b_seq_gen_doubled = b_seq_gen
-            msgs_decoded_doubled = msgs_decoded
-            l2_book_states_halved = l2_book_states[:, -1, :40]
+        batch_size, T, msg_dim = msg_seq_raw.shape
+        current_book = book_l2_init
 
-            print(f'\n\nsuccessfully generated iteration no. {iteration}')
+        books = []
+        messages = []
+        midprices = []
 
-            # check before inserting new order           
-            b_seq_np_before_insert = np.array(jax.device_get(b_seq_gen_doubled))
-            msgs_decoded_np_before_insert = np.array(jax.device_get(msgs_decoded_doubled))
-            np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_before_insert_batch_{batch_i}_iter_{iteration}.npy'), b_seq_np_before_insert)
-            np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_before_insert_batch_{batch_i}_iter_{iteration}.npy'), msgs_decoded_np_before_insert)
+        for t in range(T):
+            msg = msg_seq_raw[:, t:t+1, :]
+            sim_init, sim_states = inference.get_sims_vmap(current_book, msg)
+            mid_price = inference.batched_get_safe_mid_price(sim_init, sim_states, tick_size)
+            full_l2_state = jax.vmap(sim_init.get_L2_state, in_axes=(0, None))(sim_states, current_book.shape[1])
+            current_book = full_l2_state[:, : current_book.shape[1]]
+            books.append(current_book)
+            messages.append(msg)
+            midprices.append(mid_price)
 
-            # то что мы генерируем - пиздец как неправильно.
+        books = jnp.stack(books, axis=1)             # (batch, T, book_dim)
+        messages = jnp.concatenate(messages, axis=1) # (batch, T, msg_dim)
+        midprices = jnp.stack(midprices, axis=0)     # (T, batch)
 
-            midprices, proc_msgs_numb = track_midprices_during_messages(midprices, proc_msgs_numb, msgs_decoded_doubled, l2_book_states[:, 0, :40], tick_size, midprice_step_size)
- 
-            if iteration <= num_insertions:
-                m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled, l2_book_states_halved, p_mid_new = insert_custom_end(m_seq_gen_doubled, 
-                                                                                                                      b_seq_gen_doubled, 
-                                                                                                                      msgs_decoded_doubled, 
-                                                                                                                      l2_book_states,
-                                                                                                                      encoder,
-                                                                                                                      midprices[-1],
-                                                                                                                      tick_size,
-                                                                                                                      EVENT_TYPE_i, 
-                                                                                                                      DIRECTION_i, 
-                                                                                                                      order_volume)
-                midprices.append(jnp.squeeze(p_mid_new, axis=-1))
-                print(f'\nAGGRESSIVE MESSAGE INSERTED - {iteration}\n\n')
+        print(f"[BATCH {batch_i}] Finished all {T} steps")
+        print(f"[BATCH {batch_i}] Final messages shape: {messages.shape}")
+        print(f"[BATCH {batch_i}] Final books shape: {books.shape}")
+        print(f"[BATCH {batch_i}] Final midprices shape: {midprices.shape}")
 
-                m_seq_np = np.array(jax.device_get(m_seq_gen_doubled))
-                b_seq_np = np.array(jax.device_get(b_seq_gen_doubled))
-                msgs_decoded_np = np.array(jax.device_get(msgs_decoded_doubled))
-                mid_price_np = np.array(jax.device_get(midprices))
-                l2_book_states_np = np.array(jax.device_get(l2_book_states_halved))
+        np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_doubled_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(messages)))
+        np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'l2_book_states_halved_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(books)))
+        np.save(os.path.join(base_save_folder, 'mid_price', f'mid_price_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(midprices)))
 
-                m_seq_gen_doubled = m_seq_gen_doubled[:, Message_Tokenizer.MSG_LEN:]
-                msgs_decoded_doubled = msgs_decoded_doubled[:, 1:, :]
-                b_seq_gen_doubled = b_seq_gen_doubled[:, 1:, :]
+        # ========================
+        transform_L2_state_batch = jax.jit(jax.vmap(preproc.transform_L2_state, in_axes=(0, None, None)), static_argnums=(1, 2))
 
-            if iteration > num_insertions:
-                print(f'\nGENERATE FORWARD WITHOUT AGGRESSIVE ORDER - {iteration}\n\n')
-                l2_book_states_halved = l2_book_states
+        # Get midprices for each step: (T, B) → (B, T)
+        midprices_batched = midprices.T  # (B, T)
+        p_mid = midprices_batched[:, :, None]  # (B, T, 1)
 
-                m_seq_np = np.array(jax.device_get(m_seq_gen_doubled))
-                b_seq_np = np.array(jax.device_get(b_seq_gen_doubled))
-                msgs_decoded_np = np.array(jax.device_get(msgs_decoded_doubled))
-                l2_book_states_np = np.array(jax.device_get(l2_book_states_halved))
-                mid_price_np = np.array(jax.device_get(midprices))
-            
-            np.save(os.path.join(base_save_folder, 'm_seq_gen_doubled', f'm_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), m_seq_np)
-            np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), b_seq_np)
-            np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_doubled_batch_{batch_i}_iter_{iteration}.npy'), msgs_decoded_np)
-            np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'l2_book_states_halved_batch_{batch_i}_iter_{iteration}.npy'), l2_book_states_np)
-            np.save(os.path.join(base_save_folder, 'mid_price', f'mid_price_batch_{batch_i}_iter_{iteration}.npy'), mid_price_np)
+        # Add midprice as first column to each book state
+        books_with_mid = jnp.concatenate([p_mid, books], axis=-1)  # (B, T, 41)
+        print(f"[BATCH {batch_i}] books_with_mid.shape: {books_with_mid.shape}")
+
+        # Transform each book+midprice into model input format
+        books_transformed = transform_L2_state_batch(books_with_mid, n_vol_series, tick_size)  # (B, T, D)
+        print(f"[BATCH {batch_i}] books_transformed.shape: {books_transformed.shape}")
+
+        # Save transformed books
+        np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_doubled_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(books_transformed)))
+
 
 def create_next_experiment_folder(save_folder: str) -> Path:
     base = Path(save_folder)
@@ -381,21 +376,37 @@ def create_next_experiment_folder(save_folder: str) -> Path:
     new_folder.mkdir(parents=True, exist_ok=False)
     return new_folder
 
-def parse_args():
+def parse_args(config_file):
     p = argparse.ArgumentParser(description="Run LOB inference scenario")
     p.add_argument(
         "--config", "-c", 
         type=str, 
-        default="/app/1_run_exp_aggresive_scenario.yaml",
+        default=f"/app/{config_file}.yaml",
         help="Path to your YAML config file"
     )
     return p.parse_args()
 
 def main():
-    args = parse_args()
+    print(f"JAX backend platform: {jax.lib.xla_bridge.get_backend().platform}")
+
+    args = parse_args(config_file = "historical_scenario")
     # load YAML config
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
+
+    # Check JAX devices and log to console and file
+    jax_devices = jax.devices()
+    accelerator_types = set(d.device_kind for d in jax_devices)
+    device_summary = [f"{d.id}: {d.device_kind}" for d in jax_devices]
+    device_message = f"JAX devices detected: {device_summary}"
+
+    if jax.lib.xla_bridge.get_backend().platform == "gpu":
+        log_message = f"✅ Running on GPU(s): {device_message}"
+    else:
+        log_message = f"⚠️ Running on CPU only: {device_message}"
+
+    print(log_message)
+    logger.info(log_message)
 
     # Initialize WandB
     wandb.init(
@@ -403,7 +414,7 @@ def main():
         entity="george-nigm",     # ← fill in
         config=cfg
     )
-
+    
     # Multi-host / multi-node JAX setup (expects env vars WORLD_SIZE, RANK, COORD_ADDR)
     if "WORLD_SIZE" in os.environ:
         import jax.distributed as jdist
@@ -438,9 +449,13 @@ def main():
     rng_seed          = cfg["rng_seed"]
     ckpt_path         = cfg["ckpt_path"]
 
-    num_devices  = jax.local_device_count() 
+    # num_devices  = jax.local_device_count() 
+    # print(f'num_devices: ', num_devices)
+    
+    num_devices = jax.local_device_count()  # 6
     print(f'num_devices: ', num_devices)
-    # batch_size = num_devices
+    # assert bsz % num_devices == 0
+
     
     # Experiment folder
     exp_folder = create_next_experiment_folder(save_folder)
@@ -484,11 +499,11 @@ def main():
     print(f"Data directory: {data_path} ({len(list(data_path.iterdir()))} files)")
 
     # get dataset
-    ds = inference.get_dataset(data_path, n_messages, n_gen_msgs)
+    ds = inference.get_dataset(data_path, n_messages, (num_insertions + num_coolings) * n_gen_msgs)
     wandb.log({"dataset_size": len(list(data_path.iterdir()))})
 
     # run generation
-    results = run_generation_scenario(
+    results = run_historical_scenario(
         n_samples,
         batch_size,
         ds,
@@ -517,6 +532,7 @@ def main():
     # log any returned metrics/artifacts
     wandb.log({"finished": True})
     wandb.save(str(exp_folder / "*"))
+    wandb.finish()
 
 if __name__ == "__main__":
     main()
