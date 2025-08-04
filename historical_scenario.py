@@ -53,6 +53,7 @@ import lob.encoding as encoding
 from lob.encoding import Message_Tokenizer, Vocab
 from lob.lobster_dataloader import LOBSTER_Dataset
 from jax import lax
+import json
 
 
 # add git submodule to path to allow imports to work
@@ -225,7 +226,11 @@ def run_historical_scenario(
         midprice_step_size=100,
         EVENT_TYPE_i = 4,
         DIRECTION_i = 0,
-        order_volume = 75
+        order_volume = 75,
+        use_sample_file: bool = False,
+        sample_file_path: Optional[str] = None,
+        start_batch: int = 0,
+        end_batch: int = -1
     ):
     """
     Manual, step-by-step scenario runner: for each batch, processes messages one at a time,
@@ -236,25 +241,56 @@ def run_historical_scenario(
     """
     
 
+    # rng, rng_ = jax.random.split(rng)
+    # if sample_all:
+    #     sample_i = jnp.arange(
+    #         len(ds) // batch_size * batch_size,
+    #         dtype=jnp.int32
+    #     ).reshape(-1, batch_size).tolist()
+    # else:
+    #     assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
+    #     sample_i = jax.random.choice(
+    #         rng_,
+    #         jnp.arange(len(ds), dtype=jnp.int32),
+    #         shape=(n_samples // batch_size, batch_size),
+    #         replace=False
+    #     ).tolist()
+    # rng, rng_ = jax.random.split(rng)
+
     rng, rng_ = jax.random.split(rng)
-    if sample_all:
-        sample_i = jnp.arange(
-            len(ds) // batch_size * batch_size,
-            dtype=jnp.int32
-        ).reshape(-1, batch_size).tolist()
+
+    if use_sample_file:
+        assert sample_file_path is not None, "Path to sample file not provided"
+        
+        with open(sample_file_path, "r") as f:
+            sample_i_full = json.load(f)
+
+        sample_i = sample_i_full[start_batch:end_batch if end_batch != -1 else None]
+
+        for i, batch in enumerate(sample_i):
+            assert len(batch) == batch_size, f"Batch {i} has incorrect size {len(batch)}, expected {batch_size}"
+
     else:
-        assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
-        sample_i = jax.random.choice(
-            rng_,
-            jnp.arange(len(ds), dtype=jnp.int32),
-            shape=(n_samples // batch_size, batch_size),
-            replace=False
-        ).tolist()
+        if sample_all:
+            sample_i = jnp.arange(
+                len(ds) // batch_size * batch_size,
+                dtype=jnp.int32
+            ).reshape(-1, batch_size).tolist()
+        else:
+            assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
+            sample_i = jax.random.choice(
+                rng_,
+                jnp.arange(len(ds), dtype=jnp.int32),
+                shape=(n_samples // batch_size, batch_size),
+                replace=False
+            ).tolist()
+
     rng, rng_ = jax.random.split(rng)
+
 
     save_folder = Path(save_folder)
     save_folder.joinpath('msgs_decoded_doubled').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('l2_book_states_halved').mkdir(exist_ok=True, parents=True)
+    # save_folder.joinpath('l2_book_states_halved').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('b_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('mid_price').mkdir(exist_ok=True, parents=True)
     base_save_folder = save_folder
@@ -338,7 +374,7 @@ def run_historical_scenario(
         print(f"[BATCH {batch_i}] Final midprices shape: {midprices.shape}")
 
         np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_doubled_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(messages)))
-        np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'l2_book_states_halved_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(books)))
+        # np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'l2_book_states_halved_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(books)))
         np.save(os.path.join(base_save_folder, 'mid_price', f'mid_price_batch_{batch_i}_iter_0.npy'), np.array(jax.device_get(midprices)))
 
         # ========================
@@ -449,6 +485,14 @@ def main():
     rng_seed          = cfg["rng_seed"]
     ckpt_path         = cfg["ckpt_path"]
 
+    # ========================
+    # SAMPLE FILE LOGIC
+    # ========================
+    use_sample_file  = cfg.get("use_sample_file", False)
+    sample_file_path = cfg.get("sample_file_path", None)
+    start_batch      = cfg.get("start_batch", 0)
+    end_batch        = cfg.get("end_batch", -1)
+
     # num_devices  = jax.local_device_count() 
     # print(f'num_devices: ', num_devices)
     
@@ -527,6 +571,10 @@ def main():
         EVENT_TYPE_i,
         DIRECTION_i,
         order_volume,
+        use_sample_file,
+        sample_file_path,
+        start_batch,
+        end_batch
     )
 
     # log any returned metrics/artifacts
