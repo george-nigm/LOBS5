@@ -15,7 +15,7 @@ num_insertions: 20
 num_coolings: 30
 
 EVENT_TYPE_i: 4
-DIRECTION_i: 0 # 0 for buying - 1 for selling! 
+DIRECTION_i: 0 # 0 for buying - 1 for selling!
 
 order_volume: 75
 order_volume_ratio: 1.00
