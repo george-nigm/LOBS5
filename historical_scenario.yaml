@@ -1,18 +1,15 @@
 save_folder: "/app/data_saved/"
-# batch_size: 6
-# n_samples: 240
-# bsz: 24
 
-batch_size: 4
-n_samples: 500
-bsz: 25
+batch_size: 16
+n_samples: 1024
+bsz: 2
 
 # generation = historical
 n_gen_msgs: 50
 midprice_step_size: 1
 
-num_insertions: 20
-num_coolings: 30
+num_insertions: 80
+num_coolings: 20
 
 EVENT_TYPE_i: 4
 DIRECTION_i: 0 # 0 for buying - 1 for selling!
@@ -38,6 +35,6 @@ rng_seed: 42
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 
 use_sample_file: true
-sample_file_path: "sample_indices_b250_bs4_ins15_cool35.json"
+sample_file_path: "sample_indices_b64_bs16_ins80_cool20.json"
 start_batch: 0
-end_batch: 125
+end_batch: 64

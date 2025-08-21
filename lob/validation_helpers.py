@@ -198,7 +198,7 @@ def sample_pred(
     """
     idx = np.arange(pred.shape[0]).reshape(pred.shape)
     if top_n > 1 and top_n < pred.shape[-1]:
-        mask_top_n = mask_n_highest(pred, top_n)
+        mask_top_n = mask_n_highest(pred)
         p = np.exp(pred) * mask_top_n
     else:
         p = np.exp(pred)
@@ -206,10 +206,16 @@ def sample_pred(
     return jax.random.choice(rng, idx, p=p)
 
 def append_hid_msg(seq):
-    """ Append a new empty (HID token) message to a sequence
-        removing first message to keep seq_len constant
     """
+    Appends a hidden message token to the sequence while removing the first message
+    to keep the sequence length constant.
+    """
+    logger.debug(f"Shape of seq before calling append_hid_msg: {seq.shape}")
     l = Message_Tokenizer.MSG_LEN
+    if seq.shape[0] < l:  # Ensure seq has enough elements
+        # Log the issue and return a sequence filled with HIDDEN_TOK
+        logger.warning(f"Sequence is too short to remove {l} elements. Shape: {seq.shape}")
+        return np.full((Message_Tokenizer.MSG_LEN,), Vocab.HIDDEN_TOK)
     return np.concatenate([seq[l:], np.full((Message_Tokenizer.MSG_LEN,), Vocab.HIDDEN_TOK)])
 
 #@chex.chexify
@@ -438,6 +444,7 @@ def find_n_msg_occurances(
     l = Message_Tokenizer.MSG_LEN
     seq = seq.reshape((-1, Message_Tokenizer.MSG_LEN))
     comp_i = [idx for c in comp_cols for idx in list(range(*get_idx_from_field(c)))]
+
     direct_matches = np.argwhere(
         (seq[:, comp_i] == msg[comp_i,]).all(axis=1),
         size=n_matches,

@@ -53,7 +53,7 @@ def summary_table(experiment_name):
             continue
         rng = m.group(1).replace(" ", "")      # e.g. "3464,4169,4497,6855"
         itr = int(m.group(2))                  # iteration number
-        arr = np.load(f)                       # shape (n_steps, batch_size)
+        arr = np.load(f)                       # shape (n_steps, batch_size) 
 
         ids = list(map(int, rng.split(",")))
         # now split out each column into its own sample-stream:
@@ -137,17 +137,18 @@ def plot_midprice_series_with_insertions(
 
     fig.add_vline(x=hist_steps, line=dict(color='blue', width=2, dash='dash'))
 
-    events = np.arange(1, num_insertions + num_coolings + 1)
-    positions = hist_steps + gen_block * events
-
-    for pos in positions[:num_insertions]:
+    # Insertions: every gen_block (e.g. 51)
+    insert_positions = hist_steps + np.arange(1, num_insertions + 1) * gen_block
+    for pos in insert_positions:
         fig.add_vline(x=pos, line=dict(color='red', width=2, dash='solid'))
 
-    for pos in positions[num_insertions:]:
+    # Coolings: every n_gen_msgs (e.g. 50) after the last insertion
+    cooling_positions = insert_positions[-1] + np.arange(1, num_coolings + 1) * n_gen_msgs
+    for pos in cooling_positions:
         fig.add_vline(x=pos, line=dict(color='red', width=2, dash='dash'))
 
-    print("insertion positions:", positions[:num_insertions].tolist())
-    print("cooling positions:  ", positions[num_insertions:].tolist())
+    print("insertion positions:", insert_positions.tolist())
+    print("cooling positions:  ", cooling_positions.tolist())
 
     fig.add_hline(y=0, line=dict(color='black', width=2, dash='solid'),
                   annotation_text="0-line", annotation_position="bottom right")
@@ -246,17 +247,17 @@ def prepare_volatility_filtered_series(merged, hist_msgs, n_gen_msgs, midprice_s
 
     # Sort and filter out the top volatility_cutoff fraction
     most_volatile = merged.sort_values(by="max_abs_dev", ascending=False).reset_index()
-    print(most_volatile[["id", "std_dev", "max_abs_dev"]])
+    # print(most_volatile[["id", "std_dev", "max_abs_dev"]])
 
     n_before = len(most_volatile)
-    print(f"\nBefore filtering: {n_before} samples")
+    print(f"Before filtering: {n_before} samples")
 
     top_n = int(len(most_volatile) * volatility_cutoff)
     most_volatile = most_volatile[top_n:]
     merged = merged[merged['id'].isin(most_volatile['id'].values)].reset_index(drop=True)
 
     n_after = len(merged)
-    print(f"\nAfter filtering: {n_after} samples")
+    print(f"\nAfter filtering: {n_after} samples\n")
 
     # Compute step parameters
     hist_steps = hist_msgs // midprice_step_size
@@ -280,3 +281,87 @@ def prepare_volatility_filtered_series(merged, hist_msgs, n_gen_msgs, midprice_s
     return x, all_series, merged, hist_steps, gen_block
 
 # add check if the right book state is in the player?
+
+
+import glob
+import re
+
+def list_experiment_ids(experiment_name: str,
+                        unique: bool = True,
+                        preserve_order: bool = True):
+    """
+    Collect all sample IDs present in `/app/data_saved/{experiment_name}/mid_price`.
+
+    * Does **not** sort IDs inside each file – keeps the order they appear in the
+      filename's batch list.
+    * Files are processed in increasing `iter` order for determinism, but you can
+      change that by editing the `files_sorted` line.
+
+    Returns a dict with:
+      - "per_file": list of dicts {"iteration": int, "ids": List[int]}
+      - "unique_ordered": List[int] of first-seen IDs in preserved order (if unique=True)
+      - "all_ids": flat List[int] concatenating per-file ids (may contain duplicates)
+    """
+    data_dir = f"/app/data_saved/{experiment_name}/mid_price"
+    pattern = os.path.join(data_dir, "mid_price_batch_*_iter_*.npy")
+    files = glob.glob(pattern)
+    if not files:
+        raise FileNotFoundError(f"No .npy files found for pattern: {pattern}")
+
+    # Sort files by numeric iteration extracted from filename, but do NOT sort IDs within.
+    rx = re.compile(r"mid_price_batch_\[([\d,\s]+)\]_iter_(\d+)\.npy$")
+    def _iter_key(path):
+        m = rx.search(os.path.basename(path))
+        return int(m.group(2)) if m else 0
+
+    files_sorted = sorted(files, key=_iter_key)
+
+    per_file = []
+    all_ids = []
+    for f in files_sorted:
+        m = rx.search(os.path.basename(f))
+        if not m:
+            continue
+        ids_str = m.group(1)
+        ids = [int(x) for x in ids_str.replace(" ", "").split(",") if x]
+        itr = int(m.group(2))
+        per_file.append({"iteration": itr, "ids": ids})
+        all_ids.extend(ids)
+
+    if unique:
+        seen = set()
+        unique_ordered = []
+        for sid in all_ids:
+            if sid not in seen:
+                seen.add(sid)
+                unique_ordered.append(sid)
+    else:
+        unique_ordered = list(all_ids) if preserve_order else sorted(all_ids)
+
+    return {
+        "per_file": per_file,
+        "unique_ordered": unique_ordered,
+        "all_ids": all_ids,
+    }
+
+
+def jupyter_show_all_ids(experiments: dict):
+    """
+    Helper for a Jupyter cell: given a dict like
+      {"Plain": exp_..., "Heuristic": exp_..., "GenAI": exp_...}
+    print counts and the ordered (unsorted) ID lists for each experiment.
+
+    Returns a dict mapping label -> result of `list_experiment_ids`.
+    """
+    results = {}
+    for label, exp_name in experiments.items():
+        info = list_experiment_ids(exp_name, unique=True, preserve_order=True)
+        ids = info["unique_ordered"]
+        print("\n==", label, "==")
+        print(f"Total IDs (unique, first-seen order): {len(ids)}")
+        print(f"First 50: {ids[:50]}")
+        # Also show per-file iterations and counts
+        counts = [(entry["iteration"], len(entry["ids"])) for entry in info["per_file"]]
+        # print("Iterations and counts:", counts)
+        results[label] = info
+    return results

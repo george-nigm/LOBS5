@@ -1,0 +1,14 @@
+2025-08-21 11:17:00,228 - INFO - ================================================================================
+2025-08-21 11:17:00,228 - INFO - Starting Sample to Day Mapping for experiment: exp_42_20250807_133402_gen_buy_whole_272
+2025-08-21 11:17:00,228 - INFO - ================================================================================
+2025-08-21 11:17:00,228 - INFO - Loading book data from: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/b_seq_gen_doubled
+2025-08-21 11:17:00,232 - INFO - Found 3397 files matching pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/b_seq_gen_doubled/b_seq_gen_doubled_batch_*.npy
+2025-08-21 11:17:02,060 - INFO - Successfully loaded 272 samples from 3397 files
+2025-08-21 11:17:02,065 - WARNING - No files found with pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/b_seq_gen_doubled/b_seq_gen_doubled_inp_*.npy
+2025-08-21 11:17:02,065 - INFO - Loading message data from: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/msgs_decoded_doubled
+2025-08-21 11:17:02,069 - INFO - Found 3397 files matching pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/msgs_decoded_doubled/msgs_decoded_doubled_batch_*.npy
+2025-08-21 11:17:02,270 - INFO - Successfully loaded 272 samples from 3397 files
+2025-08-21 11:17:02,273 - INFO - Found 68 files matching pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/msgs_decoded_doubled/m_seq_raw_inp_*.npy
+2025-08-21 11:17:02,281 - INFO - Successfully loaded 272 samples from 68 files
+2025-08-21 11:17:02,281 - INFO - Loaded 272 book samples and 272 message samples
+2025-08-21 11:17:02,282 - INFO - Found 272 samples with both book and message data
