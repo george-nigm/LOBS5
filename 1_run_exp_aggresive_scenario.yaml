@@ -2,13 +2,18 @@ save_folder: "/app/data_saved/"
 
 batch_size: 16
 n_samples: 1024
-bsz: 2
+bsz: 8
+
+use_sample_file: true
+# sample_file_path: "random_sample_indices_b64_bs16_ins100_cool20.json"
+sample_file_path: "random_sample_indices_b64_bs16_ins100_cool20.json"
+
 
 # generation = historical
 n_gen_msgs: 50
 midprice_step_size: 1
 
-num_insertions: 80
+num_insertions: 100
 num_coolings: 20
 
 EVENT_TYPE_i: 4
@@ -34,7 +39,5 @@ rng_seed: 42
 
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 
-use_sample_file: true
-sample_file_path: "sample_indices_b64_bs16_ins80_cool20.json"
-start_batch: 0
+start_batch: 24
 end_batch: 64

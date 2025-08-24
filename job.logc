@@ -1,14 +1,44 @@
-2025-08-21 11:17:00,228 - INFO - ================================================================================
-2025-08-21 11:17:00,228 - INFO - Starting Sample to Day Mapping for experiment: exp_42_20250807_133402_gen_buy_whole_272
-2025-08-21 11:17:00,228 - INFO - ================================================================================
-2025-08-21 11:17:00,228 - INFO - Loading book data from: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/b_seq_gen_doubled
-2025-08-21 11:17:00,232 - INFO - Found 3397 files matching pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/b_seq_gen_doubled/b_seq_gen_doubled_batch_*.npy
-2025-08-21 11:17:02,060 - INFO - Successfully loaded 272 samples from 3397 files
-2025-08-21 11:17:02,065 - WARNING - No files found with pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/b_seq_gen_doubled/b_seq_gen_doubled_inp_*.npy
-2025-08-21 11:17:02,065 - INFO - Loading message data from: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/msgs_decoded_doubled
-2025-08-21 11:17:02,069 - INFO - Found 3397 files matching pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/msgs_decoded_doubled/msgs_decoded_doubled_batch_*.npy
-2025-08-21 11:17:02,270 - INFO - Successfully loaded 272 samples from 3397 files
-2025-08-21 11:17:02,273 - INFO - Found 68 files matching pattern: /app/data_saved/exp_42_20250807_133402_gen_buy_whole_272/msgs_decoded_doubled/m_seq_raw_inp_*.npy
-2025-08-21 11:17:02,281 - INFO - Successfully loaded 272 samples from 68 files
-2025-08-21 11:17:02,281 - INFO - Loaded 272 book samples and 272 message samples
-2025-08-21 11:17:02,282 - INFO - Found 272 samples with both book and message data
+2025-08-23 00:43:02.850466: W external/xla/xla/service/gpu/nvptx_compiler.cc:718] The NVIDIA driver's CUDA version is 12.8 which is older than the ptxas CUDA version (12.9.41). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+WARNING:absl:Type handler registry overriding type "<class 'float'>" collision on scalar
+WARNING:absl:Type handler registry overriding type "<class 'bytes'>" collision on scalar
+WARNING:absl:Type handler registry overriding type "<class 'numpy.number'>" collision on scalar
+2025-08-23 00:43:05.451776: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+JAX backend platform: gpu
+✅ Running on GPU(s): JAX devices detected: ['0: NVIDIA L40S', '1: NVIDIA L40S', '2: NVIDIA L40S', '3: NVIDIA L40S']
+wandb: Currently logged in as: george-nigm. Use `wandb login --relogin` to force relogin
+wandb: wandb version 0.21.1 is available!  To upgrade, please run:
+wandb:  $ pip install wandb --upgrade
+wandb: Tracking run with wandb version 0.16.6
+wandb: Run data is saved locally in /app/wandb/run-20250823_004306-or0y3p74
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run comfy-dream-236
+wandb: ⭐️ View project at https://wandb.ai/george-nigm/Aggressive_Scenario
+wandb: 🚀 View run at https://wandb.ai/george-nigm/Aggressive_Scenario/runs/or0y3p74
+Traceback (most recent call last):
+  File "/app/1_run_exp_aggressive_scenario_whole_lvl.py", line 874, in <module>
+    main()
+  File "/app/1_run_exp_aggressive_scenario_whole_lvl.py", line 781, in main
+    use_sample_file  = cfg["use_sample_file"]
+                       ~~~^^^^^^^^^^^^^^^^^^^
+KeyError: 'use_sample_file'
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /app/1_run_exp_aggressive_scenario_whole_lvl.py:874 in <module>              │
+│                                                                              │
+│   871 │   wandb.save(str(exp_folder / "*"))                                  │
+│   872                                                                        │
+│   873 if __name__ == "__main__":                                             │
+│ ❱ 874 │   main()                                                             │
+│   875                                                                        │
+│                                                                              │
+│ /app/1_run_exp_aggressive_scenario_whole_lvl.py:781 in main                  │
+│                                                                              │
+│   778 │   # num_devices  = jax.local_device_count()                          │
+│   779 │   # print(f'num_devices: ', num_devices)                             │
+│   780 │                                                                      │
+│ ❱ 781 │   use_sample_file  = cfg["use_sample_file"]                          │
+│   782 │   sample_file_path = cfg["sample_file_path"]                         │
+│   783 │   start_batch      = cfg["start_batch"]                              │
+│   784 │   end_batch        = cfg["end_batch"]                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+KeyError: 'use_sample_file'
+wandb: - 0.026 MB of 0.026 MB uploadedwandb: \ 0.026 MB of 0.026 MB uploaded

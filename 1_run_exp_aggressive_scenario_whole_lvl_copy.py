@@ -67,6 +67,137 @@ import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 from lob.init_train import init_train_state, load_checkpoint, load_metadata, load_args_from_checkpoint
 
 
+# ===== Helpers for pmap sharding =====
+def _shard_for_pmap(x, num_devices):
+    """Shard array along the leading axis for pmap."""
+    if x is None:
+        return None
+    
+    # Check if x is a JAX array or numpy array
+    if hasattr(x, 'shape'):
+        b = x.shape[0]
+        if b % num_devices != 0:
+            raise ValueError(
+                f"Leading axis {b} must be divisible by num_devices={num_devices} for pmap sharding"
+            )
+        
+        # Reshape to (num_devices, batch_per_device, ...)
+        new_shape = (num_devices, b // num_devices) + x.shape[1:]
+        print(f"   Sharding {x.shape} -> {new_shape} (batch_per_device: {b // num_devices})")
+        return x.reshape(new_shape)
+    
+    # Check if x is a structured object (like LobState) with array attributes
+    elif hasattr(x, '__dict__') or hasattr(x, '_fields'):
+        print(f"   Structured object: {type(x).__name__}")
+        
+        # Check if this is a JAX pytree (like NamedTuple or dataclass)
+        try:
+            import jax
+            tree_structure = jax.tree_structure(x)
+            flat_values, tree_def = jax.tree_flatten(x)
+            
+            print(f"   Found {len(flat_values)} arrays in structured object")
+            
+            # Check if any arrays have batch dimensions that need sharding
+            needs_sharding = False
+            for i, val in enumerate(flat_values):
+                if hasattr(val, 'shape') and len(val.shape) > 0:
+                    print(f"     Array {i}: {val.shape}")
+                    if val.shape[0] == num_devices * (val.shape[0] // num_devices):
+                        needs_sharding = True
+            
+            if needs_sharding:
+                # Shard each array in the structure
+                sharded_values = []
+                for val in flat_values:
+                    if hasattr(val, 'shape') and len(val.shape) > 0 and val.shape[0] % num_devices == 0:
+                        b = val.shape[0]
+                        new_shape = (num_devices, b // num_devices) + val.shape[1:]
+                        sharded_val = val.reshape(new_shape)
+                        print(f"     Sharding array: {val.shape} -> {new_shape}")
+                        sharded_values.append(sharded_val)
+                    else:
+                        sharded_values.append(val)
+                
+                # Reconstruct the structured object
+                return jax.tree_unflatten(tree_def, sharded_values)
+            else:
+                print(f"   No arrays need sharding, keeping as-is")
+                return x
+                
+        except Exception as e:
+            print(f"   Could not process as JAX pytree: {e}")
+            print(f"   Keeping as-is: {type(x).__name__}")
+            return x
+    
+    else:
+        # For other non-array objects, return as-is
+        print(f"   Skipping sharding for non-array object: {type(x).__name__}")
+        return x
+
+def _unshard_from_pmap(x):
+    """Unshard array from pmap output."""
+    if x is None:
+        return None
+    
+    # Check if x is a JAX array or numpy array
+    if hasattr(x, 'shape'):
+        # Reshape from (num_devices, batch_per_device, ...) back to (batch, ...)
+        new_shape = (x.shape[0] * x.shape[1],) + x.shape[2:]
+        print(f"   Unsharding {x.shape} -> {new_shape}")
+        return x.reshape(new_shape)
+    
+    # Check if x is a structured object (like LobState) with array attributes
+    elif hasattr(x, '__dict__') or hasattr(x, '_fields'):
+        print(f"   Structured object: {type(x).__name__}")
+        
+        try:
+            import jax
+            flat_values, tree_def = jax.tree_flatten(x)
+            
+            # Unshard each array in the structure
+            unsharded_values = []
+            for val in flat_values:
+                if hasattr(val, 'shape') and len(val.shape) > 2:
+                    # This looks like a sharded array: (num_devices, batch_per_device, ...)
+                    new_shape = (val.shape[0] * val.shape[1],) + val.shape[2:]
+                    unsharded_val = val.reshape(new_shape)
+                    print(f"     Unsharding array: {val.shape} -> {new_shape}")
+                    unsharded_values.append(unsharded_val)
+                else:
+                    unsharded_values.append(val)
+            
+            # Reconstruct the structured object
+            return jax.tree_unflatten(tree_def, unsharded_values)
+            
+        except Exception as e:
+            print(f"   Could not process as JAX pytree: {e}")
+            print(f"   Keeping as-is: {type(x).__name__}")
+            return x
+    
+    else:
+        # For other non-array objects, return as-is
+        print(f"   Skipping unsharding for non-array object: {type(x).__name__}")
+        return x
+
+
+def _shard_encoder_for_pmap(encoder, num_devices):
+    """Shard encoder dictionary if it contains batched arrays."""
+    if not isinstance(encoder, dict):
+        return encoder
+    
+    sharded_encoder = {}
+    for key, value in encoder.items():
+        if hasattr(value, 'shape') and value.shape[0] > 1:
+            # This is a batched array, shard it
+            sharded_encoder[key] = _shard_for_pmap(value, num_devices)
+        else:
+            # This is not batched, keep as-is
+            sharded_encoder[key] = value
+    
+    return sharded_encoder
+
+
 def track_midprices_during_messages(
         m_seq_raw_inp: jax.Array,
         book_l2_init: jax.Array,
@@ -339,9 +470,10 @@ def insert_custom_end(
     return UPDATED_m_seq_gen_doubled, b_seq_gen_doubled, UPDATED_msgs_decoded_doubled, new_l2_book_states_halved, p_mid_new
 
 
-# Use pmap instead of vmap+jit to parallelize over multiple devices
+# Use pmap of the original generate_batched (which uses vmap)
+# This way each device runs the vmapped function on its subset of data
 generate_batched = jax.pmap(
-    inference.generate,
+    inference.generate_batched,
     in_axes=(
         None, None, None, None,
         None, None, None,    0,
@@ -501,20 +633,85 @@ def run_generation_scenario(
                 m_seq_raw_inp = msg_seq_raw
                 sim_init, sim_states_init = inference.get_sims_vmap(l2_book_states_halved[:,-2], m_seq_raw_inp[:,-1:])
             
-            m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = generate_batched(
+            # === PMAP SHARDING ===
+            # Get number of devices for sharding
+            num_devices = jax.local_device_count()
+            print(f"\n=== PMAP SHARDING (batch_size={batch_size}, num_devices={num_devices}) ===")
+            
+            # shard arrays along the leading batch axis for pmap
+            print("Sharding inputs for pmap:")
+            m_seq_inp_sharded       = _shard_for_pmap(m_seq_inp, num_devices)
+            b_seq_inp_sharded       = _shard_for_pmap(b_seq_inp, num_devices)
+            sim_states_init_sharded = _shard_for_pmap(sim_states_init, num_devices)
+            
+            # Create RNG keys for the batch and shard them
+            # generate_batched expects a batch of keys, one per sample
+            rng_keys = jax.random.split(rng_, batch_size)  # Shape: (batch_size, 2)
+            rng_keys_sharded = _shard_for_pmap(rng_keys, num_devices)
+            print(f"   RNG keys: {rng_keys.shape} -> {rng_keys_sharded.shape}")
+            
+            # The issue is that encoder contains batched arrays that need to be broadcast
+            # For pmap to work, all batched arrays must either be sharded consistently 
+            # or be single values that can be broadcast
+            
+            # The encoder might contain nested structures. Let's examine it more thoroughly
+            def process_encoder_recursive(obj, depth=0):
+                indent = "  " * depth
+                if isinstance(obj, dict):
+                    processed = {}
+                    print(f"{indent}Dict with keys: {list(obj.keys())}")
+                    for key, value in obj.items():
+                        print(f"{indent}{key}:")
+                        processed[key] = process_encoder_recursive(value, depth + 1)
+                    return processed
+                elif isinstance(obj, (list, tuple)):
+                    print(f"{indent}{type(obj).__name__} with {len(obj)} elements")
+                    if hasattr(obj, '__len__') and len(obj) > 0:
+                        first_elem = obj[0]
+                        if hasattr(first_elem, 'shape'):
+                            print(f"{indent}  First element shape: {first_elem.shape}")
+                            if len(first_elem.shape) > 0 and first_elem.shape[0] == batch_size:
+                                print(f"{indent}  -> Extracting first sample: {first_elem.shape} -> {first_elem[0].shape}")
+                                return tuple(elem[0] if hasattr(elem, 'shape') and len(elem.shape) > 0 and elem.shape[0] == batch_size else elem for elem in obj)
+                    return obj
+                elif hasattr(obj, 'shape'):
+                    print(f"{indent}Array: {obj.shape}")
+                    if len(obj.shape) > 0 and obj.shape[0] == batch_size:
+                        print(f"{indent}  -> Extracting first sample: {obj.shape} -> {obj[0].shape}")
+                        return obj[0]
+                    return obj
+                else:
+                    print(f"{indent}{type(obj)}: {obj}")
+                    return obj
+            
+            print("Processing encoder structure:")
+            encoder_broadcast = process_encoder_recursive(encoder)
+            
+            print("Using prepared encoder for broadcasting")
+            
+            # run pmapped generation (expects leading axis == num_devices)
+            m_seq_gen_sh, b_seq_gen_sh, msgs_decoded_sh, l2_book_states_sh, num_errors_sh = generate_batched(
                 sim_init,
                 train_state,
                 model,
                 batchnorm,
-                encoder,
+                encoder_broadcast,
                 sample_top_n,
                 tick_size,
-                m_seq_inp,
-                b_seq_inp,
+                m_seq_inp_sharded,
+                b_seq_inp_sharded,
                 n_gen_msgs,
-                sim_states_init,
-                jax.random.split(rng_, batch_size),
+                sim_states_init_sharded,
+                rng_keys_sharded,
                 )
+            
+            # unshard results back to original batch dimension
+            print("Unsharding outputs from pmap:")
+            m_seq_gen     = _unshard_from_pmap(m_seq_gen_sh)
+            b_seq_gen     = _unshard_from_pmap(b_seq_gen_sh)
+            msgs_decoded  = _unshard_from_pmap(msgs_decoded_sh)
+            l2_book_states= _unshard_from_pmap(l2_book_states_sh)
+            num_errors    = _unshard_from_pmap(num_errors_sh)
 
             m_seq_gen_doubled = m_seq_gen
             b_seq_gen_doubled = b_seq_gen
@@ -699,7 +896,16 @@ def main():
     
     num_devices = jax.local_device_count()  # 6
     print(f'num_devices: ', num_devices)
-    # assert bsz % num_devices == 0
+    
+    # Validate that batch_size is compatible with num_devices for pmap sharding
+    if batch_size % num_devices != 0:
+        print(f"Warning: batch_size ({batch_size}) is not divisible by num_devices ({num_devices})")
+        print(f"This will cause pmap sharding to fail. Consider using a batch_size that's divisible by {num_devices}")
+        print(f"Valid batch_sizes: {[i * num_devices for i in range(1, 11)]}")
+        raise ValueError(f"batch_size ({batch_size}) must be divisible by num_devices ({num_devices}) for pmap sharding")
+    
+    print(f"✅ batch_size ({batch_size}) is compatible with num_devices ({num_devices})")
+    print(f"   Each GPU will process {batch_size // num_devices} samples")
 
     
     # Experiment folder

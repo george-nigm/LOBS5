@@ -182,6 +182,37 @@ get_sims_vmap = jax.jit(
     )
 )
 
+# --- add this helper near the top of the file (after imports) ---
+
+def _round_robin_pairs(pairs, groups: int = 32, seed: int = 42):
+    """
+    Interleave a list of (msg_file, book_file) pairs in a round-robin fashion.
+    Steps:
+      1) Shuffle deterministically by seed (to avoid always starting from the same days)
+      2) Split into `groups` buckets
+      3) Take one item from each bucket in turn until all are exhausted
+    """
+    if not pairs:
+        return pairs
+    import numpy as _np
+    rng = _np.random.default_rng(seed)
+    pairs = list(pairs)
+    rng.shuffle(pairs)
+
+    g = max(1, min(groups, len(pairs)))
+    # split into g buckets by stride to keep buckets balanced
+    buckets = [pairs[i::g] for i in range(g)]
+
+    out = []
+    maxlen = max(len(b) for b in buckets)
+    for i in range(maxlen):
+        for b in buckets:
+            if i < len(b):
+                out.append(b[i])
+    return out
+
+# --- replace your get_dataset with this implementation ---
+
 def get_dataset(
         data_dir: str,
         n_messages: int,
@@ -190,17 +221,40 @@ def get_dataset(
         n_cache_files: int = 500,
         seed: int = 42,
         book_depth: int = 500,
+        rr_groups: int = 32,         # NEW: how many round-robin buckets to use
     ):
+    """
+    Build LOBSTER_Dataset with round-robin interleaving across files so that
+    samples are drawn across many different days/files rather than exhausting
+    the first files.
+
+    rr_groups: number of buckets for round-robin. More buckets => stronger
+    interleaving. It is clamped to [1, number_of_files].
+    """
     msg_files = sorted(glob(str(data_dir) + '/*message*.npy'))
     book_files = sorted(glob(str(data_dir) + '/*book*.npy'))
+    assert len(msg_files) == len(book_files), \
+        f"Mismatch between message and book files: {len(msg_files)} vs {len(book_files)}"
 
+    # Pair, interleave round-robin, then unzip back
+    pairs = list(zip(msg_files, book_files))
+    pairs = _round_robin_pairs(pairs, groups=rr_groups, seed=seed)
+    if pairs:
+        msg_files, book_files = zip(*pairs)
+        msg_files, book_files = list(msg_files), list(book_files)
+    else:
+        msg_files, book_files = [], []
+
+    # IMPORTANT: randomize_offset makes each sample start at a random valid offset
+    # within its file window, increasing diversity even when multiple windows
+    # are drawn from the same file.
     ds = LOBSTER_Dataset(
         msg_files,
         n_messages=n_messages + n_eval_messages,
         mask_fn=lambda X, rng: (X, jnp.array(0)),
         seed=seed,
         n_cache_files=n_cache_files,
-        randomize_offset=False,
+        randomize_offset=True,      # was False; enable to diversify within-file starts
         book_files=book_files,
         use_simple_book=True,
         book_transform=False,
@@ -208,6 +262,16 @@ def get_dataset(
         return_raw_msgs=True,
         inference=True,
     )
+
+    # Optional: lightweight visibility for QA
+    try:
+        info(f"[get_dataset] files={len(msg_files)} | rr_groups={min(rr_groups, max(1,len(msg_files)))} | randomize_offset=True")
+        # Show a small preview (first 8) so you can confirm interleaving
+        for i, (m, b) in enumerate(zip(msg_files[:8], book_files[:8])):
+            info(f"  {i:02d}: msg={os.path.basename(m)}  book={os.path.basename(b)}")
+    except Exception:
+        pass
+
     return ds
 
 def switch(
