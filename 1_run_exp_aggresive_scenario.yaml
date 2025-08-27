@@ -17,7 +17,7 @@ num_insertions: 100
 num_coolings: 20
 
 EVENT_TYPE_i: 4
-DIRECTION_i: 0 # 0 for buying - 1 for selling!
+DIRECTION_i: 1 # 0 for buying - 1 for selling
 
 order_volume: 75
 order_volume_ratio: 1.00
@@ -39,5 +39,5 @@ rng_seed: 42
 
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 
-start_batch: 24
+start_batch: 0
 end_batch: 64
