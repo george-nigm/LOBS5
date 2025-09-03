@@ -39,5 +39,5 @@ rng_seed: 42
 
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 
-start_batch: 0
+start_batch: 61
 end_batch: 64
