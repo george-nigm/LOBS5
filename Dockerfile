@@ -186,6 +186,15 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 
 
+# with config! 
+
+# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario"
+
+
+
+
+
+
 # docker run --rm --gpus '"device=1"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_historical_buy_300_1 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u heuristic_historical_scenario_run.py"
 
 # docker run --rm --gpus '"device=2"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_historical_buy_485_2 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u heuristic_historical_scenario_run.py"
@@ -203,3 +212,18 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 # 300, 485, 1400 - in run
 # 695, 865 - not in run
+
+
+
+
+
+
+# with config! 
+
+# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_485_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_buy_485" 
+
+
+
+# && - to glue commands together
+
+# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_485_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_buy_485" && docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_sell_485_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_sell_485"

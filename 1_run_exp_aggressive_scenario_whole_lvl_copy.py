@@ -810,22 +810,33 @@ def create_next_experiment_folder(save_folder: str) -> Path:
 #     with open(args.config, "r") as f:
 #         cfg = yaml.safe_load(f)
 
-def parse_args(config_file):
+def parse_args():
     p = argparse.ArgumentParser(description="Run LOB inference scenario")
     p.add_argument(
         "--config", "-c", 
         type=str, 
-        default=f"/app/{config_file}.yaml",
-        help="Path to your YAML config file"
+        default="1_run_exp_aggresive_scenario",
+        help="Name of the config file (without .yaml extension) or full path to YAML config file"
     )
     return p.parse_args()
 
 def main():
     print(f"JAX backend platform: {jax.lib.xla_bridge.get_backend().platform}")
 
-    args = parse_args(config_file = "1_run_exp_aggresive_scenario")
+    args = parse_args()
+    
+    # Determine config file path
+    if args.config.endswith('.yaml'):
+        # Full path provided
+        config_path = args.config
+    else:
+        # Just the name provided, construct path
+        config_path = f"/app/{args.config}.yaml"
+    
+    print(f"Loading config from: {config_path}")
+    
     # load YAML config
-    with open(args.config, "r") as f:
+    with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
 
     # Check JAX devices and log to console and file
