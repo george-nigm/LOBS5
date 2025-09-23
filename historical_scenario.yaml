@@ -37,4 +37,4 @@ ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 use_sample_file: true
 sample_file_path: "random_sample_indices_b64_bs16_ins100_cool20.json"
 start_batch: 0
-end_batch: 1
+end_batch: 64

@@ -1,9 +1,9 @@
 import pickle
 import pandas as pd
 
- # 1st function - finding to which day all historical messages of a sample belongs to from the daily_h_l.csv file. i give it the sample_id and it returns the day.
+# 1st function - finding to which day all historical messages of a sample belongs to from the daily_h_l.csv file. i give it the sample_id and it returns the day.
 
-def find_sample_day(sample_id, m_dict, daily_h_l_path, indexes_match = 500):
+def find_sample_day(sample_id, m_dict, daily_h_l_path, indexes_match=500):
     """
     Find which day a sample belongs to from the daily_h_l.csv file.
     
@@ -11,13 +11,17 @@ def find_sample_day(sample_id, m_dict, daily_h_l_path, indexes_match = 500):
     ----------
     sample_id : int
         The sample ID to look up
+    m_dict : dict
+        Dictionary containing sample data
     daily_h_l_path : str
         Path to the daily_h_l.csv file
+    indexes_match : int
+        Number of indices to match
         
     Returns
     -------
-    day : str or None
-        The day (date) that the sample belongs to, or None if not found
+    tuple or None
+        Tuple of (day, highest_price, lowest_price, execution_sum) or None if not found
     """
     try:
         # Load the daily high-low data
@@ -41,8 +45,7 @@ def find_sample_day(sample_id, m_dict, daily_h_l_path, indexes_match = 500):
                 lowest_price = row.values[2]
                 execution_sum = row.values[4]
                 print(f'{_} Day {day} - filename: {row.values[0]}, highest_price: {row.values[1]}, lowest_price: {row.values[2]}, execution_sum: {row.values[4]}')
-                return day, highest_price, lowest_price,execution_sum
-            # break
+                return day, highest_price, lowest_price, execution_sum
             else:
                 # Count how many indices match for debugging
                 matches = sum(1 for idx in sample_indices if idx in indices_values)
@@ -59,12 +62,25 @@ def find_sample_day(sample_id, m_dict, daily_h_l_path, indexes_match = 500):
         print(f"Error reading daily data: {e}")
         return None
 
-# Call the function with sample IDs from m_dict
 
-
-
-def sample_day_mapping(m_dict, daily_h_l_path, indexes_match = 500):
-
+def sample_day_mapping(m_dict, daily_h_l_path, indexes_match=500):
+    """
+    Create a mapping of samples to their corresponding days.
+    
+    Parameters
+    ----------
+    m_dict : dict
+        Dictionary containing sample data
+    daily_h_l_path : str
+        Path to the daily_h_l.csv file
+    indexes_match : int
+        Number of indices to match
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with sample mappings
+    """
     records = []
     sample_ids = sorted(m_dict.keys())
 
@@ -74,23 +90,35 @@ def sample_day_mapping(m_dict, daily_h_l_path, indexes_match = 500):
 
         try:
             day_result = find_sample_day(sid, m_dict, daily_h_l_path, indexes_match)
-            if day_result is not None and day_result != (None):
-                day, highest_price, lowest_price,execution_sum = day_result
+            if day_result is not None:
+                day, highest_price, lowest_price, execution_sum = day_result
                 print(f"✅ Match found for sample {sid}: {day}, H={highest_price}, L={lowest_price}, V={execution_sum}")
+                
+                records.append({
+                    "sample_id": sid,
+                    "file_name": day,
+                    "highest_price": highest_price,
+                    "lowest_price": lowest_price,
+                    "execution_sum": execution_sum
+                })
             else:
-                day, highest_price, lowest_price,execution_sum = None, float('nan'), float('nan'), 0
                 print(f"⚠️ No match found for sample {sid}")
+                records.append({
+                    "sample_id": sid,
+                    "file_name": None,
+                    "highest_price": float('nan'),
+                    "lowest_price": float('nan'),
+                    "execution_sum": 0
+                })
         except Exception as e:
             print(f"❌ Error matching sample {sid}: {e}")
-            day, highest_price, lowest_price,execution_sum = None, float('nan'), float('nan'), 0
-
-        records.append({
-            "sample_id": sid,
-            "file_name": day,
-            "highest_price": highest_price,
-            "lowest_price": lowest_price,
-            "execution_sum": execution_sum
-        })
+            records.append({
+                "sample_id": sid,
+                "file_name": None,
+                "highest_price": float('nan'),
+                "lowest_price": float('nan'),
+                "execution_sum": 0
+            })
 
     sample_day_df = pd.DataFrame(records)
     print(sample_day_df.head(20))
@@ -98,7 +126,6 @@ def sample_day_mapping(m_dict, daily_h_l_path, indexes_match = 500):
     
 
 def main():
-    
     with open('/app/m_dict.pkl', 'rb') as f:
         m_dict = pickle.load(f)
     daily_h_l_path = "/app/daily_h_l.csv"
@@ -107,7 +134,7 @@ def main():
     sample_day_df.to_csv("sample_day_map.csv", index=False)
 
     print("="*80)
-    print(f"✅ Saved mapping for {len(sample_day_df)} samples → {"sample_day_map.csv"}")
+    print(f"✅ Saved mapping for {len(sample_day_df)} samples → sample_day_map.csv")
     print("="*80)
     
 

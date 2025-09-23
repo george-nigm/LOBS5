@@ -370,7 +370,11 @@ def insert_custom_end(
 
     book_l2 = jax.vmap(sim_init.get_L2_state, in_axes=(0, None))(new_sim_state, 20)
     new_l2_book_states_halved = jnp.concatenate([l2_book_states_halved, book_l2[:, None, :]], axis=1)
-    new_book_raw = jnp.concatenate([p_change, book_l2], axis=1)
+    
+    # Create proper L2 format for transform_L2_state
+    # book_l2 has shape (batch_size, 20) - we need to reshape it to (batch_size, 10, 2) for price-volume pairs
+    book_l2_reshaped = book_l2.reshape(batch_size, 10, 2)  # 10 levels, 2 fields each (price, volume)
+    new_book_raw = jnp.concatenate([p_change, book_l2_reshaped.reshape(batch_size, -1)], axis=1)
     new_book_raw = new_book_raw[:, None, :]
 
     transform_L2_state_batch = jax.jit(
@@ -795,6 +799,21 @@ def main():
 
     with open(exp_folder / "used_config.yaml", "w") as f_out:
         yaml.dump(cfg, f_out)
+    
+    # Setup logging to experiment folder
+    log_file_path = exp_folder / "job.log"
+    print(f"Redirecting all output to: {log_file_path}")
+    
+    # Redirect stdout and stderr to log file
+    log_file = open(log_file_path, 'w')
+    sys.stdout = log_file
+    sys.stderr = log_file
+    
+    # Print initial info to log
+    print(f"Experiment started at: {datetime.now()}")
+    print(f"Experiment folder: {exp_folder}")
+    print(f"Configuration: {cfg}")
+    print("=" * 80)
 
     # Log config file as artifact
     artifact = wandb.Artifact(name="used_config", type="config")
@@ -869,6 +888,13 @@ def main():
     # log any returned metrics/artifacts
     wandb.log({"finished": True})
     wandb.save(str(exp_folder / "*"))
+    
+    # Close log file and restore stdout/stderr
+    print(f"Experiment completed at: {datetime.now()}")
+    log_file.close()
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
+    print(f"Logs saved to: {log_file_path}")
 
 if __name__ == "__main__":
     main()

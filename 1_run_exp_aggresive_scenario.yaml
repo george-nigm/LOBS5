@@ -5,23 +5,21 @@ n_samples: 1024
 bsz: 8
 
 use_sample_file: true
-# sample_file_path: "random_sample_indices_b64_bs16_ins100_cool20.json"
-sample_file_path: "random_sample_indices_b64_bs16_ins100_cool20.json"
-
+sample_file_path: "bathces_equal_sample_indices_b64_bs16_ins10_cool50.json"
 
 # generation = historical
 n_gen_msgs: 50
 midprice_step_size: 1
 
-num_insertions: 100
-num_coolings: 20
+num_insertions: 10
+num_coolings: 50
 
 EVENT_TYPE_i: 4
-DIRECTION_i: 1 # 0 for buying - 1 for selling
+DIRECTION_i: 0 # 0 for buying - 1 for selling
 
-order_volume: 75
+order_volume: 300
+use_relative_volume: False
 order_volume_ratio: 1.00
-use_relative_volume: True
 
 n_messages: 500
 book_dim: 501
@@ -39,5 +37,10 @@ rng_seed: 42
 
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 
-start_batch: 61
-end_batch: 64
+start_batch: 0
+end_batch: 7 #64
+
+
+# order_volume explanation:
+# 75 - is the mean of all market orders in the data
+# 300, 485, 695, 865, 1400 - are the quantiles, q50, q75, q90, q95, q99 of best (ask U BID) volume in the book data

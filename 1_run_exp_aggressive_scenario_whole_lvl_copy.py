@@ -915,6 +915,21 @@ def main():
 
     with open(exp_folder / "used_config.yaml", "w") as f_out:
         yaml.dump(cfg, f_out)
+    
+    # Setup logging to experiment folder
+    log_file_path = exp_folder / "job.log"
+    print(f"Redirecting all output to: {log_file_path}")
+    
+    # Redirect stdout and stderr to log file
+    log_file = open(log_file_path, 'w')
+    sys.stdout = log_file
+    sys.stderr = log_file
+    
+    # Print initial info to log
+    print(f"Experiment started at: {datetime.now()}")
+    print(f"Experiment folder: {exp_folder}")
+    print(f"Configuration: {cfg}")
+    print("=" * 80)
 
     # Log config file as artifact
     artifact = wandb.Artifact(name="used_config", type="config")
@@ -989,6 +1004,13 @@ def main():
     # log any returned metrics/artifacts
     wandb.log({"finished": True})
     wandb.save(str(exp_folder / "*"))
+    
+    # Close log file and restore stdout/stderr
+    print(f"Experiment completed at: {datetime.now()}")
+    log_file.close()
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
+    print(f"Logs saved to: {log_file_path}")
 
 if __name__ == "__main__":
     main()
