@@ -220,10 +220,22 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 # with config! 
 
-# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_485_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_buy_485" 
+# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_75_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario" 
 
 
 
 # && - to glue commands together
 
-# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_485_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_buy_485" && docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_sell_485_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_sell_485"
+# docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_buy_75_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_buy_75" && docker run --rm --gpus '"device=0,1,2,3,4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_aggressive_sell_75_0_1_2_3_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_copy.py --config 1_run_exp_aggresive_scenario_sell_75"
+
+
+
+
+# docker run --rm --gpus '"device=7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name georgenigm_exp_step_4_sample_day_mapping georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u step_4_sample_day_mapping.py &> job.log"
+
+
+
+# docker run --rm --gpus '"device=7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name heuristic_historical_scenario_run_quantile_fixing georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u heuristic_historical_scenario_run_quantile_fixing.py"
+
+
+

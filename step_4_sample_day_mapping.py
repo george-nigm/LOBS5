@@ -126,12 +126,12 @@ def sample_day_mapping(m_dict, daily_h_l_path, indexes_match=500):
     
 
 def main():
-    with open('/app/m_dict.pkl', 'rb') as f:
+    with open('/app/data_saved/exp_131_20250923_104218_gen_buy_300_b0_b7/m_dict.pkl', 'rb') as f:
         m_dict = pickle.load(f)
     daily_h_l_path = "/app/daily_h_l.csv"
 
     sample_day_df = sample_day_mapping(m_dict, daily_h_l_path, indexes_match=6)
-    sample_day_df.to_csv("sample_day_map.csv", index=False)
+    sample_day_df.to_csv("batches_equal_sample_day_map.csv", index=False)
 
     print("="*80)
     print(f"✅ Saved mapping for {len(sample_day_df)} samples → sample_day_map.csv")
