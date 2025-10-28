@@ -372,7 +372,7 @@ def run_historical_scenario(
             # Consume next historical message
             if original_idx < msg_seq_raw.shape[1]:
                 msg = msg_seq_raw[:, original_idx : original_idx + 1, :]
-                shift_ticks_array = jnp.array(shift_ticks)
+                # shift_ticks_array = jnp.array(shift_ticks)
                 # msg = shift_sell_prices(
                 #     msg,
                 #     tick_size * shift_ticks_array,

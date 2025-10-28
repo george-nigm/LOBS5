@@ -36,9 +36,12 @@ tick_size: 100
 rng_seed: 42
 
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
+# ckpt_path: "checkpoints/goog2022_rwkv_6g0.1B/"
+# ckpt_path: "checkpoints/goog2022_rwkv_6g0.1B_orbax"
+ckpt_path: "checkpoints/orbax_goog2022_rwkv_6g0.1B/0/default"
 
 start_batch: 0
-end_batch: 64 #64
+end_batch: 2 #64
 
 
 # order_volume explanation:

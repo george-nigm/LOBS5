@@ -235,7 +235,7 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 
 
-# docker run --rm --gpus '"device=7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name heuristic_historical_scenario_run_quantile_fixing georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u heuristic_historical_scenario_run_quantile_fixing.py"
+# docker run --rm --gpus '"device=2"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name historical_scenario_run_quantile_fixing_buy_485_2 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u heuristic_historical_scenario_run_quantile_fixing.py"
 
 
 
