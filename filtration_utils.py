@@ -53,15 +53,49 @@ def summary_table(experiment_name):
             continue
         rng = m.group(1).replace(" ", "")      # e.g. "3464,4169,4497,6855"
         itr = int(m.group(2))                  # iteration number
-        arr = np.load(f)                       # shape (n_steps, batch_size) 
+        arr = np.load(f)                       # shape (n_steps, batch_size) 
+
+        # Debug: file-level info
+        try:
+            print("[summary_table] Loaded file:", f)
+            print("[summary_table]  arr.shape:", getattr(arr, "shape", None), "arr.ndim:", getattr(arr, "ndim", None))
+        except Exception as e:
+            print("[summary_table]  Failed to print array meta:", e)
 
         ids = list(map(int, rng.split(",")))
+        try:
+            print("[summary_table]  ids (len=", len(ids), "):", ids)
+            if hasattr(arr, "shape") and len(ids) > 0:
+                print("[summary_table]  expected batch columns:", len(ids))
+        except Exception as e:
+            print("[summary_table]  Failed to print ids:", e)
+
         # now split out each column into its own sample-stream:
         for col, sample_id in enumerate(ids):
+            try:
+                print(f"[summary_table]   accessing col={col} for sample_id={sample_id}")
+                data_col = arr[:, col]
+            except Exception as e:
+                print("[summary_table][ERROR] while slicing column:")
+                try:
+                    print("   file:", f)
+                    print("   iteration:", itr)
+                    print("   arr.shape:", getattr(arr, "shape", None))
+                    print("   arr.ndim:", getattr(arr, "ndim", None))
+                    print("   col:", col, " sample_id:", sample_id)
+                    # If 1D, show a brief preview
+                    if getattr(arr, "ndim", None) == 1:
+                        preview = arr[:10] if arr.shape[0] >= 10 else arr
+                        print("   1D preview:", preview)
+                except Exception as e2:
+                    print("[summary_table][ERROR] failed additional debug printing:", e2)
+                # Re-raise to preserve original failure path
+                raise
+
             records.append({
                 "id":        sample_id,
                 "iteration": itr,
-                "data":      arr[:, col]
+                "data":      data_col
             })
 
     # 4) Создаём DataFrame и сортируем

@@ -1,0 +1,31 @@
+save_folder: "/app/data_saved"
+batch_size: 16
+n_samples: 64
+n_gen_msgs: 200
+midprice_step_size: 100
+
+num_insertions: 100
+num_coolings: 20
+
+DIRECTION_i: 1           # 0 = buy (aggress ask), 1 = sell (aggress bid)
+order_volume: 75
+
+EVENT_TYPE_i: 4          # aggressive market order event code
+n_messages: 50           # context messages used to build RWKV prompt
+book_dim: 81             # kept for compatibility; not used directly in RWKV script
+n_vol_series: 20         # number of levels for L2 tracking and transforms
+# data_dir: "/app/lobgen/data_old"
+sample_file_path: "batches_random_sample_indices_b64_bs16_ins100_cool20.json"
+data_dir: "/app/data/test_set/"
+sample_all: false
+stock: "GOOG"      # appended to data_dir → .../data/GOOG/2022
+tick_size: 100
+rng_seed: 42
+use_relative_volume: false
+order_volume_ratio: 1.0
+use_sample_file: true
+sample_file_path: "/app/batches_random_sample_indices_b64_bs16_ins100_cool20.json"
+
+start_batch: 0
+end_batch: 7
+

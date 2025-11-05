@@ -2,10 +2,10 @@ save_folder: "/app/data_saved/"
 
 batch_size: 16
 n_samples: 1024
-bsz: 8
+bsz: 8 # 4 for 4 GPUs
 
 use_sample_file: true
-sample_file_path: "bathces_equal_sample_indices_b64_bs16_ins10_cool50.json"
+sample_file_path: "batches_random_sample_indices_b64_bs16_ins100_cool20.json"
 
 # generation = historical
 n_gen_msgs: 50
@@ -17,7 +17,7 @@ num_coolings: 20
 EVENT_TYPE_i: 4
 DIRECTION_i: 0 # 0 for buying - 1 for selling
 
-order_volume: 75
+order_volume: 300
 use_relative_volume: False
 order_volume_ratio: 1.00
 
@@ -26,6 +26,13 @@ book_dim: 501
 n_vol_series: 500
 sample_top_n: -1
 
+# CST-specific parameters
+# Note: If params file doesn't exist, the script will raise an error.
+# You can create params using: lob_bench/cst_model/run_param_est.py
+cst_params_file: "lob_bench/cst_model/params/model_params.pkl"
+n_levels: 20
+
+# Not used for CST but kept for compatibility
 model_size: "large"
 # data_dir: "data/test_set/"
 data_dir: "/app/data/test_set/"
@@ -35,12 +42,14 @@ stock: "GOOG"
 tick_size: 100
 rng_seed: 42
 
+# Not used for CST (no checkpoint needed)
 ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
 
 start_batch: 0
-end_batch: 64 #64
+end_batch: 7 #64
 
 
 # order_volume explanation:
 # 75 - is the mean of all market orders in the data
 # 300, 485, 695, 865, 1400 - are the quantiles, q50, q75, q90, q95, q99 of best (ask U BID) volume in the book data
+

@@ -564,15 +564,9 @@ def run_generation_scenario(
 
     save_folder = Path(save_folder)
 
-    save_folder.joinpath('data_scenario_cond').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('data_scenario_real').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('data_scenario_gen').mkdir(exist_ok=True, parents=True)
-
-
-    save_folder.joinpath('m_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('b_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
+    # Align saved folders with heuristic_historical_scenario_run_quantile_fixing.py
     save_folder.joinpath('msgs_decoded_doubled').mkdir(exist_ok=True, parents=True)
-    save_folder.joinpath('l2_book_states_halved').mkdir(exist_ok=True, parents=True)
+    save_folder.joinpath('b_seq_gen_doubled').mkdir(exist_ok=True, parents=True)
     save_folder.joinpath('mid_price').mkdir(exist_ok=True, parents=True)
 
     base_save_folder = save_folder
@@ -608,10 +602,7 @@ def run_generation_scenario(
                 msgs_decoded_np = np.array(jax.device_get(m_seq_raw_inp))
                 l2_book_states_np = np.array(jax.device_get(book_l2_init))
 
-                np.save(os.path.join(base_save_folder, 'm_seq_gen_doubled', f'm_seq_inp_{batch_i}.npy'), m_seq_inp)
-                np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_inp_{batch_i}.npy'), b_seq_inp)
-                np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'm_seq_raw_inp_{batch_i}.npy'), m_seq_raw_inp)
-                np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'book_l2_init_{batch_i}.npy'), book_l2_init)
+                # Do not save intermediate inputs or initial states
 
                 sim_init, sim_states_init = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp)
 
@@ -770,11 +761,10 @@ def run_generation_scenario(
                 l2_book_states_np = np.array(jax.device_get(l2_book_states_halved))
                 mid_price_np = np.array(jax.device_get(midprices))
 
-            np.save(os.path.join(base_save_folder, 'm_seq_gen_doubled', f'm_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), m_seq_np)
-            np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), b_seq_np)
+            # Save only the same artifacts as heuristic_historical_scenario_run_quantile_fixing.py
             np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_doubled_batch_{batch_i}_iter_{iteration}.npy'), msgs_decoded_np)
-            np.save(os.path.join(base_save_folder, 'l2_book_states_halved', f'l2_book_states_halved_batch_{batch_i}_iter_{iteration}.npy'), l2_book_states_np)
             np.save(os.path.join(base_save_folder, 'mid_price', f'mid_price_batch_{batch_i}_iter_{iteration}.npy'), mid_price_np)
+            np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), b_seq_np)
 
 def create_next_experiment_folder(save_folder: str) -> Path:
     base = Path(save_folder)
