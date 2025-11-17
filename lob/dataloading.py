@@ -53,7 +53,7 @@ def create_lobster_prediction_dataset(
 		use_simple_book=use_simple_book,
 		book_transform=book_transform,
 		book_depth=book_depth,
-		n_cache_files=1e7,  # large number to keep everything in cache
+		n_cache_files=250,  # large number to keep everything in cache
 		return_raw_msgs=return_raw_msgs,
 		rand_offset=rand_offset,
 		debug_overfit=debug_overfit,
