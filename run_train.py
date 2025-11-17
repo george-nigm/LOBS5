@@ -30,6 +30,9 @@ if __name__ == "__main__":
 	os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.9"
 	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+	os.environ["NCCL_TIMEOUT"] = "600"  # 10 minutes
+	os.environ["NCCL_IB_DISABLE"] = "0"  # Disable InfiniBand if not used
+	os.environ["NCCL_P2P_DISABLE"] = "0"  # Disable peer-to-peer if causing issues
 
 	#physical_devices = tf.config.list_physical_devices('GPU')
 	#tf.config.experimental.set_memory_growth(physical_devices[0], True)
