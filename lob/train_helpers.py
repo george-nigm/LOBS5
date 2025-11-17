@@ -105,19 +105,19 @@ def update_learning_rate_per_step(lr_params, state):
     #     )
     # )
 
-    if opt_config in ["BandCdecay"]:
-        state = state.replace(
-            opt_state=state.opt_state._replace(
-                inner_states={
-                    **state.opt_state.inner_states,
-                    'none': state.opt_state.inner_states['none']._replace(
-                        inner_state=state.opt_state.inner_states['none'].inner_state._replace(
-                            hyperparams={'learning_rate': jax_utils.replicate(ssm_lr_array)}
-                        )
-                    ),
-                }
-            )
-        )
+    # if opt_config in ["BandCdecay"]:
+    #     state = state.replace(
+    #         opt_state=state.opt_state._replace(
+    #             inner_states={
+    #                 **state.opt_state.inner_states,
+    #                 'none': state.opt_state.inner_states['none']._replace(
+    #                     inner_state=state.opt_state.inner_states['none'].inner_state._replace(
+    #                         hyperparams={'learning_rate': jax_utils.replicate(ssm_lr_array)}
+    #                     )
+    #                 ),
+    #             }
+    #         )
+    #     )
     return state, step
 
 
