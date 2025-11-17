@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 from lob.encoding import Message_Tokenizer
 import sys
 
+import psutil
+import os
 # from lob.lob_seq_model import LobPredModel
 
 
@@ -67,19 +69,55 @@ def update_learning_rate_per_step(lr_params, state):
     ssm_lr_val = decay_function(step, ssm_lr, end_step, lr_min)
     step += 1
 
-    # Update state
-    state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'] = \
-        jax_utils.replicate(np.array(lr_val, dtype=np.float32))
+    # # Update state
+    # state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'] = \
+    #     jax_utils.replicate(np.array(lr_val, dtype=np.float32))
         
-    state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'] = \
-        jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
+    # state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'] = \
+    #     jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
+
+    # if opt_config in ["BandCdecay"]:
+    #     # In this case we are applying the ssm learning rate to B, even though
+    #     # we are also using weight decay on B
+    #     state.opt_state.inner_states['none'].inner_state.hyperparams['learning_rate'] = \
+    #         jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
+    # BETTER WAY - reuse existing structure:
+    lr_array = np.array(lr_val, dtype=np.float32)
+    ssm_lr_array = np.array(ssm_lr_val, dtype=np.float32)
+    
+    # Update in place by creating new state with updated hyperparams
+    # This avoids accumulating replicated tensors
+    state = state.replace(
+        opt_state=state.opt_state._replace(
+            inner_states={
+                **state.opt_state.inner_states,
+                'regular': state.opt_state.inner_states['regular']._replace(
+                    inner_state=state.opt_state.inner_states['regular'].inner_state._replace(
+                        hyperparams={'learning_rate': jax_utils.replicate(lr_array)}
+                    )
+                ),
+                'ssm': state.opt_state.inner_states['ssm']._replace(
+                    inner_state=state.opt_state.inner_states['ssm'].inner_state._replace(
+                        hyperparams={'learning_rate': jax_utils.replicate(ssm_lr_array)}
+                    )
+                ),
+            }
+        )
+    )
 
     if opt_config in ["BandCdecay"]:
-        # In this case we are applying the ssm learning rate to B, even though
-        # we are also using weight decay on B
-        state.opt_state.inner_states['none'].inner_state.hyperparams['learning_rate'] = \
-            jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
-
+        state = state.replace(
+            opt_state=state.opt_state._replace(
+                inner_states={
+                    **state.opt_state.inner_states,
+                    'none': state.opt_state.inner_states['none']._replace(
+                        inner_state=state.opt_state.inner_states['none'].inner_state._replace(
+                            hyperparams={'learning_rate': jax_utils.replicate(ssm_lr_array)}
+                        )
+                    ),
+                }
+            )
+        )
     return state, step
 
 
@@ -461,6 +499,36 @@ def device_reshape(
     return inputs, targets, book_data, timestep_msg, timestep_book
 
 
+def print_memory_usage():
+    """Print GPU and system memory usage"""
+    process = psutil.Process(os.getpid())
+    print(f"CPU Memory: {process.memory_info().rss / 1024 ** 3:.2f} GB")
+    
+    # JAX device memory
+    for device in jax.local_devices()[:1]:
+        try:
+            stats = device.memory_stats()
+            if stats:
+                print(f"Device {device} Used: {stats['bytes_in_use'] / 1024**2:.2f} MB / {stats['bytes_limit'] / 1024**3:.2f} GB")
+        except:
+            pass
+
+def print_memory_usage_tofile():
+    """Print GPU and system memory usage to a file"""
+    process = psutil.Process(os.getpid())
+    with open('/tmp/memory_usage.txt', 'a') as f:
+        f.write(f"CPU Memory: {process.memory_info().rss / 1024 ** 3:.2f} GB\n")
+        
+        # JAX device memory
+        for device in jax.local_devices()[:1]:
+            try:
+                stats = device.memory_stats()
+                if stats:
+                    f.write(f"Device {device} Used: {stats['bytes_in_use'] / 1024**2:.2f} MB / {stats['bytes_limit'] / 1024**3:.2f} GB\n")
+            except:
+                pass
+
+
 def train_epoch(
         state,
         rng,
@@ -500,7 +568,10 @@ def train_epoch(
             # print("train_epoch: Prepared batch labels shape:", labels.shape)
             # print("train_epoch: Inputs 0:5:", inputs[0][0,0:5,:])
             rng, drop_rng = jax.random.split(rng)
-
+            # Print memory every 1000 steps
+            if batch_idx % 1000 == 0:
+                print(f"\n=== Epoch {epoch}, Batch {batch_idx} ===")
+                print_memory_usage()
             
             # state,loss=train_step_rnn(                
             #     state,
