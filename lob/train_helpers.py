@@ -70,54 +70,63 @@ def update_learning_rate_per_step(lr_params, state):
     step += 1
 
     # # Update state
-    state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'] = \
-        jax_utils.replicate(np.array(lr_val, dtype=np.float32))
+    # state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'] = \
+    #     jax_utils.replicate(np.array(lr_val, dtype=np.float32))
         
-    state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']= \
-        jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
-
-    if opt_config in ["BandCdecay"]:
-        # In this case we are applying the ssm learning rate to B, even though
-        # we are also using weight decay on B
-        state.opt_state.inner_states['none'].inner_state.hyperparams['learning_rate'] = \
-            jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
-    # BETTER WAY - reuse existing structure:
-    # lr_array = np.array(lr_val, dtype=np.float32)
-    # ssm_lr_array = np.array(ssm_lr_val, dtype=np.float32)
-    
-    # Update in place by creating new state with updated hyperparams
-    # This avoids accumulating replicated tensors
-    # state = state.replace(
-    #     opt_state=state.opt_state._replace(
-    #         inner_states={
-    #             **state.opt_state.inner_states,
-    #             'regular': state.opt_state.inner_states['regular']._replace(
-    #                 inner_state=state.opt_state.inner_states['regular'].inner_state._replace(
-    #                     hyperparams={'learning_rate': jax_utils.replicate(lr_array)}
-    #                 )
-    #             ),
-    #             'ssm': state.opt_state.inner_states['ssm']._replace(
-    #                 inner_state=state.opt_state.inner_states['ssm'].inner_state._replace(
-    #                     hyperparams={'learning_rate': jax_utils.replicate(ssm_lr_array)}
-    #                 )
-    #             ),
-    #         }
-    #     )
-    # )
+    # state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']= \
+    #     jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
 
     # if opt_config in ["BandCdecay"]:
-    #     state = state.replace(
-    #         opt_state=state.opt_state._replace(
-    #             inner_states={
-    #                 **state.opt_state.inner_states,
-    #                 'none': state.opt_state.inner_states['none']._replace(
-    #                     inner_state=state.opt_state.inner_states['none'].inner_state._replace(
-    #                         hyperparams={'learning_rate': jax_utils.replicate(ssm_lr_array)}
-    #                     )
-    #                 ),
-    #             }
-    #         )
-    #     )
+    #     # In this case we are applying the ssm learning rate to B, even though
+    #     # we are also using weight decay on B
+    #     state.opt_state.inner_states['none'].inner_state.hyperparams['learning_rate'] = \
+    #         jax_utils.replicate(np.array(ssm_lr_val, dtype=np.float32))
+    # BETTER WAY - reuse existing structure:
+    lr_array = np.array(lr_val, dtype=np.float32)
+    ssm_lr_array = np.array(ssm_lr_val, dtype=np.float32)
+    
+    # Update in place by creating new state with updated hyperparams
+    # This avoids accumulating replicated tensors while preserving other hyperparameters
+    state = state.replace(
+        opt_state=state.opt_state._replace(
+            inner_states={
+                **state.opt_state.inner_states,
+                'regular': state.opt_state.inner_states['regular']._replace(
+                    inner_state=state.opt_state.inner_states['regular'].inner_state._replace(
+                        hyperparams={
+                            **state.opt_state.inner_states['regular'].inner_state.hyperparams,
+                            'learning_rate': jax_utils.replicate(lr_array)
+                        }
+                    )
+                ),
+                'ssm': state.opt_state.inner_states['ssm']._replace(
+                    inner_state=state.opt_state.inner_states['ssm'].inner_state._replace(
+                        hyperparams={
+                            **state.opt_state.inner_states['ssm'].inner_state.hyperparams,
+                            'learning_rate': jax_utils.replicate(ssm_lr_array)
+                        }
+                    )
+                ),
+            }
+        )
+    )
+
+    if opt_config in ["BandCdecay"]:
+        state = state.replace(
+            opt_state=state.opt_state._replace(
+                inner_states={
+                    **state.opt_state.inner_states,
+                    'none': state.opt_state.inner_states['none']._replace(
+                        inner_state=state.opt_state.inner_states['none'].inner_state._replace(
+                            hyperparams={
+                                **state.opt_state.inner_states['none'].inner_state.hyperparams,
+                                'learning_rate': jax_utils.replicate(ssm_lr_array)
+                            }
+                        )
+                    ),
+                }
+            )
+        )
     return state, step
 
 
