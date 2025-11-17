@@ -13,9 +13,9 @@ python3 run_train.py --USE_WANDB=True \
                     --random_offsets_train=True \
                     --shuffle_train=True \
                     --debug_overfit=False \
-                    --lr_patience=3 \
-                    --restore='/home/myuser/checkpoints/sleek-night-72_vwv4ewas' \
-                    --restore_step=21
+                    --lr_patience=4 \
+                    # --restore='/home/myuser/checkpoints/sleek-night-72_vwv4ewas' \
+                    # --restore_step=21
                     #--restore='checkpoints/eager-shadow-750_af39bb9u/'
                     #5135
                     # --curtail_epochs=5135 \
