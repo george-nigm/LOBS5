@@ -700,6 +700,7 @@ class LOBSTER(SequenceDataset):
             "book_transform": False,
             "n_cache_files": 0,
             "book_depth": 500,
+            "test_data_dir": None,
             "return_raw_msgs": False,
             "rand_offset": True,
             "debug_overfit": False,
@@ -716,6 +717,22 @@ class LOBSTER(SequenceDataset):
             assert len(message_files) == len(book_files)
         else:
             book_files = None
+
+        # Load test files from separate directory if specified
+        if self.test_data_dir is not None:
+            test_message_files = sorted(glob(str(self.test_data_dir) + '/*message*.npy'))
+            assert len(test_message_files) > 0, f'no test message files found in {self.test_data_dir}'
+
+            if self.use_book_data:
+                test_book_files = sorted(glob(str(self.test_data_dir) + '/*book*.npy'))
+                assert len(test_message_files) == len(test_book_files), \
+                    f'mismatch between test message files ({len(test_message_files)}) and book files ({len(test_book_files)})'
+            else:
+                test_book_files = None
+        else:
+            test_message_files = None
+            test_book_files = None
+
         # raw message files
 
         if self.debug_overfit:
@@ -733,34 +750,58 @@ class LOBSTER(SequenceDataset):
                 self.val_book_files = None
                 self.test_book_files = None
         else:
-            n_test_files = max(1, int(len(message_files) * self.test_split))
-            # train on first part of data
-            self.train_files = message_files[:len(message_files) - n_test_files]
-            # and test on last days
-            self.test_files = message_files[len(self.train_files):]
+            # Modified logic to handle separate test directory
+            if test_message_files is not None:
+                # Use all files from test directory for testing
+                self.test_files = test_message_files
+                if test_book_files:
+                    self.test_book_files = test_book_files
+                else:
+                    self.test_book_files = None
+
+                # Use all files from main directory for train/val split
+                self.train_files = message_files
+                if book_files:
+                    self.train_book_files = book_files
+                else:
+                    self.train_book_files = None
+            else:
+                # Original logic: split files from single directory
+                n_test_files = max(1, int(len(message_files) * self.test_split))
+                # train on first part of data
+                self.train_files = message_files[:len(message_files) - n_test_files]
+                # and test on last days
+                self.test_files = message_files[len(self.train_files):]
+
+                if book_files:
+                    self.train_book_files = book_files[:len(book_files) - n_test_files]
+                    self.test_book_files = book_files[len(self.train_book_files):]
+                else:
+                    self.train_book_files = None
+                    self.test_book_files = None
 
             self.rng = random.Random(self.seed)
 
-            # TODO: case of raw data but no book data?
-
-            if book_files:
-                self.train_book_files = book_files[:len(book_files) - n_test_files]
-                self.test_book_files = book_files[len(self.train_book_files):]
-                # zip together message and book files to randomly sample together
+            # Zip together message and book files to randomly sample together (for val split)
+            if book_files or (test_book_files is not None and self.train_book_files is not None):
                 self.train_files = list(zip(self.train_files, self.train_book_files))
             else:
-                self.train_book_files = None
                 self.val_book_files = None
-                self.test_book_files = None
 
             # for now, just select (e.g. 10% of) days randomly for validation
+            total_files = len(message_files) if test_message_files is None else len(message_files)
+            n_val_files = int(np.ceil(self.val_split * total_files))
+
             self.val_files = [
                 self.train_files.pop(
                     self.rng.randrange(0, len(self.train_files))
-                ) for _ in range(int(np.ceil(self.val_split * len(message_files))))]
-            if book_files:
+                ) for _ in range(n_val_files)]
+
+            if book_files or (test_book_files is not None and self.train_book_files is not None):
                 self.train_files, self.train_book_files = zip(*self.train_files)
                 self.val_files, self.val_book_files = zip(*self.val_files)
+            else:
+                self.val_book_files = None
         
 
 

@@ -27,6 +27,7 @@ def create_lobster_prediction_dataset(
 		use_simple_book: bool = False,
 		book_transform: bool = False,
 		book_depth: int = 500,
+		test_dir_name: Union[str, Path, None] = None,
 		n_data_workers: int = 0,
 		return_raw_msgs: bool = False,
 		shuffle_train=True,
@@ -53,6 +54,7 @@ def create_lobster_prediction_dataset(
 		use_simple_book=use_simple_book,
 		book_transform=book_transform,
 		book_depth=book_depth,
+		test_data_dir=test_dir_name,
 		n_cache_files=250,  # large number to keep everything in cache
 		return_raw_msgs=return_raw_msgs,
 		rand_offset=rand_offset,

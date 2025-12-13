@@ -207,3 +207,26 @@ eval_local/*
 
 benchmark_local/*
 jax-traces/*
+
+
+**.err
+**.out
+**.md
+**.pdf
+**.jsonl
+**.png
+
+bin/run_experiments/nodes.ini
+bin/run_experiments/record
+es_lobs5/utils/Untitled-77
+es_lobs5/utils/Untitled-78
+logs_55M/print_orderbook
+logs_lobs5_3072x32/**
+newdata/core
+tensorboard/run_20251113_192447/plugins/profile/2025_11_13_19_26_27/nid010023.trace.json
+tensorboard/run_20251113_192447/plugins/profile/2025_11_13_19_26_27/nid010023.trace.json.gz
+tensorboard/run_20251113_192447/plugins/profile/2025_11_13_19_26_27/nid010023.xplane.pb
+recommendations
+package-lock.json
+package.json
+.gitignore

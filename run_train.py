@@ -65,6 +65,8 @@ if __name__ == "__main__":
 		     			help="transform loaded book data to volume image repr. in dataloader")
 	parser.add_argument("--book_depth", type=int, default=500,
 		     			help="number of tick levels to use in book data [if book_transform=True]")
+	parser.add_argument("--test_dir_name", type=str, default=None,
+		     			help="directory for test data (optional, uses --dir_name if not specified)")
 	parser.add_argument("--restore", type=str,
 		     			help="if given restore from given checkpoint dir")
 	parser.add_argument("--restore_step", type=int)

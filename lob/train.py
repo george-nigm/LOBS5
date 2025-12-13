@@ -4,7 +4,7 @@ from jax import random
 import jax.numpy as jnp
 import flax
 import orbax.checkpoint as ocp
-import wandb
+# import wandb
 import gc
 
 from lob.init_train import init_train_state, load_checkpoint, save_checkpoint, deduplicate_trainstate
@@ -13,6 +13,11 @@ from lob.lobster_dataloader import LOBSTER_Dataset
 from lob.train_helpers import reduce_lr_on_plateau, linear_warmup, \
     cosine_annealing, constant_lr, train_epoch, validate
 
+# WandB configuration (must be set before wandb import)
+os.environ["WANDB_MODE"] = "online"
+os.environ["WANDB_BASE_URL"] = "https://api.wandb.ai"
+os.environ["WANDB_INSECURE_DISABLE_SSL"] = "True"
+import wandb
 
 
 
@@ -67,7 +72,7 @@ def train(args):
     else:
         ValueError('Issue with mask function: logic for '+args.masking+' not implemented.')
 
-    (lobster_dataset, trainloader, valloader, testloader, aux_dataloaders, 
+    (lobster_dataset, trainloader, valloader, testloader, aux_dataloaders,
         n_classes, seq_len, in_dim, book_seq_len, book_dim, train_size) = \
         create_lobster_prediction_dataset(
             args.dir_name,
@@ -78,6 +83,8 @@ def train(args):
             use_book_data=args.use_book_data,
             use_simple_book=args.use_simple_book,
             book_transform=args.book_transform,
+            book_depth=args.book_depth,
+            test_dir_name=args.test_dir_name,
             n_data_workers=args.n_data_workers,
             shuffle_train=args.shuffle_train,
             rand_offset=args.random_offsets_train,
