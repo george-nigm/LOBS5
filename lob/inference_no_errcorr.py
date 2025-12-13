@@ -956,7 +956,7 @@ def generate(
         init_token=m_seq_cond
         init_book=b_seq_cond
 
-    jax.debug.print("hidden_state vs init hidden state {}",hidden_state==init_hidden)
+    # jax.debug.print("hidden_state vs init hidden state {}",hidden_state==init_hidden)
 
     # get current mid price from simulator
     p_mid = _get_safe_mid_price(sim, sim_state, tick_size)
