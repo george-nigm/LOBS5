@@ -17,9 +17,9 @@ torch.multiprocessing.set_start_method('spawn')
 sys.path.append(parent_folder_path)
 
 # add git submodule to path to allow imports to work
-submodule_name = 'AlphaTrade'
+# Path to gymnax_exchange: /lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/AlphaTrade/gymnax_exchange
 (parent_folder_path, current_dir) = os.path.split(os.path.abspath(''))
-sys.path.append(os.path.join(parent_folder_path, submodule_name))
+sys.path.append(os.path.join(parent_folder_path, 'AlphaTrade'))
 
 print(sys.path)
 from gymnax_exchange.jaxob.jorderbook import OrderBook
@@ -75,26 +75,46 @@ if __name__ == "__main__":
     parser.add_argument('--stock', type=str, default='GOOG', help='stock to evaluate')
     parser.add_argument('--checkpoint_step', type=int, default=None, help='Which checkpoint step to load')
     parser.add_argument('--test_split', type=float, default=0.1, help='Which test split to use')
-
+    # Add custom paths for Isambard/custom runs
+    parser.add_argument('--data_dir', type=str, default=None, help='Custom data directory')
+    parser.add_argument('--ckpt_path', type=str, default=None, help='Custom checkpoint path')
+    parser.add_argument('--save_dir', type=str, default=None, help='Custom save directory')
 
     run_args = parser.parse_args()
 
     overfit_debug = False
 
-    if run_args.stock == 'AMZN':
-        data_dir = '/home/myuser/processed_data/AMZN/2024_Dec'
-        ckpt_path='/home/myuser/checkpoints/ruby-aardvark-62_98nov1i7'
-        save_dir='/home/myuser/eval_local/AMZN/2024/debug-r-a'
-    if run_args.stock == 'GOOG':
-        data_dir = '/data1/sascha/data/GOOG/preprocessed/GOOG2019'
-        ckpt_path='/data1/sascha/data/checkpoints/olive-blaze-463_9eq56l8n/'
-        save_dir='/data1/sascha/data/GOOG/benchmark_data/evalsequences/s5/scaled_olive'
-    elif run_args.stock == 'INTC':
-        raise NotImplementedError("Nothing trained for INTC yet")
-    elif run_args.stock == 'TSLA':
-        raise Warning("Saved Model was trained on GOOGLE data. Generating for TSLA")
-        data_dir = '/data1/sascha/data/lobster_proc'
-        ckpt_path = '/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5' # Dummy model trained on just 5 days... for debugging. 
+    # Use custom paths if provided via command line, otherwise use stock-specific defaults
+    if run_args.data_dir is not None and run_args.ckpt_path is not None and run_args.save_dir is not None:
+        # Custom paths provided (e.g., for Isambard runs)
+        data_dir = run_args.data_dir
+        ckpt_path = run_args.ckpt_path
+        save_dir = run_args.save_dir
+        print(f"[*] Using custom paths:")
+        print(f"    Data: {data_dir}")
+        print(f"    Checkpoint: {ckpt_path}")
+        print(f"    Save: {save_dir}")
+    else:
+        # Original hardcoded paths for specific stocks (kept for backward compatibility)
+        # NOTE: These paths are from the original development environment
+        # Only GOOG is actively maintained; other stocks commented out
+
+        # if run_args.stock == 'AMZN':
+        #     data_dir = '/home/myuser/processed_data/AMZN/2024_Dec'
+        #     ckpt_path='/home/myuser/checkpoints/ruby-aardvark-62_98nov1i7'
+        #     save_dir='/home/myuser/eval_local/AMZN/2024/debug-r-a'
+        if run_args.stock == 'GOOG':
+            data_dir = '/data1/sascha/data/GOOG/preprocessed/GOOG2019'
+            ckpt_path='/data1/sascha/data/checkpoints/olive-blaze-463_9eq56l8n/'
+            save_dir='/data1/sascha/data/GOOG/benchmark_data/evalsequences/s5/scaled_olive'
+        # elif run_args.stock == 'INTC':
+        #     raise NotImplementedError("Nothing trained for INTC yet")
+        # elif run_args.stock == 'TSLA':
+        #     raise Warning("Saved Model was trained on GOOGLE data. Generating for TSLA")
+        #     data_dir = '/data1/sascha/data/lobster_proc'
+        #     ckpt_path = '/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5'
+        else:
+            raise ValueError(f"Stock {run_args.stock} not configured. Use --data_dir, --ckpt_path, --save_dir to specify custom paths.") 
 
     ##################################################
 

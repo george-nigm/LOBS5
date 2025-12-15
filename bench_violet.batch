@@ -29,7 +29,7 @@ export LD_LIBRARY_PATH=$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cuda_nv
 # JAX environment
 export XLA_PYTHON_CLIENT_PREALLOCATE=true
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
-export JAX_PLATFORMS=cuda
+export JAX_PLATFORMS=cuda,cpu  # Allow both CUDA and CPU backends (CPU needed for DataLoader)
 # Let SLURM handle CUDA_VISIBLE_DEVICES
 
 CHECKPOINT_PATH="/lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/LOBS5/checkpoints/brisk-violet-111_x514rgnq"
@@ -51,7 +51,7 @@ $CONDA_PREFIX/bin/python -u run_eval_wrapper.py \
   --dir_name=$TEST_DATA \
   --bsz=8 \
   --num_devices=1 \
-  --n_data_workers=4 \
+  --n_data_workers=0 \
   --USE_WANDB=True \
   --wandb_project=LOBS5-Bench \
   --wandb_entity=kang-oxford \

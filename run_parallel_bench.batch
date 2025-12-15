@@ -1,0 +1,55 @@
+#!/bin/bash
+#SBATCH --job-name=lob_bench_parallel
+#SBATCH --output=logs_lobs5/lob_bench_parallel_%j.out
+#SBATCH --error=logs_lobs5/lob_bench_parallel_%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=256  # Use 256 cores (out of 288 available on GH200 node)
+#SBATCH --mem=256G            # Use 256GB RAM (out of 460GB available)
+#SBATCH --time=00:30:00       # Should complete much faster with parallelization
+
+###############################################################################
+# Parallel LOB Benchmark
+# =======================
+# GH200 node specs:
+#   - 288 CPU cores total (4 × 72 ARM Neoverse V2 cores)
+#   - 460 GB RAM total
+#
+# This job uses:
+#   - 256 cores (89% of available)
+#   - 256 GB RAM (56% of available)
+#
+# Strategy:
+#   - 21 metrics run in parallel
+#   - Each metric gets ~12 cores (256 / 21)
+#   - Pure CPU computation (numpy/pandas/sklearn)
+#   - No GPU needed
+###############################################################################
+
+echo "============================================"
+echo "Parallel LOB Benchmark started at: $(date)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Running on node: $(hostname)"
+echo "Using $SLURM_CPUS_PER_TASK CPU cores"
+echo "============================================"
+
+cd /lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/LOBS5
+
+# Source conda
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate lob
+
+# Make orchestrator script executable
+chmod +x run_parallel_bench.sh
+
+# Run the parallel orchestrator
+./run_parallel_bench.sh
+
+EXIT_CODE=$?
+
+echo "============================================"
+echo "Parallel LOB Benchmark completed at: $(date)"
+echo "Exit code: $EXIT_CODE"
+echo "============================================"
+
+exit $EXIT_CODE

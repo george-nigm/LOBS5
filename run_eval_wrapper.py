@@ -100,6 +100,10 @@ def eval(eval_args):
         state = ckpt['model']
         eval_model = model_cls(training=False, step_rescale=1)
 
+        # Initialize hidden state for RNN mode evaluation
+        # NOTE: h_size_ema parameter matches train.py:128
+        # Value confirmed from lob/train.py where it's set to ssm_size
+        # For this checkpoint: ssm_size = ssm_size_base = 1024
         init_hidden = model_cls().initialize_carry(
             batch_size=args.bsz // args.num_devices,
             hidden_size=(ssm_size // pow(2, int(args.conj_sym))),
@@ -107,6 +111,7 @@ def eval(eval_args):
             n_book_pre_layers=args.n_book_pre_layers,
             n_book_post_layers=args.n_book_post_layers,
             n_fused_layers=args.n_layers,
+            h_size_ema=ssm_size,  # Copied from lob/train.py:128
         )
 
         print(f"[*] Running Epoch {args.restore_step + epoch + 1} Validation on train set (With call)...")
@@ -144,9 +149,12 @@ def eval(eval_args):
         print(f" Val Loss: {val_loss:.5f} --Test Loss: {test_loss:.5f} --"
               f" Val Accuracy: {val_acc:.4f} Test Accuracy: {test_acc:.4f}")
 
-        ce_table.add_column(name="test_ce_" + str(epoch), data=test_ce_by_tok.tolist())
-        ce_table.add_column(name="test_acc_" + str(epoch), data=test_acc_by_tok.tolist())
-        ce_table = wandb.Table(columns=ce_table.columns, data=ce_table.data)
+        # Add per-token metrics to table if available
+        # NOTE: validate() may return None for ce_by_tok/acc_by_tok depending on curtail_epoch
+        if test_ce_by_tok is not None and test_acc_by_tok is not None:
+            ce_table.add_column(name="test_ce_" + str(epoch), data=test_ce_by_tok.tolist())
+            ce_table.add_column(name="test_acc_" + str(epoch), data=test_acc_by_tok.tolist())
+            ce_table = wandb.Table(columns=ce_table.columns, data=ce_table.data)
 
         wandb.log({
             "'Call' loss": val_loss,

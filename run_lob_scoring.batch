@@ -1,0 +1,103 @@
+#!/bin/bash
+#SBATCH --job-name=lob_scoring
+#SBATCH --output=logs_lobs5/lob_scoring_%j.out
+#SBATCH --error=logs_lobs5/lob_scoring_%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=64  # Use 64 cores (out of 288 available on GH200 node)
+#SBATCH --mem=128G           # Use 128GB RAM (out of 460GB available on node)
+#SBATCH --time=01:00:00
+# NOTE: GH200 node has 288 CPU cores and 460GB RAM total
+# Benchmark scoring is pure CPU/RAM intensive (numpy/pandas/sklearn)
+# No GPU needed for this step
+
+echo "============================================"
+echo "LOB Scoring started at: $(date)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Running on node: $(hostname)"
+echo "============================================"
+
+# Source conda
+source ~/miniforge3/etc/profile.d/conda.sh
+conda activate lob
+
+# Enable multi-threading for numpy/sklearn (use all allocated CPUs)
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export NUMEXPR_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+echo "[*] Using $SLURM_CPUS_PER_TASK CPU cores for parallel computation"
+
+# Generated data directory
+DATA_DIR="/lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/lob_bench/output/brisk-violet-111"
+
+echo "[*] Data Dir: $DATA_DIR"
+
+# Check if data exists
+if [ ! -d "$DATA_DIR/data_gen" ] || [ ! -d "$DATA_DIR/data_real" ]; then
+    echo "[ERROR] Generated data not found in $DATA_DIR"
+    exit 1
+fi
+
+echo "[*] Found generated data:"
+ls -lh "$DATA_DIR"/data_* | head -3
+
+cd /lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/lob_bench
+
+# Step 2: Run benchmark to calculate L1 and Wasserstein distance
+# NOTE: lob_bench expects data structure: {data_dir}/{model_name}/{stock}/{time_period}/
+# So we need to create a symlink structure
+
+BENCH_DATA_DIR="/lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/lob_bench/output"
+mkdir -p "$BENCH_DATA_DIR/s5/GOOG/2023"
+
+# Create symlinks if they don't exist
+if [ ! -L "$BENCH_DATA_DIR/s5/GOOG/2023/data_gen" ]; then
+    ln -sf "$DATA_DIR/data_gen" "$BENCH_DATA_DIR/s5/GOOG/2023/data_gen"
+    ln -sf "$DATA_DIR/data_real" "$BENCH_DATA_DIR/s5/GOOG/2023/data_real"
+    ln -sf "$DATA_DIR/data_cond" "$BENCH_DATA_DIR/s5/GOOG/2023/data_cond"
+fi
+
+echo "============================================"
+echo "[Step 2] Running benchmark scoring..."
+echo "============================================"
+
+$CONDA_PREFIX/bin/python -u run_bench.py \
+  --data_dir="$BENCH_DATA_DIR" \
+  --save_dir="$DATA_DIR/results" \
+  --model_name=s5 \
+  --stock=GOOG \
+  --time_period=2023
+
+BENCH_EXIT_CODE=$?
+
+if [ $BENCH_EXIT_CODE -ne 0 ]; then
+    echo "[ERROR] Benchmark failed with exit code $BENCH_EXIT_CODE"
+    exit $BENCH_EXIT_CODE
+fi
+
+echo "============================================"
+echo "[Step 2] Benchmark completed successfully"
+echo "Results saved to: $DATA_DIR/results"
+echo "============================================"
+
+# Step 3: Generate plots
+echo "============================================"
+echo "[Step 3] Generating plots..."
+echo "============================================"
+
+$CONDA_PREFIX/bin/python -u run_plotting.py \
+  --data_dir="$BENCH_DATA_DIR" \
+  --save_dir="$DATA_DIR/plots" \
+  --model_name=s5 \
+  --stock=GOOG \
+  --time_period=2023
+
+echo "============================================"
+echo "LOB Scoring completed at: $(date)"
+echo "============================================"
+echo "Results:"
+echo "  - Scores: $DATA_DIR/results/"
+echo "  - Plots:  $DATA_DIR/plots/"
+echo "============================================"

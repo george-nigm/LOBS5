@@ -28,9 +28,10 @@ from lob.lobster_dataloader import LOBSTER_Dataset
 
 
 # add git submodule to path to allow imports to work
-submodule_name = 'AlphaTrade'
+# Path to gymnax_exchange: /lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/AlphaTrade/gymnax_exchange
 (parent_folder_path, current_dir) = os.path.split(os.path.abspath(''))
-sys.path.append(os.path.join(parent_folder_path, submodule_name))
+(grandparent_folder_path, parent_dir) = os.path.split(parent_folder_path)
+sys.path.append(os.path.join(grandparent_folder_path, 'AlphaTrade'))
 from gymnax_exchange.jaxob.jorderbook import OrderBook, LobState
 import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 # from gym_exchange.environment.base_env.assets.action import OrderIdGenerator
