@@ -230,3 +230,7 @@ recommendations
 package-lock.json
 package.json
 .gitignore
+train_full_autoreg.batch
+lob/Untitled-**
+logs_55M/** 
+logs_lobs5/** 
