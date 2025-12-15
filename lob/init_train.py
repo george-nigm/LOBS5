@@ -109,9 +109,9 @@ def load_metadata(
     # load json path to dict
     with open(json_path, 'r') as f:
         metadata = json.load(f)
-    # Extract the actual parameters from the nested custom_metadata structure
-    if 'custom_metadata' in metadata:
-        return Namespace(**metadata['custom_metadata'])
+    # Extract the actual parameters from the nested custom structure
+    if 'custom' in metadata:
+        return Namespace(**metadata['custom'])
     else:
         return Namespace(**metadata)
 
