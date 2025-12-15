@@ -2,7 +2,7 @@
 #SBATCH --job-name=lobs5_autoreg
 #SBATCH --output=logs_lobs5/lobs5_%j.out
 #SBATCH --error=logs_lobs5/lobs5_%j.err
-#SBATCH --nodes=4
+#SBATCH --nodes=8
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
 #SBATCH --mem=0
