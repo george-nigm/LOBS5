@@ -304,6 +304,42 @@ def print_summary_table(all_scores):
     print(f"\n{'Average across all metrics:':<30} L1={avg_l1:.4f}  WD={avg_wd:.5f}")
     print()
 
+def create_comparison_plot(all_scores, output_dir):
+    """Create comparison plot with both s5-2512 and s5-2409 models"""
+
+    # Current model (s5-2512)
+    summary_stats_2512 = scoring.summary_stats(all_scores, bootstrap=True)
+
+    # Manual data for s5-2409 (GenS5/LOBS5)
+    # Format: {metric: [(mean, ci), (median, ci), (IQM, ci)]}
+    summary_stats_2409 = {
+        'l1': [
+            (0.139, np.array([0.139, 0.140])),  # mean
+            (0.128, np.array([0.126, 0.130])),  # median
+            (0.137, np.array([0.136, 0.138])),  # IQM
+        ],
+        'wasserstein': [
+            (0.115, np.array([0.114, 0.116])),  # mean
+            (0.077, np.array([0.076, 0.079])),  # median
+            (0.082, np.array([0.081, 0.084])),  # IQM
+        ]
+    }
+
+    # Organize for plotting
+    summary_stats_comp = {
+        'GOOG': {
+            's5-2512': summary_stats_2512,
+            's5-2409': summary_stats_2409
+        }
+    }
+
+    print("\n[*] Creating comparison plot (s5-2512 vs s5-2409)...")
+    custom_summary_plot(
+        summary_stats_comp,
+        save_path=str(output_dir / 'summary_stats_comp.png')
+    )
+    print(f"✅ Saved: {output_dir / 'summary_stats_comp.png'}")
+
 def main():
     print("🔍 Loading LOB benchmark results...")
     all_scores, all_dfs = collect_all_data()
@@ -324,6 +360,10 @@ def main():
     # Generate plots
     print("\n🎨 Creating visualizations...")
     plot_summary_and_comparison(all_scores, output_dir)
+
+    # Create comparison plot with both models
+    create_comparison_plot(all_scores, output_dir)
+
     plot_histograms(all_dfs, output_dir)
 
     print("\n" + "="*100)
