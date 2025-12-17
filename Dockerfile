@@ -49,7 +49,8 @@ RUN /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate mye
 # Install or upgrade jax and jaxlib after requirements installation
 RUN /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate myenv && \
     pip install --upgrade jax==0.4.26 && \
-    pip install --upgrade 'jaxlib==0.4.26+cuda12.cudnn89' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+    pip install --upgrade 'jaxlib==0.4.26+cuda12.cudnn89' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html && \
+    pip install transformers"
 
 
 # --------------------------------------------------------------------------#
@@ -240,8 +241,8 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 # docker run --rm --gpus '"device=2"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --name historical_scenario_run_quantile_fixing_buy_485_2 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u heuristic_historical_scenario_run_quantile_fixing.py"
 
 
-# cmt
-# docker run --rm --gpus '"device=0,1,2,3"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f -e PYTHONPATH=/app:/app/AlphaTrade --name georgenigm_exp_aggressive_buy_300_0_1_2_3 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_cst.py --config 1_run_exp_aggresive_scenario_cst"
+# cst
+# docker run --rm --gpus '"device=5"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f -e PYTHONPATH=/app:/app/AlphaTrade --name georgenigm_exp_aggressive_sell_485_5 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_cst.py --config 1_run_exp_aggresive_scenario_cst"
 
 # docker run --rm --gpus '"device=4,5,6,7"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f -e PYTHONPATH=/app:/app/AlphaTrade --name georgenigm_exp_aggressive_sell_300_4_5_6_7 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_cst.py --config 1_run_exp_aggresive_scenario_cst"
 
@@ -249,7 +250,7 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 
 # rwkv 
-# docker run --rm --gpus '"device=4"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f -e PYTHONPATH=/app:/app/AlphaTrade --name georgenigm_exp_aggressive_buy_75_4_rwkv georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_cst_rwkv.py --config 1_run_exp_aggressive_scenario_rwkv.yaml"
+# docker run --rm --gpus '"device=6"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f -e PYTHONPATH=/app:/app/AlphaTrade --name georgenigm_exp_aggressive_buy_75_7_rwkv georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_rwkv.py --config 1_run_exp_aggressive_scenario_whole_lvl_rwkv.yaml"
 
 # rwkv
 # docker run --rm --gpus '"device=0,1,2,3"' -v $(pwd):/app -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f -e PYTHONPATH=/app:/app/AlphaTrade --name georgenigm_exp_aggressive_rwkv_sell_0_1_2_3 georgenigm_docker conda run -n myenv /bin/bash -c "cd /app && python -u 1_run_exp_aggressive_scenario_whole_lvl_cst_rwkv.py --config 1_run_exp_aggressive_scenario_rwkv.yaml"

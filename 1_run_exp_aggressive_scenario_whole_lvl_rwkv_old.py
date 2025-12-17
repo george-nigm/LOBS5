@@ -226,6 +226,63 @@ def reconstruct_books_from_msgs(raw_msgs: jax.Array, tick_size: int, n_vol_serie
     return l2_books, b_seq
 
 
+def track_midprices_during_messages(
+        m_seq_raw_inp: jax.Array,
+        book_l2_init: jax.Array,
+        tick_size: int,
+        step_size: int,
+    ) -> jax.Array:
+    """
+    JIT‑friendly, loop‑free version that computes mid‑prices every
+    ``step_size`` messages using `jax.lax.scan`.
+
+    Args:
+        m_seq_raw_inp:  (batch, T, msg_dim) – raw decoded messages
+        book_l2_init:   (batch, book_dim) – initial L2 state of the orderbook
+        tick_size:      Tick size of the instrument
+        step_size:      Interval (in number of messages) between successive mid‑price samples
+
+    Returns
+    -------
+    midprices : jax.Array
+        Shape (num_steps, batch).  mid‑price after each `step_size` messages.
+    """
+    # Number of *complete* chunks of length `step_size`
+    num_steps = m_seq_raw_inp.shape[1] // step_size
+    if num_steps == 0:
+        # Return empty array with same dtype as midprices (int32 for prices)
+        return jnp.empty((0, m_seq_raw_inp.shape[0]), dtype=jnp.int32)
+
+    # Reshape messages into (num_steps, batch, step_size, msg_dim)
+    msgs = m_seq_raw_inp[:, : num_steps * step_size, :]
+    msgs = msgs.reshape(
+        m_seq_raw_inp.shape[0],          # batch
+        num_steps,
+        step_size,
+        m_seq_raw_inp.shape[2],          # msg_dim
+    )
+    msgs = jnp.swapaxes(msgs, 0, 1)      # → (num_steps, batch, step_size, msg_dim)
+
+    def scan_step(carry, msg_chunk):
+        # carry: current book L2 state  (batch, book_dim)
+        # book_dim = n_vol_series * 4, so n_levels = carry.shape[1] // 4
+        n_levels = carry.shape[1] // 4
+        sim_init, sim_states = inference.get_sims_vmap(carry, msg_chunk)
+        mid_price = inference.batched_get_safe_mid_price(
+            sim_init, sim_states, tick_size
+        )
+        # Extract fresh L2 state to feed next step
+        full_l2_state = jax.vmap(sim_init.get_L2_state, in_axes=(0, None))(
+            sim_states, n_levels
+        )
+        # keep only the leading slice so the carry's shape matches the input
+        new_l2_state = full_l2_state[:, : carry.shape[1]]
+        return new_l2_state, mid_price
+
+    _, midprices = lax.scan(scan_step, book_l2_init, msgs)  # (num_steps, batch)
+    return midprices
+
+
 def generate_rwkv_batch(
     tokenizer,
     RWKV,
@@ -319,26 +376,85 @@ def insert_custom_end(
     ):
     """Same insertion logic as CST script."""
     ORDER_ID_i = 77777777
-    base_l2 = l2_book_states_halved if len(l2_book_states_halved.shape) == 2 else l2_book_states_halved[:, -1]
+    # Get actual batch_size from msgs_decoded_doubled (define once at the start)
+    actual_batch_size = msgs_decoded_doubled.shape[0]
+    
+    # Ensure l2_book_states_halved has shape (batch, levels*4)
+    if len(l2_book_states_halved.shape) == 2:
+        base_l2 = l2_book_states_halved
+    elif len(l2_book_states_halved.shape) == 3:
+        base_l2 = l2_book_states_halved[:, -1]
+    else:
+        # Fallback: if shape is (levels*4,), expand to (batch_size, levels*4)
+        if len(l2_book_states_halved.shape) == 1:
+            base_l2 = jnp.broadcast_to(l2_book_states_halved[None, :], (actual_batch_size, l2_book_states_halved.shape[0]))
+        else:
+            raise ValueError(f"Unexpected l2_book_states_halved shape: {l2_book_states_halved.shape}")
+    
+    print(f"[DEBUG insert_custom_end] base_l2.shape before fix: {base_l2.shape}")
+    print(f"[DEBUG insert_custom_end] msgs_decoded_doubled.shape: {msgs_decoded_doubled.shape}")
+    print(f"[DEBUG insert_custom_end] actual_batch_size: {actual_batch_size}")
+    
+    # Ensure base_l2 has correct batch dimension matching msgs_decoded_doubled
+    if base_l2.shape[0] != actual_batch_size:
+        if base_l2.shape[0] == 1:
+            base_l2 = jnp.broadcast_to(base_l2, (actual_batch_size, base_l2.shape[1]))
+        else:
+            raise ValueError(f"base_l2 batch dimension mismatch: {base_l2.shape[0]} vs {actual_batch_size}")
+    
+    print(f"[DEBUG insert_custom_end] base_l2.shape after fix: {base_l2.shape}")
+    
     sim_init, sim_states_init = inference.get_sims_vmap(
         base_l2,
-        msgs_decoded_doubled[:, -1:]
+        msgs_decoded_doubled[:, -1:] if msgs_decoded_doubled.shape[1] > 0 else msgs_decoded_doubled
     )
+    print(f"[DEBUG insert_custom_end] sim_states_init type: {type(sim_states_init)}")
+    # Check if sim_states_init is a structured object (LobState)
+    if hasattr(sim_states_init, 'asks'):
+        print(f"[DEBUG insert_custom_end] sim_states_init.asks.shape: {sim_states_init.asks.shape}")
+        print(f"[DEBUG insert_custom_end] sim_states_init.bids.shape: {sim_states_init.bids.shape}")
+
+    # Define batch_size early for use in mid_price processing
+    batch_size = actual_batch_size
 
     if DIRECTION_i == 0:
         PRICE_i = jax.vmap(sim_init.get_best_ask)(sim_states_init)
     else:
         PRICE_i = jax.vmap(sim_init.get_best_bid)(sim_states_init)
 
-    PRICE_i   = jnp.expand_dims(PRICE_i, axis=-1)
-    mid_price = jnp.expand_dims(mid_price, axis=-1)
+    PRICE_i = jnp.expand_dims(PRICE_i, axis=-1)
+    
+    # Ensure mid_price has correct batch_size and shape
+    print(f"[DEBUG insert_custom_end] mid_price.shape before fix: {mid_price.shape}, batch_size: {batch_size}")
+    if len(mid_price.shape) == 1:
+        if mid_price.shape[0] == 1 and batch_size > 1:
+            # Broadcast from (1,) to (batch_size,)
+            mid_price = jnp.broadcast_to(mid_price, (batch_size,))
+        mid_price = jnp.expand_dims(mid_price, axis=-1)
+    elif len(mid_price.shape) == 2:
+        if mid_price.shape[0] == 1 and batch_size > 1:
+            # Broadcast from (1, 1) to (batch_size, 1)
+            mid_price = jnp.broadcast_to(mid_price, (batch_size, mid_price.shape[1]))
+        elif mid_price.shape[1] == 1:
+            # Already has (batch, 1) shape, keep as is
+            pass
+        else:
+            # Reshape if needed
+            mid_price = mid_price[:, None] if mid_price.shape[0] == batch_size else mid_price
+    else:
+        # Already has correct shape or needs expansion
+        if len(mid_price.shape) == 0:
+            mid_price = jnp.broadcast_to(jnp.array([mid_price]), (batch_size, 1))
+    
+    print(f"[DEBUG insert_custom_end] mid_price.shape after fix: {mid_price.shape}")
 
-    TIMEs_i  = msgs_decoded_doubled[:, -1:, 8].astype(jnp.int32)
-    TIMEns_i = msgs_decoded_doubled[:, -1:, 9].astype(jnp.int32)
-    if TIMEs_i.shape[1] == 0:
-        TIMEs_i = jnp.zeros((msgs_decoded_doubled.shape[0], 1, ), dtype=jnp.int32)
-        TIMEns_i = jnp.zeros((msgs_decoded_doubled.shape[0], 1, ), dtype=jnp.int32)
-    batch_size = TIMEns_i.shape[0]
+    # Get time info - handle case when there are no messages
+    if msgs_decoded_doubled.shape[1] > 0:
+        TIMEs_i  = msgs_decoded_doubled[:, -1:, 8].astype(jnp.int32)
+        TIMEns_i = msgs_decoded_doubled[:, -1:, 9].astype(jnp.int32)
+    else:
+        TIMEs_i = jnp.zeros((batch_size, 1), dtype=jnp.int32)
+        TIMEns_i = jnp.zeros((batch_size, 1), dtype=jnp.int32)
 
     best_bid_ask = jax.vmap(sim_init.get_best_bid_and_ask_inclQuants)(sim_states_init)
 
@@ -374,13 +490,42 @@ def insert_custom_end(
         batched_time_ns,
     )
 
+    print(f"[DEBUG insert_custom_end] batched_sim_msg.shape: {batched_sim_msg.shape}")
     new_sim_state = jax.vmap(sim_init.process_order_array)(sim_states_init, batched_sim_msg)
+    print(f"[DEBUG insert_custom_end] new_sim_state type: {type(new_sim_state)}")
+    if hasattr(new_sim_state, 'asks'):
+        print(f"[DEBUG insert_custom_end] new_sim_state.asks.shape: {new_sim_state.asks.shape}")
+        print(f"[DEBUG insert_custom_end] new_sim_state.bids.shape: {new_sim_state.bids.shape}")
     p_mid_new = inference.batched_get_safe_mid_price(sim_init, new_sim_state, tick_size)
+    print(f"[DEBUG insert_custom_end] p_mid_new.shape: {p_mid_new.shape}")
     p_mid_new = p_mid_new[:, None]
     p_change = ((p_mid_new - mid_price) // tick_size).astype(jnp.int32)
 
     current_levels = l2_book_states_halved.shape[-1] // 4
+    # Debug: check shapes
+    print(f"[DEBUG insert_custom_end] batch_size: {batch_size}")
+    print(f"[DEBUG insert_custom_end] current_levels: {current_levels}")
+    print(f"[DEBUG insert_custom_end] l2_book_states_halved.shape: {l2_book_states_halved.shape}")
+    print(f"[DEBUG insert_custom_end] p_change.shape: {p_change.shape}")
+    
+    # Get L2 state - ensure it's properly batched
     book_l2 = jax.vmap(sim_init.get_L2_state, in_axes=(0, None))(new_sim_state, current_levels)
+    print(f"[DEBUG insert_custom_end] book_l2.shape before fix: {book_l2.shape}")
+    print(f"[DEBUG insert_custom_end] batch_size: {batch_size}, p_change.shape: {p_change.shape}")
+    
+    # Ensure book_l2 has correct shape (batch, levels*4) matching p_change
+    if book_l2.shape[0] != batch_size:
+        if book_l2.shape[0] == 1:
+            # Broadcast from (1, levels*4) to (batch_size, levels*4)
+            book_l2 = jnp.broadcast_to(book_l2, (batch_size, book_l2.shape[1]))
+        elif len(book_l2.shape) == 1:
+            # If somehow we got (levels*4,), reshape to (batch_size, levels*4)
+            book_l2 = jnp.broadcast_to(book_l2[None, :], (batch_size, book_l2.shape[0]))
+        else:
+            raise ValueError(f"book_l2 has unexpected shape: {book_l2.shape}, expected batch_size={batch_size}")
+    
+    print(f"[DEBUG insert_custom_end] book_l2.shape after fix: {book_l2.shape}")
+    
     new_l2_book_states_halved = book_l2  # keep as (batch, levels)
     new_book_raw = jnp.concatenate([p_change, book_l2], axis=1)
     new_book_raw = new_book_raw[:, None, :]
@@ -498,10 +643,12 @@ def run_generation_scenario(
     for batch_i in tqdm(sample_i):
         print('BATCH', batch_i)
         proc_msgs_numb = -n_msgs
+        midprices = []  # Initialize midprices list once per batch, accumulate across iterations
 
         for iteration in range(1, num_iterations+1):
             print('\nITERATION ', iteration)
-            midprices = []
+            # Initialize prev_iter_final_l2 for tracking on subsequent iterations
+            prev_iter_final_l2 = None
 
             if iteration == 1:
                 if ds is not None:
@@ -514,11 +661,45 @@ def run_generation_scenario(
 
                     m_seq_inp = m_seq[:, : seq_len]
                     b_seq_inp = b_seq[: , : n_msgs]
-                    m_seq_raw_inp = msg_seq_raw[:, : n_msgs]
+                    # For context generation, use only n_msgs (50)
+                    m_seq_raw_inp_context = msg_seq_raw[:, : n_msgs]
+                    # For tracking midprices, use ALL historical messages (500)
+                    # msg_seq_raw contains all historical messages from dataset
+                    m_seq_raw_inp_full = msg_seq_raw  # Use all historical messages
 
-                    sim_init, sim_states_init = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp)
+                    sim_init, sim_states_init = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp_context)
 
-                    context_str = encode_context_from_msgs(m_seq_raw_inp, n_msgs)
+                    context_str = encode_context_from_msgs(m_seq_raw_inp_context, n_msgs)
+                    
+                    # Track midprices from ALL initial messages (historical) - use full sequence
+                    print(f"[DEBUG] Tracking midprices from full historical sequence: m_seq_raw_inp_full.shape = {m_seq_raw_inp_full.shape}")
+                    midprices_batch = track_midprices_during_messages(
+                        m_seq_raw_inp_full,
+                        book_l2_init,
+                        tick_size,
+                        midprice_step_size,
+                    )
+                    # Convert to list and add to midprices (accumulate across iterations)
+                    # midprices_batch has shape (num_steps, batch), convert to list of arrays
+                    print(f"[DEBUG] Historical midprices_batch.shape = {midprices_batch.shape}")
+                    print(f"[DEBUG] Historical m_seq_raw_inp_full.shape = {m_seq_raw_inp_full.shape}")
+                    print(f"[DEBUG] Historical m_seq_raw_inp_context.shape = {m_seq_raw_inp_context.shape} (for context only)")
+                    midprices.extend([midprices_batch[i] for i in range(midprices_batch.shape[0])])
+                    proc_msgs_numb += m_seq_raw_inp_full.shape[1]  # Use full sequence length
+                    print(f"[DEBUG] After historical messages: midprices length = {len(midprices)}")
+                    print(f"[DEBUG] Expected historical steps: {m_seq_raw_inp_full.shape[1] // midprice_step_size}")
+                    
+                    # Get final L2 state after ALL historical messages for tracking generated messages
+                    # This will be used as init_l2_for_tracking after generation
+                    if m_seq_raw_inp_full.shape[1] > 0:
+                        # Get final state after processing all historical messages (500)
+                        sim_init_hist, sim_states_hist = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp_full)
+                        final_l2_after_hist = jax.vmap(sim_init_hist.get_L2_state, in_axes=(0, None))(
+                            sim_states_hist, book_l2_init.shape[1] // 4
+                        )
+                        final_l2_after_hist = final_l2_after_hist[:, : book_l2_init.shape[1]]
+                    else:
+                        final_l2_after_hist = book_l2_init
                 else:
                     # fallback: empty context and zero L2 state
                     m_seq_inp = jnp.zeros((batch_size, 0), dtype=jnp.int32)
@@ -527,6 +708,9 @@ def run_generation_scenario(
                     book_l2_init = jnp.zeros((batch_size, n_vol_series * 4), dtype=jnp.int32)
                     sim_init, sim_states_init = inference.get_sims_vmap(book_l2_init, m_seq_raw_inp)
                     context_str = ""
+                    # Initialize final_l2_after_hist for fallback case
+                    final_l2_after_hist = book_l2_init
+                    # No historical midprices in fallback case (midprices already initialized as [] above)
             else:
                 # Use previous iteration's generated data
                 m_seq_inp = m_seq_gen_doubled
@@ -543,6 +727,8 @@ def run_generation_scenario(
                     last_l2,
                     m_seq_raw_inp[:, -1:]
                 )
+                # Store last_l2 for use as init_l2_for_tracking after generation
+                prev_iter_final_l2 = last_l2
 
             # Generate using RWKV
             print("Generating with RWKV model...")
@@ -556,6 +742,20 @@ def run_generation_scenario(
 
             # Reconstruct L2 and book sequences from generated messages
             l2_book_states, b_seq_gen = reconstruct_books_from_msgs(msgs_decoded, tick_size, n_vol_series)
+
+            # Expand to batch_size if needed (generate_rwkv_batch returns batch_size=1)
+            if m_seq_gen.shape[0] == 1 and batch_size > 1:
+                # Broadcast to batch_size
+                m_seq_gen = jnp.broadcast_to(m_seq_gen, (batch_size, m_seq_gen.shape[1]))
+            if b_seq_gen.shape[0] == 1 and batch_size > 1:
+                b_seq_gen = jnp.broadcast_to(b_seq_gen, (batch_size, b_seq_gen.shape[1], b_seq_gen.shape[2]))
+            if msgs_decoded.shape[0] == 1 and batch_size > 1:
+                msgs_decoded = jnp.broadcast_to(msgs_decoded, (batch_size, msgs_decoded.shape[1], msgs_decoded.shape[2]))
+            if l2_book_states.shape[0] == 1 and batch_size > 1:
+                if len(l2_book_states.shape) == 3:
+                    l2_book_states = jnp.broadcast_to(l2_book_states, (batch_size, l2_book_states.shape[1], l2_book_states.shape[2]))
+                elif len(l2_book_states.shape) == 2:
+                    l2_book_states = jnp.broadcast_to(l2_book_states, (batch_size, l2_book_states.shape[1]))
 
             m_seq_gen_doubled = m_seq_gen
             b_seq_gen_doubled = b_seq_gen
@@ -571,33 +771,63 @@ def run_generation_scenario(
             print(f'\n\nsuccessfully generated iteration no. {iteration}')
 
             # Track midprices on the fly via simulator
-            if len(l2_book_states.shape) == 3 and l2_book_states.shape[1] > 0:
-                init_l2_for_tracking = l2_book_states[:, 0, : gen_levels * 4]
-            elif len(l2_book_states.shape) == 3 and l2_book_states.shape[1] == 0:
-                init_l2_for_tracking = jnp.zeros((l2_book_states.shape[0], gen_levels * 4), dtype=jnp.int32)
+            # On first iteration, use final state after historical messages
+            # On subsequent iterations, use last state from previous iteration (from l2_book_states_halved)
+            if iteration == 1:
+                if ds is not None:
+                    # Use final state after historical messages (already computed above)
+                    init_l2_for_tracking = final_l2_after_hist
+                else:
+                    # Fallback: use first state from generated books
+                    if len(l2_book_states.shape) == 3 and l2_book_states.shape[1] > 0:
+                        init_l2_for_tracking = l2_book_states[:, 0, : gen_levels * 4]
+                    elif len(l2_book_states.shape) == 3 and l2_book_states.shape[1] == 0:
+                        init_l2_for_tracking = jnp.zeros((l2_book_states.shape[0], gen_levels * 4), dtype=jnp.int32)
+                    else:
+                        init_l2_for_tracking = l2_book_states[0]
             else:
-                init_l2_for_tracking = l2_book_states[0]
-            midprices_batch = jnp.array([])
-            try:
-                def _track(m_seq_raw_inp_local, book_l2_init_local):
-                    sim_init_local, sim_states_local = inference.get_sims_vmap(book_l2_init_local, m_seq_raw_inp_local)
-                    return inference.batched_get_safe_mid_price(sim_init_local, sim_states_local, tick_size)
-                midprices_batch = _track(msgs_decoded_doubled[:, -1:], init_l2_for_tracking[None, :] if len(init_l2_for_tracking.shape) == 1 else init_l2_for_tracking)
-            except Exception:
-                pass
-            if midprices_batch.size:
-                midprices.append(midprices_batch)
-            proc_msgs_numb += msgs_decoded_doubled.shape[1]
+                # On subsequent iterations, use last state from previous iteration
+                # This is stored in prev_iter_final_l2 (computed above before generation)
+                if prev_iter_final_l2 is not None:
+                    init_l2_for_tracking = prev_iter_final_l2
+                else:
+                    # Fallback: use first state from current generated books
+                    if len(l2_book_states.shape) == 3 and l2_book_states.shape[1] > 0:
+                        init_l2_for_tracking = l2_book_states[:, 0, : gen_levels * 4]
+                    elif len(l2_book_states.shape) == 3 and l2_book_states.shape[1] == 0:
+                        init_l2_for_tracking = jnp.zeros((l2_book_states.shape[0], gen_levels * 4), dtype=jnp.int32)
+                    else:
+                        init_l2_for_tracking = l2_book_states[0]
+            
+            # Track midprices for all generated messages using step_size
+            print(f"[DEBUG] Before tracking: msgs_decoded_doubled.shape = {msgs_decoded_doubled.shape}, init_l2_for_tracking.shape = {init_l2_for_tracking.shape}")
+            if msgs_decoded_doubled.shape[1] > 0:
+                midprices_batch = track_midprices_during_messages(
+                    msgs_decoded_doubled,
+                    init_l2_for_tracking,
+                    tick_size,
+                    midprice_step_size,
+                )
+                print(f"[DEBUG] midprices_batch.shape = {midprices_batch.shape}")
+                # Convert to list and extend midprices list (accumulate across iterations)
+                # midprices_batch has shape (num_steps, batch), convert to list of arrays
+                midprices.extend([midprices_batch[i] for i in range(midprices_batch.shape[0])])
+                proc_msgs_numb += msgs_decoded_doubled.shape[1]
+            else:
+                print(f"[DEBUG] No messages to track midprices for (msgs_decoded_doubled.shape[1] = 0)")
+            print(f"[DEBUG] After iteration {iteration} generation: midprices length = {len(midprices)}")
 
             if iteration <= num_insertions:
                 print(">> INSERTING CUSTOM ORDER")
+                # Use last midprice if available, otherwise use zeros
+                last_midprice = midprices[-1] if len(midprices) > 0 else jnp.zeros((batch_size,), dtype=jnp.int32)
                 m_seq_gen_doubled, b_seq_gen_doubled, msgs_decoded_doubled, l2_book_states_halved, p_mid_new = insert_custom_end(
                     m_seq_gen_doubled,
                     b_seq_gen_doubled,
                     msgs_decoded_doubled,
                     l2_book_states_halved,
                     encoder,
-                    midprices[-1] if len(midprices) else jnp.array([0], dtype=jnp.int32),
+                    last_midprice,
                     tick_size,
                     EVENT_TYPE_i,
                     DIRECTION_i,
@@ -605,21 +835,49 @@ def run_generation_scenario(
                     use_relative_volume,
                     order_volume_ratio,
                 )
+                # Add the new midprice after insertion
+                midprices.append(jnp.squeeze(p_mid_new, axis=-1) if len(p_mid_new.shape) > 1 else p_mid_new)
                 proc_msgs_numb += 1
+                print(f"[DEBUG] After insertion: midprices length = {len(midprices)}")
 
             # Save artifacts
             m_seq_np = np.array(jax.device_get(m_seq_gen_doubled))
             b_seq_np = np.array(jax.device_get(b_seq_gen_doubled))
             msgs_decoded_np = np.array(jax.device_get(msgs_decoded_doubled))
             l2_book_states_np = np.array(jax.device_get(l2_book_states_halved))
-            # mid-price: try to stack, else fall back to empty
+            # mid-price: convert list of arrays to numpy array
+            # midprices is a list of arrays, each with shape (batch,)
+            # np.array(midprices) will create shape (len(midprices), batch)
             try:
                 if len(midprices) > 0:
-                    mid_price_np = np.concatenate([np.array(jax.device_get(mp)) for mp in midprices], axis=0)
+                    # Convert each JAX array to numpy and stack
+                    print(f"[DEBUG] Before saving: len(midprices) = {len(midprices)}")
+                    midprices_np_list = [np.array(jax.device_get(mp)) for mp in midprices]
+                    print(f"[DEBUG] After conversion: len(midprices_np_list) = {len(midprices_np_list)}")
+                    mid_price_np = np.array(midprices_np_list)  # Shape: (num_steps, batch)
+                    print(f"[DEBUG] Final mid_price_np.shape = {mid_price_np.shape}")
                 else:
-                    mid_price_np = np.zeros((0,), dtype=np.int32)
-            except Exception:
-                mid_price_np = np.zeros((0,), dtype=np.int32)
+                    mid_price_np = np.zeros((0, batch_size), dtype=np.int32)
+            except Exception as e:
+                print(f"Error saving midprices: {e}")
+                import traceback
+                traceback.print_exc()
+                mid_price_np = np.zeros((0, batch_size), dtype=np.int32)
+
+            # Print shapes for verification
+            print(f"\n[SAVE] Saving artifacts for batch {batch_i}, iteration {iteration}:")
+            print(f"  msgs_decoded_np.shape: {msgs_decoded_np.shape}")
+            print(f"  b_seq_np.shape: {b_seq_np.shape}")
+            print(f"  l2_book_states_np.shape: {l2_book_states_np.shape}")
+            print(f"  mid_price_np.shape: {mid_price_np.shape}")
+            print(f"  mid_price_np.ndim: {mid_price_np.ndim}")
+            print(f"  Total midprices accumulated so far: {len(midprices)}")
+            if msgs_decoded_np.size > 0:
+                print(f"  msgs_decoded_np sample (first msg, first batch): {msgs_decoded_np[0, 0, :]}")
+            if b_seq_np.size > 0:
+                print(f"  b_seq_np sample (first book, first batch): {b_seq_np[0, 0, :10]}...")
+            if mid_price_np.size > 0:
+                print(f"  mid_price_np sample (first few): {mid_price_np[:min(3, mid_price_np.shape[0]), 0]}")
 
             np.save(os.path.join(base_save_folder, 'msgs_decoded_doubled', f'msgs_decoded_doubled_batch_{batch_i}_iter_{iteration}.npy'), msgs_decoded_np)
             np.save(os.path.join(base_save_folder, 'b_seq_gen_doubled', f'b_seq_gen_doubled_batch_{batch_i}_iter_{iteration}.npy'), b_seq_np)

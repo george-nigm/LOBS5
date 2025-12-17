@@ -372,21 +372,21 @@ def run_historical_scenario(
             # Consume next historical message
             if original_idx < msg_seq_raw.shape[1]:
                 msg = msg_seq_raw[:, original_idx : original_idx + 1, :]
-                # shift_ticks_array = jnp.array(shift_ticks)
-                # msg = shift_sell_prices(
-                #     msg,
-                #     tick_size * shift_ticks_array,
-                #     PRICE_ABS_i=3,
-                #     DIRECTION_i=DIRECTION_i,
-                #     EVENT_TYPE_i=1,
-                # )
-                # msg = shift_buy_prices(
-                #     msg,
-                #     tick_size * shift_ticks_array,
-                #     PRICE_ABS_i=3,
-                #     DIRECTION_i=DIRECTION_i,
-                #     EVENT_TYPE_i=1,
-                # )
+                shift_ticks_array = jnp.array(shift_ticks)
+                msg = shift_sell_prices(
+                    msg,
+                    tick_size * shift_ticks_array,
+                    PRICE_ABS_i=3,
+                    DIRECTION_i=DIRECTION_i,
+                    EVENT_TYPE_i=1,
+                )
+                msg = shift_buy_prices(
+                    msg,
+                    tick_size * shift_ticks_array,
+                    PRICE_ABS_i=3,
+                    DIRECTION_i=DIRECTION_i,
+                    EVENT_TYPE_i=1,
+                )
 
                 sim_init_hist, sim_state_hist = inference.get_sims_vmap(current_book, msg)
                 mid_price_hist = inference.batched_get_safe_mid_price(sim_init_hist, sim_state_hist, tick_size)
