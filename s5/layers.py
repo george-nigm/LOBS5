@@ -1,5 +1,6 @@
 from flax import linen as nn
 import jax
+from typing import Any
 
 
 class SequenceLayer(nn.Module):
@@ -28,23 +29,27 @@ class SequenceLayer(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.90
     step_rescale: float = 1.0
+    dtype: Any = jax.numpy.float32
 
     def setup(self):
         """Initializes the ssm, batch/layer norm and dropout
         """
         self.seq = self.ssm(step_rescale=self.step_rescale)
 
+        # GPT-style initialization for Dense layers
+        # gpt_init = nn.initializers.normal(stddev=0.02)
+
         if self.activation in ["full_glu"]:
-            self.out1 = nn.Dense(self.d_model)
-            self.out2 = nn.Dense(self.d_model)
+            self.out1 = nn.Dense(self.d_model, dtype=self.dtype)
+            self.out2 = nn.Dense(self.d_model, dtype=self.dtype)
         elif self.activation in ["half_glu1", "half_glu2"]:
-            self.out2 = nn.Dense(self.d_model)
+            self.out2 = nn.Dense(self.d_model, dtype=self.dtype)
 
         if self.batchnorm:
             self.norm = nn.BatchNorm(use_running_average=not self.training,
                                      momentum=self.bn_momentum, axis_name='batch')
         else:
-            self.norm = nn.LayerNorm()
+            self.norm = nn.LayerNorm(dtype=self.dtype)
 
         self.drop = nn.Dropout(
             self.dropout,

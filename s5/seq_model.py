@@ -1,6 +1,8 @@
+import os
 import jax
 import jax.numpy as np
 from flax import linen as nn
+from typing import Any
 from .layers import SequenceLayer
 
 
@@ -33,17 +35,28 @@ class StackedEncoderModel(nn.Module):
     step_rescale: float = 1.0
     use_embed_layer: bool = False
     vocab_size: int = -1  # only used if use_encode_layer is True
+    dtype: Any = None  # None means use default (controlled by USE_BF16 env var)
 
     def setup(self):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        if self.use_embed_layer:
-            self.encoder = nn.Embed(self.vocab_size, self.d_model)
+        # Determine compute dtype
+        if self.dtype is None:
+            use_bf16 = os.environ.get('USE_BF16', '1') == '1'
+            compute_dtype = np.bfloat16 if use_bf16 else np.float32
         else:
-            self.encoder = nn.Dense(self.d_model)
+            compute_dtype = self.dtype
 
-        #NOTE:  popjaxrl S5 doesn't have an encoding layer, tbd if this makes a differnce. 
+        # GPT-style initialization for encoder
+        # gpt_init = nn.initializers.normal(stddev=0.02)
+
+        if self.use_embed_layer:
+            self.encoder = nn.Embed(self.vocab_size, self.d_model, dtype=compute_dtype)
+        else:
+            self.encoder = nn.Dense(self.d_model, dtype=compute_dtype)
+
+        #NOTE:  popjaxrl S5 doesn't have an encoding layer, tbd if this makes a differnce.
 
         self.layers = [
             SequenceLayer(
@@ -56,6 +69,7 @@ class StackedEncoderModel(nn.Module):
                 batchnorm=self.batchnorm,
                 bn_momentum=self.bn_momentum,
                 step_rescale=self.step_rescale,
+                dtype=compute_dtype,
             )
             for _ in range(self.n_layers)
         ]

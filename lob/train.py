@@ -108,6 +108,24 @@ def train(args):
             print_shapes=True
         )
 
+        # Log BF16 status
+        import os
+        use_bf16 = os.environ.get('USE_BF16', '1') == '1'
+        print(f"[*] Training precision: {'BF16 (mixed)' if use_bf16 else 'FP32'}")
+        if use_bf16:
+            print("[*] BF16 Mixed Precision enabled:")
+            print("    - Compute: BF16")
+            print("    - Parameters: BF16 (except Lambda/D/log_step)")
+            print("    - Optimizer states: FP32")
+            print("    - Decoder: FP32 (for numerical stability)")
+
+        # Log to WandB
+        if args.USE_WANDB:
+            wandb.log({
+                "use_bf16": use_bf16,
+                "precision_mode": "bf16_mixed" if use_bf16 else "fp32",
+            })
+
         if args.restore is not None and args.restore != '':
             print(f"[*] Restoring weights from {args.restore}")
             ckpt = load_checkpoint(

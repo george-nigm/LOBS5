@@ -179,9 +179,13 @@ if __name__ == "__main__":
 				help="Runs the training loop in overfit mode on a single batch of data. Validation and testing are from the same set. ")
 	parser.add_argument("--log_ce_tables", type=str2bool, default=False,
 				help="Logs the CE values on a per token level to wandb. Memory intensive.")
-	
+	parser.add_argument("--use_bf16", type=str2bool, default=True,
+				help="Use BF16 mixed precision training")
+
 	args = parser.parse_args()
 
+	# Set BF16 environment variable based on command-line argument
+	os.environ['USE_BF16'] = '1' if args.use_bf16 else '0'
 
 	import torch
 	torch.multiprocessing.set_start_method('spawn')
