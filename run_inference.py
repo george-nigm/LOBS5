@@ -222,8 +222,10 @@ if __name__ == "__main__":
 
 
 
-    n_samples = 2048 * 4
-    batch_size = 2048 * 2 
+    # Adjust n_samples to not exceed dataset size
+    batch_size = 2048
+    n_samples = min(2048 * 4, (len(ds) // batch_size) * batch_size)
+    print(f"Dataset size: {len(ds)}, using n_samples: {n_samples}, batch_size: {batch_size}") 
 
     # m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = inference.sample_new(
     # saves data to disk

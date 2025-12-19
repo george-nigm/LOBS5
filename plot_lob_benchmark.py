@@ -304,8 +304,36 @@ def print_summary_table(all_scores):
     print(f"\n{'Average across all metrics:':<30} L1={avg_l1:.4f}  WD={avg_wd:.5f}")
     print()
 
+def load_bf16_scores():
+    """Load scores for bf16 model (dandy-aardvark-138) if available"""
+    bf16_results_dir = Path('/lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/lob_bench/output/dandy-aardvark-138/results')
+
+    if not bf16_results_dir.exists():
+        return None
+
+    all_scores_bf16 = {}
+    for metric in ALL_METRICS:
+        metric_dir = bf16_results_dir / metric / 'scores'
+        if not metric_dir.exists():
+            continue
+        pkl_files = sorted(list(metric_dir.glob('*.pkl')))
+        if not pkl_files:
+            continue
+        try:
+            with gzip.open(pkl_files[-1], 'rb') as f:
+                data = pickle.load(f)
+            actual_key = list(data[0].keys())[0]
+            all_scores_bf16[metric] = data[0][actual_key]
+        except Exception as e:
+            print(f"Warning: Could not load bf16 {metric}: {e}")
+            continue
+
+    if len(all_scores_bf16) < 10:  # Need at least 10 metrics for meaningful comparison
+        return None
+    return all_scores_bf16
+
 def create_comparison_plot(all_scores, output_dir):
-    """Create comparison plot with both s5-2512 and s5-2409 models"""
+    """Create comparison plot with s5-2512, s5-2409, and optionally s5-2512-bf16 models"""
 
     # Current model (s5-2512)
     summary_stats_2512 = scoring.summary_stats(all_scores, bootstrap=True)
@@ -325,6 +353,9 @@ def create_comparison_plot(all_scores, output_dir):
         ]
     }
 
+    # Try to load bf16 model results
+    all_scores_bf16 = load_bf16_scores()
+
     # Organize for plotting
     summary_stats_comp = {
         'GOOG': {
@@ -333,7 +364,15 @@ def create_comparison_plot(all_scores, output_dir):
         }
     }
 
-    print("\n[*] Creating comparison plot (s5-2512 vs s5-2409)...")
+    # Add bf16 if available
+    if all_scores_bf16 is not None:
+        summary_stats_bf16 = scoring.summary_stats(all_scores_bf16, bootstrap=True)
+        summary_stats_comp['GOOG']['s5-2512-bf16'] = summary_stats_bf16
+        print("\n[*] Creating 3-model comparison plot (s5-2512 vs s5-2409 vs s5-2512-bf16)...")
+    else:
+        print("\n[*] Creating 2-model comparison plot (s5-2512 vs s5-2409)...")
+        print("    (bf16 model results not yet available)")
+
     custom_summary_plot(
         summary_stats_comp,
         save_path=str(output_dir / 'summary_stats_comp.png')

@@ -84,6 +84,7 @@ def train(args):
             use_simple_book=args.use_simple_book,
             book_transform=args.book_transform,
             book_depth=args.book_depth,
+            token_mode=args.token_mode,
             test_dir_name=args.test_dir_name,
             n_data_workers=args.n_data_workers,
             shuffle_train=args.shuffle_train,
