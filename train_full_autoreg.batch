@@ -144,7 +144,8 @@ python -u -B run_train.py \
     --shuffle_train=True \
     --debug_overfit=False \
     --lr_patience=2 \
-    --use_bf16=False \
+    --use_bf16=True \
+    --token_mode=24 \
 '
     # --restore=/lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/LOBS5/checkpoints/likely-aardvark-15_p4k79dtn \
     # --restore_step=6
