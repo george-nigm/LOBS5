@@ -372,9 +372,9 @@ def process_book(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/homes/80/kang/GOOG_2017/',
+    parser.add_argument("--data_dir", type=str, default='/home/myuser/data/rawLOBSTER/GOOG/2022/',
 		     			help="where to load data from")
-    parser.add_argument("--save_dir", type=str, default='/homes/80/kang/LOBS5/proced_data/GOOG20172018/',
+    parser.add_argument("--save_dir", type=str, default='/home/myuser/data/processed_data/GOOG/2022/',
 		     			help="where to save processed data")
     parser.add_argument("--filter_above_lvl", type=int,
                         help="filters down from levels present in the data to specified number of price levels")

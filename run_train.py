@@ -144,7 +144,7 @@ if __name__ == "__main__":
 						help="epoch to end linear warmup")
 	parser.add_argument("--lr_patience", type=int, default=1000000,
 						help="patience before decaying learning rate for lr_decay_on_val_plateau")
-	parser.add_argument("--reduce_factor", type=float, default=0.8,
+	parser.add_argument("--reduce_factor", type=float, default=0.9,
 						help="factor to decay learning rate for lr_decay_on_val_plateau")
 	parser.add_argument("--p_dropout", type=float, default=0.0,
 						help="probability of dropout")
