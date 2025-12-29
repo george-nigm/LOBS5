@@ -207,3 +207,6 @@ eval_local/*
 
 benchmark_local/*
 jax-traces/*
+lobs5_wandb_curves/*
+output_figures/*
+artifacts/*

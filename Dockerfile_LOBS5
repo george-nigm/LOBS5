@@ -1,3 +1,4 @@
+#FROM nvcr.io/nvidia/k8s/container-toolkit:v1.19.0-rc.1
 FROM nvcr.io/nvidia/jax:25.01-py3
 
 # Create user
@@ -34,7 +35,11 @@ RUN ls -l && cat requirements.txt
 RUN python3 -m pip install --upgrade pip
 #jaxmarl from source if needed, all the requirements
 # RUN pip install -e .[algs,dev]
-RUN pip install -r requirements.txt
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
+RUN pip uninstall -y jax jaxlib jax-plugins jax-cuda12-pjrt jax-cuda12-plugin nvidia-cusparse nvidia-cusolver nvidia-cufft nvidia-nccl-cu12 
+RUN pip install -U "jax[cuda13]==0.7.2" "jaxlib[cuda13]==0.7.2" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+RUN pip install -r requirements.txt 
 
 
 RUN wget https://go.dev/dl/go1.24.5.linux-amd64.tar.gz
@@ -48,7 +53,7 @@ USER ${MYUSER}
 #disabling preallocation
 RUN export XLA_PYTHON_CLIENT_PREALLOCATE=false
 #safety measures
-RUN export XLA_PYTHON_CLIENT_MEM_FRACTION=0.25 
+RUN export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
 RUN export TF_FORCE_GPU_ALLOW_GROWTH=true
 
 # Add .local/bin to PATH

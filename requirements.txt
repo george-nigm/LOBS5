@@ -7,10 +7,10 @@ scikit-learn
 statsmodels
 
 # JAX (Updated versions that are compatible)
-jax[cuda12]==0.6.1
-jax-cuda12-pjrt==0.6.1
-jax-cuda12-plugin==0.6.1
-jaxlib==0.6.1
+#jax[cuda13]==0.7.2
+#jax-cuda13-pjrt==0.7.2
+#jax-cuda13-plugin==0.7.2
+#jaxlib==0.7.2
 jaxopt==0.8.5
 optax
 flax
@@ -19,9 +19,6 @@ dm-tree
 ml-dtypes
 
 # Deep Learning
-torch
-torchvision
-torchaudio
 tensorflow-probability
 
 # RL and Environment Libraries
@@ -85,7 +82,7 @@ PyOpenGL
 distrax
 evosax
 ml-collections
-orbax-checkpoint==0.11.14
+orbax-checkpoint==0.11.18
 ray
 xgboost
 

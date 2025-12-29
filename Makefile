@@ -1,7 +1,7 @@
 NVCC_RESULT := $(shell which nvcc 2> NULL; rm NULL)
 NVCC_TEST := $(notdir $(NVCC_RESULT))
 ifeq ($(NVCC_TEST),nvcc)
-GPUS=--gpus '"device=6,7"'
+GPUS=--gpus '"device=7"'
 else
 GPUS=
 endif
@@ -59,7 +59,7 @@ inference:
 	$(DOCKER_RUN_BASIC) /bin/bash -c "python3 ./run_inference.py --stock AMZN --checkpoint_step 37 --test_split 1"
 
 eval:
-	$(DOCKER_RUN_BASIC) /bin/bash -c "python3 ./run_eval.py"
+	$(DOCKER_RUN_BASIC) /bin/bash -c "sh bin/eval_bash/eval_local.sh"
 
 benchmark:
 	$(DOCKER_RUN_BASIC) /bin/bash -c "python3 lob_bench/run_bench.py --stock AMZN --model_version ruby-aardvark --data_dir ./eval_local --save_dir ./benchmark_local/"
