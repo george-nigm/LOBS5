@@ -2,7 +2,8 @@ import os
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    pass
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ""
 else:
     # Forces all generated worker processes to not run on GPU.
     #  Required at this high level, because the init func in the 
@@ -86,7 +87,12 @@ def eval(eval_args):
             n_data_workers=args.n_data_workers,
             shuffle_train=args.shuffle_train,
             rand_offset=args.random_offsets_train,
+            val_split=0.0,
+            test_split=0.0,
         )
+
+    jax.random.normal(jax.random.PRNGKey(0), (1,))  # init GPU
+    print(jax.devices())
     
 
     print(f"[*] Starting S5 Eval on {ds} =>> Loading the states...")
@@ -125,92 +131,67 @@ def eval(eval_args):
                                                 n_message_layers=args.n_message_layers,
                                                 n_book_pre_layers=args.n_book_pre_layers ,
                                                 n_book_post_layers=args.n_book_post_layers,
-                                                n_fused_layers=args.n_layers,)
+                                                n_fused_layers=args.n_layers,
+                                                h_size_ema=ssm_size)
 
 
-        if valloader is not None:
-            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Validation on train set (With call)...")
-            val_loss, val_acc,val_ce_by_tok, val_acc_by_tok = validate(state,
-                                         #model_cls,
-                                         eval_model.apply,
-                                         trainloader,
-                                         seq_len,
-                                         in_dim,
-                                         args.batchnorm,
-                                         args.num_devices,
-                                         epoch,
-                                         curtail_epoch=args.curtail_epoch,
-                                         ignore_times=args.ignore_times,
-                                         apply_method='__call_ar__')
+        print(f"[*] Running Epoch {args.restore_step + epoch + 1} Validation on train set (With call)...")
+        ar_loss, ar_acc,ar_ce_by_tok, ar_acc_by_tok = validate(state,
+                                        #model_cls,
+                                        eval_model.apply,
+                                        trainloader,
+                                        seq_len,
+                                        in_dim,
+                                        args.batchnorm,
+                                        args.num_devices,
+                                        epoch,
+                                        curtail_epoch=args.curtail_epoch,
+                                        ignore_times=args.ignore_times,
+                                        apply_method='__call_ar__',
+                                        log_ce_tables=True)
 
-            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test on train set (With Scan RNN)...")
-            test_loss, test_acc, test_ce_by_tok, test_acc_by_tok  = validate(state,
-                                           #model_cls,
-                                           eval_model.apply,
-                                           trainloader,
-                                           seq_len,
-                                           in_dim,
-                                           args.batchnorm,
-                                           args.num_devices,
-                                           epoch,
-                                           curtail_epoch=args.curtail_epoch,
-                                           ignore_times=args.ignore_times,
-                                           apply_method='__call_rnn__',
-                                           init_hiddens=init_hidden)
+        print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test on train set (With Scan RNN)...")
+        rnn_loss, rnn_acc, rnn_ce_by_tok, rnn_acc_by_tok  = validate(state,
+                                        #model_cls,
+                                        eval_model.apply,
+                                        trainloader,
+                                        seq_len,
+                                        in_dim,
+                                        args.batchnorm,
+                                        args.num_devices,
+                                        epoch,
+                                        curtail_epoch=args.curtail_epoch,
+                                        ignore_times=args.ignore_times,
+                                        apply_method='__call_rnn__',
+                                        init_hiddens=init_hidden,
+                                        log_ce_tables=True)
 
-            print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            print(
-                f" Val Loss: {val_loss:.5f} --Test Loss: {test_loss:.5f} --"
-                f" Val Accuracy: {val_acc:.4f}"
-                f" Test Accuracy: {test_acc:.4f}"
-            )
+        print(f"\n=>> Epoch {epoch + 1} Metrics ===")
+        print(
+            f" Autoreg Loss: {ar_loss:.5f} --RNN Loss: {rnn_loss:.5f} --"
+            f" Autoreg Accuracy: {ar_acc:.4f} -- RNN Accuracy: {rnn_acc:.4f}"
+        )
 
-        else:
-            # else use test set as validation set (e.g. IMDB)
-            print(f"[*] Running Epoch {args.restore_step + epoch + 1} Test...")
-            test_loss, test_acc, test_ce_by_tok, test_acc_by_tok  = validate(state,
-                                           #model_cls,
-                                           eval_model.apply,
-                                           trainloader,
-                                           seq_len,
-                                           in_dim,
-                                           args.batchnorm,
-                                           args.num_devices,
-                                           epoch,
-                                           curtail_epoch=args.curtail_epoch)
 
-            print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            print(
-                f"\t --Test Loss: {test_loss:.5f} --"
-                f" Test Accuracy: {test_acc:.4f}"
-            )
 
 
         # ce_table.add_column(name="val_ce_"+str(epoch),data=val_ce_by_tok.tolist())
-        ce_table.add_column(name="test_ce_"+str(epoch),data=test_ce_by_tok.tolist())
+        ce_table.add_column(name="ar_ce_"+str(epoch),data=ar_ce_by_tok.tolist())
         # ce_table.add_column(name="val_acc_"+str(epoch),data=val_acc_by_tok.tolist())
-        ce_table.add_column(name="test_acc_"+str(epoch),data=test_acc_by_tok.tolist())
+        ce_table.add_column(name="ar_acc_"+str(epoch),data=ar_acc_by_tok.tolist())
         ce_table=wandb.Table(columns=ce_table.columns,data=ce_table.data)
         
 
-        if valloader is not None:
-            wandb.log(
-                {
-                    "'Call' loss": val_loss,
-                    "'Call' Accuracy": val_acc,
-                    "'Call_Rnn' Loss": test_loss,
-                    "'Call_Rnn' Accuracy": test_acc,
-                    "Training CE by token":ce_table
-                }
-            )
-        else:
-            wandb.log(
-                {
-                    "Val loss": test_loss,
-                    "Val Accuracy": test_acc,
-                    "Training CE by token":ce_table
-                }
-            )
+        wandb.log(
+            {
+                "'Call' loss": ar_loss,
+                "'Call' Accuracy": ar_acc,
+                "'Call_Rnn' Loss": rnn_loss,
+                "'Call_Rnn' Accuracy": rnn_acc,
+                "Training CE by token":ce_table
+            }
+        )
+
 
 
 

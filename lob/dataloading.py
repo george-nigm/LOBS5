@@ -32,6 +32,8 @@ def create_lobster_prediction_dataset(
 		shuffle_train=True,
 		rand_offset=True,
 		debug_overfit=False,
+		val_split: float = 0.1,
+		test_split: float = 0.1,
 	) -> ReturnType:
 	""" 
 	"""
@@ -57,6 +59,8 @@ def create_lobster_prediction_dataset(
 		return_raw_msgs=return_raw_msgs,
 		rand_offset=rand_offset,
 		debug_overfit=debug_overfit,
+		val_split=val_split,
+		test_split=test_split,
 	)
 	dataset_obj.setup()
  

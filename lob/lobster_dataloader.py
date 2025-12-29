@@ -733,7 +733,8 @@ class LOBSTER(SequenceDataset):
                 self.val_book_files = None
                 self.test_book_files = None
         else:
-            n_test_files = max(1, int(len(message_files) * self.test_split))
+            n_test_files = max(1, int(len(message_files) * self.test_split)) if self.test_split > 0 else 0
+            n_val_files = max(1, int(len(message_files) * self.val_split)) if self.val_split > 0 else 0
             # train on first part of data
             self.train_files = message_files[:len(message_files) - n_test_files]
             # and test on last days
@@ -757,10 +758,11 @@ class LOBSTER(SequenceDataset):
             self.val_files = [
                 self.train_files.pop(
                     self.rng.randrange(0, len(self.train_files))
-                ) for _ in range(int(np.ceil(self.val_split * len(message_files))))]
+                ) for _ in range(n_val_files)]
             if book_files:
                 self.train_files, self.train_book_files = zip(*self.train_files)
-                self.val_files, self.val_book_files = zip(*self.val_files)
+                if self.val_files:
+                    self.val_files, self.val_book_files = zip(*self.val_files)
         
 
 
@@ -790,33 +792,39 @@ class LOBSTER(SequenceDataset):
 
 
         #self.split_train_val(self.val_split)
-        self.dataset_val = LOBSTER_Dataset(
-            self.val_files,
-            n_messages=self.n_messages,
-            mask_fn=self.mask_fn,
-            seed=self.seed if self.debug_overfit else self.rng.randint(0, sys.maxsize),
-            n_cache_files=self.n_cache_files,
-            randomize_offset=False,
-            book_files=self.val_book_files,
-            use_simple_book=self.use_simple_book,
-            book_transform=self.book_transform,
-            book_depth=self.book_depth,
-            return_raw_msgs=self.return_raw_msgs,
-        )
+        if self.val_split > 0:
+            self.dataset_val = LOBSTER_Dataset(
+                self.val_files,
+                n_messages=self.n_messages,
+                mask_fn=self.mask_fn,
+                seed=self.seed if self.debug_overfit else self.rng.randint(0, sys.maxsize),
+                n_cache_files=self.n_cache_files,
+                randomize_offset=False,
+                book_files=self.val_book_files,
+                use_simple_book=self.use_simple_book,
+                book_transform=self.book_transform,
+                book_depth=self.book_depth,
+                return_raw_msgs=self.return_raw_msgs,
+            )
+        else:
+            self.dataset_val = None
 
-        self.dataset_test = LOBSTER_Dataset(
-            self.test_files,
-            n_messages=self.n_messages,
-            mask_fn=self.mask_fn,
-            seed=self.seed if self.debug_overfit else self.rng.randint(0, sys.maxsize),
-            n_cache_files=self.n_cache_files,
-            randomize_offset=False,
-            book_files=self.test_book_files,
-            use_simple_book=self.use_simple_book,
-            book_transform=self.book_transform,
-            book_depth=self.book_depth,
-            return_raw_msgs=self.return_raw_msgs,
-        )
+        if self.test_split > 0:
+            self.dataset_test = LOBSTER_Dataset(
+                self.test_files,
+                n_messages=self.n_messages,
+                mask_fn=self.mask_fn,
+                seed=self.seed if self.debug_overfit else self.rng.randint(0, sys.maxsize),
+                n_cache_files=self.n_cache_files,
+                randomize_offset=False,
+                book_files=self.test_book_files,
+                use_simple_book=self.use_simple_book,
+                book_transform=self.book_transform,
+                book_depth=self.book_depth,
+                return_raw_msgs=self.return_raw_msgs,
+            )
+        else:
+            self.dataset_test = None
 
     def reset_train_offsets(self):
         """ reset the train dataset to a new random offset
