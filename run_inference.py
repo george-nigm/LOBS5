@@ -54,6 +54,7 @@ from lob.encoding import Vocab, Message_Tokenizer
 # from lobster_dataloader import LOBSTER_Dataset, LOBSTER_Subset, LOBSTER_Sampler, LOBSTER
 
 import preproc
+from time import time
 # import inference
 from lob import inference_no_errcorr as inference
 import lob.validation_helpers as valh
@@ -75,6 +76,8 @@ if __name__ == "__main__":
     parser.add_argument('--stock', type=str, default='GOOG', help='stock to evaluate')
     parser.add_argument('--checkpoint_step', type=int, default=None, help='Which checkpoint step to load')
     parser.add_argument('--test_split', type=float, default=0.1, help='Which test split to use')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for inference')
+    parser.add_argument("--n_sequences", type=int, default=1024, help="Number of sequences to generate")
 
 
     run_args = parser.parse_args()
@@ -84,14 +87,15 @@ if __name__ == "__main__":
     if run_args.stock == 'AMZN':
         data_dir = '/home/myuser/processed_data/AMZN/2024_Dec'
         ckpt_path='/home/myuser/checkpoints/ruby-aardvark-62_98nov1i7'
-        save_dir='/home/myuser/eval_local/AMZN/2024/debug-r-a'
+        save_dir='/home/myuser/data/evalsequences/s5v2/AMZN/2024'
     if run_args.stock == 'GOOG':
-        data_dir = '/data1/sascha/data/GOOG/preprocessed/GOOG2019'
-        ckpt_path='/data1/sascha/data/checkpoints/olive-blaze-463_9eq56l8n/'
-        save_dir='/data1/sascha/data/GOOG/benchmark_data/evalsequences/s5/scaled_olive'
+        data_dir = '/home/myuser/data/processed_data/GOOG/2023_Jan'
+        ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/twilight-sound-77_s42sujip'
+        save_dir='/home/myuser/data/evalsequences/s5v2/GOOG/2023_Jan'
     elif run_args.stock == 'INTC':
-        raise NotImplementedError("Nothing trained for INTC yet")
-    elif run_args.stock == 'TSLA':
+        data_dir = '/home/myuser/data/processed_data/INTC/2023_Jan'
+        ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/dazzling-meadow-75_zpp3bf6z'
+        save_dir='/home/myuser/data/evalsequences/s5v2/INTC/2023_Jan'
         raise Warning("Saved Model was trained on GOOGLE data. Generating for TSLA")
         data_dir = '/data1/sascha/data/lobster_proc'
         ckpt_path = '/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5' # Dummy model trained on just 5 days... for debugging. 
@@ -202,11 +206,12 @@ if __name__ == "__main__":
 
 
 
-    n_samples = 2048 * 4
-    batch_size = 2048 * 2 
+    n_samples = run_args.n_sequences
+    batch_size = run_args.batch_size
 
     # m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = inference.sample_new(
     # saves data to disk
+    start=time()
     inference.sample_new(
         n_samples,
         batch_size,
@@ -226,3 +231,4 @@ if __name__ == "__main__":
         conditional= False,
         overfit_debug=overfit_debug,
     )
+    print(f"Generation time for {n_samples} sequences across {batch_size} batch size: {time()-start}")
