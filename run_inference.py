@@ -103,7 +103,7 @@ if __name__ == "__main__":
     ##################################################
 
     n_gen_msgs = 500  #500 # how many messages to generate into the future
-    n_messages_conditional = 0
+    n_messages_conditional = 500
     n_eval_messages = n_gen_msgs  # how many to load from dataset 
     eval_seq_len = (n_eval_messages-1) * Message_Tokenizer.MSG_LEN
     cond_seq_len = (n_messages_conditional) * Message_Tokenizer.MSG_LEN
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         save_folder=save_dir,
         sample_top_n= sample_top_n,
         args=args,
-        conditional= False,
+        conditional= True,
         overfit_debug=overfit_debug,
     )
     print(f"Generation time for {n_samples} sequences across {batch_size} batch size: {time()-start}")
