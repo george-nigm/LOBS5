@@ -22,18 +22,25 @@ def create_lobster_prediction_dataset(
 		seed: int = 42,
 		mask_fn = LOBSTER_Dataset.no_mask,
 		msg_seq_len: int = 500,
-		bsz: int=128,
+		global_bsz: int=128,
 		use_book_data: bool = False,
 		use_simple_book: bool = False,
 		book_transform: bool = False,
 		book_depth: int = 500,
 		token_mode: int = 22,
 		test_dir_name: Union[str, Path, None] = None,
-		n_data_workers: int = 0,
+		n_data_workers: int = 16,  # DATA CORE PARAMS: 0→12, utilize multi-core CPU (GH200: 72 cores)
 		return_raw_msgs: bool = False,
 		shuffle_train=True,
 		rand_offset=True,
 		debug_overfit=False,
+		pin_memory: bool = True,
+		prefetch_factor: int = 8,  # DATA CORE PARAMS: 2→6, larger prefetch buffer (memory allows)
+		persistent_workers: bool = True,  # DATA CORE PARAMS: keep workers alive across epochs
+		# Multi-node distributed training parameters
+		use_distributed_sampler: bool = False,
+		process_rank: int = 0,
+		process_count: int = 1,
 	) -> ReturnType:
 	""" 
 	"""
@@ -73,14 +80,18 @@ def create_lobster_prediction_dataset(
 	#		dataset_obj.dataset_train, n_files_shuffle=5, batch_size=1, seed=seed)
 	
 	trn_loader = create_lobster_train_loader(
-		dataset_obj, seed, bsz, n_data_workers, reset_train_offsets=rand_offset,shuffle=shuffle_train)
+		dataset_obj, seed, global_bsz, n_data_workers, reset_train_offsets=rand_offset, shuffle=shuffle_train,
+		pin_memory=pin_memory, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers,
+		use_distributed_sampler=use_distributed_sampler, process_rank=process_rank, process_count=process_count)
 	# NOTE: drop_last=True recompiles the model for a smaller batch size
 	val_loader = make_data_loader(
-		dataset_obj.dataset_val, dataset_obj, seed=seed, batch_size=bsz,
-		drop_last=True, shuffle=False, num_workers=n_data_workers)
+		dataset_obj.dataset_val, dataset_obj, seed=seed, batch_size=global_bsz,
+		drop_last=True, shuffle=False, num_workers=n_data_workers,
+		pin_memory=pin_memory, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers)
 	tst_loader = make_data_loader(
-		dataset_obj.dataset_test, dataset_obj, seed=seed, batch_size=bsz,
-		drop_last=True, shuffle=False, num_workers=n_data_workers)
+		dataset_obj.dataset_test, dataset_obj, seed=seed, batch_size=global_bsz,
+		drop_last=True, shuffle=False, num_workers=n_data_workers,
+		pin_memory=pin_memory, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers)
 
 	N_CLASSES = dataset_obj.d_output
 	SEQ_LENGTH = dataset_obj.L
@@ -94,18 +105,41 @@ def create_lobster_prediction_dataset(
 	return (dataset_obj, trn_loader, val_loader, tst_loader, aux_loaders, 
 	 		N_CLASSES, SEQ_LENGTH, IN_DIM, BOOK_SEQ_LEN, BOOK_DIM, TRAIN_SIZE)
 
-def create_lobster_train_loader(dataset_obj, seed, bsz, num_workers, reset_train_offsets=False,shuffle=True):
+def create_lobster_train_loader(dataset_obj, seed, global_bsz, num_workers, reset_train_offsets=False, shuffle=True,
+								pin_memory=True, prefetch_factor=6, persistent_workers=True,
+								use_distributed_sampler=False, process_rank=0, process_count=1):  # DATA CORE PARAMS: optimized defaults
 	if reset_train_offsets:
 		dataset_obj.reset_train_offsets()
+
+	# Create distributed sampler for multi-node training
+	train_sampler = None
+	if use_distributed_sampler and process_count > 1:
+		from torch.utils.data import DistributedSampler
+		train_sampler = DistributedSampler(
+			dataset_obj.dataset_train,
+			num_replicas=process_count,
+			rank=process_rank,
+			shuffle=shuffle,
+			seed=seed,
+			drop_last=True,
+		)
+		print(f"[*] Using DistributedSampler: rank={process_rank}/{process_count}, "
+			  f"samples_per_process={len(train_sampler)}")
+		shuffle = False  # DistributedSampler handles shuffling
+
 	# use sampler to only get individual samples and automatic batching from dataloader
 	trn_loader = make_data_loader(
 		dataset_obj.dataset_train,
 		dataset_obj,
 		seed=seed,
-		batch_size=bsz,
-		shuffle=shuffle,  # TODO: remove later
+		batch_size=global_bsz,
+		shuffle=shuffle,
+		sampler=train_sampler,
 		num_workers=num_workers,
-		worker_init_fn=force_cpu)
+		worker_init_fn=force_cpu,
+		pin_memory=pin_memory,
+		prefetch_factor=prefetch_factor,
+		persistent_workers=persistent_workers)
 	return trn_loader
 
 Datasets = {

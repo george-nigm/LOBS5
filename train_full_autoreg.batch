@@ -20,6 +20,35 @@ echo "GPUs per node: 4"
 echo "Total GPUs: $((SLURM_NNODES * 4))"
 echo "============================================"
 
+# ============================================
+# Model Preset Configuration
+# ============================================
+# Usage:
+#   MODEL_PRESET=55M sbatch train_full_autoreg.batch
+#   MODEL_PRESET=1B sbatch train_full_autoreg.batch
+#   MODEL_PRESET=1.4B sbatch train_full_autoreg.batch
+#   PER_GPU_BSZ=4 MODEL_PRESET=1.4B sbatch train_full_autoreg.batch
+#
+# Available presets: 2.5B-Wide, 2.5B-Deep, 2.2B-Wide, 2.2B-Deep, 2B-Wide, 2B-Deep, 1.8B-Wide, 1.8B-Deep, 1.4B, 1B, 360M, 55M
+# If not set, defaults to individual parameter values below
+# PER_GPU_BSZ overrides the preset's batch size (optional)
+# ============================================
+MODEL_PRESET=${MODEL_PRESET:-1B}
+echo "[*] Model preset: $MODEL_PRESET"
+export MODEL_PRESET
+
+if [ -n "$PER_GPU_BSZ" ]; then
+    echo "[*] Batch size override: $PER_GPU_BSZ (per GPU)"
+    export PER_GPU_BSZ
+fi
+
+# CURTAIL_EPOCHS: Optional - end each epoch early after N steps (for quick testing)
+# Usage: CURTAIL_EPOCHS=10 MODEL_PRESET=360M sbatch train_full_autoreg.batch
+if [ -n "$CURTAIL_EPOCHS" ]; then
+    echo "[*] Curtail epochs: $CURTAIL_EPOCHS steps (quick test mode)"
+    export CURTAIL_EPOCHS
+fi
+
 # Create logs directory
 mkdir -p logs_lobs5
 
@@ -31,11 +60,8 @@ GPUS_PER_NODE=4
 NNODES=$SLURM_NNODES
 TOTAL_GPUS=$((GPUS_PER_NODE * NNODES))
 
-# Batch size configuration
-PER_GPU_BSZ=8
-EFFECTIVE_BSZ=$((PER_GPU_BSZ * TOTAL_GPUS))
-
-echo "[*] Batch size: $PER_GPU_BSZ per GPU × $TOTAL_GPUS GPUs = $EFFECTIVE_BSZ effective"
+echo "[*] Total GPUs: $TOTAL_GPUS ($NNODES nodes × $GPUS_PER_NODE GPUs/node)"
+echo "[*] Batch size will be set by MODEL_PRESET ($MODEL_PRESET)"
 
 # Multi-Node Setup
 MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n1)
@@ -68,6 +94,7 @@ echo "[Wrapper] SLURM_PROCID: ${SLURM_PROCID:-N/A}"
 echo "[Wrapper] CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-all}"
 echo "========================================"
 
+# **************** CHOICE 1 ****************
 # Source conda
 source ~/miniforge3/etc/profile.d/conda.sh
 conda activate lob
@@ -83,6 +110,97 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=true
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.90
 export JAX_COORDINATOR_TIMEOUT_MS=600000
 export JAX_PLATFORMS="cuda"
+
+
+
+#   | Job ID  | BSZ/GPU | Effective BSZ | status     | MFU    | memory    |
+#   |---------|---------|---------------|------------|--------|-----------|
+#   | 1821906 | 16      | 64            | ✅ Running | 13-16% | -         |
+#   | 1821907 | 18      | 72            | ✅ Running | 13-16% | -         |
+#   | 1821908 | 20      | 80            | ✅ Running | 13-16% | -         |
+#   | 1821909 | 22      | 88            | ✅ Running | 13-15% | -         |
+#   | 1821910 | 24      | 96            | ✅ Running | 13-15% | -         |
+#   | 1821911 | 26      | 104           | ✅ Running | 13-15% | -         |
+#   | 1821912 | 28      | 112           | ✅ Running | 12-15% | -         |
+#   | 1821913 | 30      | 120           | 🔴 OOM     | -      | 83.6 GiB  |
+#   | 1821914 | 32      | 128           | 🔴 OOM     | -      | 98.7 GiB  |
+#   | 1821915 | 34      | 136           | 🔴 OOM     | -      | 123.8 GiB |
+
+
+#   | Job ID  | BSZ | Eff BSZ | XLA Compile | Runtime OOM | Step | Memory Req |
+#   |---------|-----|---------|-------------|-------------|------|------------|
+#   | 1821906 | 16  | 64      | ✅ OK       | -           | 172+ | -          |
+#   | 1821907 | 18  | 72      | ✅ OK       | -           | 157+ | -          |
+#   | 1821908 | 20  | 80      | ✅ OK       | -           | 158+ | -          |
+#   | 1821909 | 22  | 88      | ✅ OK       | -           | 129+ | -          |
+#   | 1821910 | 24  | 96      | ✅ OK       | -           | 113+ | -          |
+#   | 1821911 | 26  | 104     | ✅ OK       | -           | 113+ | -          |
+#   | 1821912 | 28  | 112     | ✅ OK       | -           | 95+  | -          |
+#   | 1821913 | 30  | 120     | ✅ OK       | ❌ BFC OOM  | 0    | 83.66 GiB  |
+#   | 1821914 | 32  | 128     | ✅ OK       | ❌ BFC OOM  | 0    | 123.81 GiB |
+#   | 1821915 | 34  | 136     | ✅ OK       | ❌ BFC OOM  | 0    | 98.67 GiB  |
+
+
+#   | Job ID  | BSZ | Eff BSZ | XLA Compile | Runtime OOM | Step | MFU (last 100) | Memory Req |
+#   |---------|-----|---------|-------------|-------------|------|----------------|------------|
+#   | 1821906 | 16  | 64      | ✅ OK       | -           | 172+ | 12.8%          | -          |
+#   | 1821907 | 18  | 72      | ✅ OK       | -           | 157+ | 13.4%          | -          |
+#   | 1821908 | 20  | 80      | ✅ OK       | -           | 158+ | 13.3%          | -          |
+#   | 1821909 | 22  | 88      | ✅ OK       | -           | 129+ | 13.4%          | -          |
+#   | 1821910 | 24  | 96      | ✅ OK       | -           | 113+ | 13.2%          | -          |
+#   | 1821911 | 26  | 104     | ✅ OK       | -           | 113+ | 13.3%          | -          |
+#   | 1821912 | 28  | 112     | ✅ OK       | -           | 95+  | 12.7%          | -          |
+#   | 1821913 | 30  | 120     | ✅ OK       | ❌ BFC OOM  | 0    | -              | 83.66 GiB  |
+#   | 1821914 | 32  | 128     | ✅ OK       | ❌ BFC OOM  | 0    | -              | 123.81 GiB |
+#   | 1821915 | 34  | 136     | ✅ OK       | ❌ BFC OOM  | 0    | -              | 98.67 GiB  |
+
+
+# # **************** CHOICE 1 ****************
+
+
+# # **************** CHOICE 2 ****************
+
+# #   cuda12.9
+# #   | Job ID  | BSZ/GPU | Effective BSZ | Status     | MFU    | Memory Req |
+# #   |---------|---------|---------------|------------|--------|------------|
+# #   | 1821927 | 16      | 64            | ✅ Running | 13-15% | -          |
+# #   | 1821928 | 18      | 72            | 🔴 OOM     | -      | 83.86 GiB  |
+# #   | 1821929 | 20      | 80            | 🔴 OOM     | -      | 81.40 GiB  |
+# #   | 1821930 | 22      | 88            | 🔴 OOM     | -      | 86.92 GiB  |
+# #   | 1821931 | 24      | 96            | 🔴 OOM     | -      | 83.81 GiB  |
+# #   | 1821932 | 26      | 104           | 🔴 OOM     | -      | 108.93 GiB |
+# #   | 1821933 | 28      | 112           | 🔴 OOM     | -      | 117.61 GiB |
+# #   | 1821934 | 30      | 120           | 🔴 OOM     | -      | 129.11 GiB |
+# #   | 1821935 | 32      | 128           | 🔴 OOM     | -      | 119.14 GiB |
+# #   | 1821936 | 34      | 136           | 🔴 OOM     | -      | 138.41 GiB |
+
+
+
+
+# # Source conda
+# source ~/miniforge3/etc/profile.d/conda.sh
+# conda activate lob26
+
+# # Skip module load cuda - lob26 conda env has CUDA 12.9 (ptxas in CONDA_PREFIX/bin)
+# module load cuda/12.6
+
+# # Use CUDA 12.9 ptxas from lob26 conda env for Triton and XLA
+# # export TRITON_PTXAS_PATH=$CONDA_PREFIX/bin/ptxas
+
+# # Set LD_LIBRARY_PATH
+# export LD_LIBRARY_PATH=$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cusparse/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cuda_cupti/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cufft/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/nvjitlink/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cusolver/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/nccl/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cublas/lib:$CONDA_PREFIX/lib/python3.12/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+
+
+# # JAX environment
+# export XLA_PYTHON_CLIENT_PREALLOCATE=true
+# export XLA_PYTHON_CLIENT_MEM_FRACTION=0.90
+# export JAX_COORDINATOR_TIMEOUT_MS=600000
+# export JAX_PLATFORMS="cuda"
+# export XLA_FLAGS="--xla_gpu_autotune_max_concurrent_compilations=1${XLA_FLAGS:+ $XLA_FLAGS}"
+# # **************** CHOICE 2 ****************
+
+
+export TF_GPU_ALLOCATOR=cuda_malloc_async # added on Jan 4, 2026
 
 # Multi-node JAX config
 if [ -n "$JAX_COORDINATOR_ADDRESS" ]; then
@@ -105,15 +223,13 @@ nvidia-smi --list-gpus | head -4
 # Run training
 cd /lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/LOBS5
 python -u -B run_train.py \
+    --model_preset='"$MODEL_PRESET"' \
     --USE_WANDB=True \
     --wandb_entity=kang-oxford \
     --C_init=trunc_standard_normal \
     --prenorm=True \
     --batchnorm=False \
     --bidirectional=False \
-    --blocks=16 \
-    --bsz='"$EFFECTIVE_BSZ"' \
-    --d_model=1024 \
     --dataset=lobster-prediction \
     --merging=padded \
     --dir_name="'"$DATA_DIR"'" \
@@ -123,12 +239,8 @@ python -u -B run_train.py \
     --dt_global=False \
     --epochs=20 \
     --jax_seed=42 \
-    --lr_factor=1 \
-    --n_layers=12 \
     --opt_config=standard \
     --p_dropout=0.0 \
-    --ssm_lr_base=0.0005 \
-    --ssm_size_base=1024 \
     --warmup_end=1 \
     --weight_decay=0.05 \
     --msg_seq_len=500 \
@@ -137,7 +249,11 @@ python -u -B run_train.py \
     --book_transform=True \
     --masking=none \
     --num_devices='"$GPUS_PER_NODE"' \
-    --n_data_workers=8 \
+    --n_data_workers=12 \
+    --pin_memory=True \
+    --prefetch_factor=6 \
+    --persistent_workers=True \
+    --enable_goodput_monitor=True \
     --debug_loading=False \
     --enable_profiler=False \
     --random_offsets_train=True \
@@ -146,7 +262,17 @@ python -u -B run_train.py \
     --lr_patience=2 \
     --use_bf16=True \
     --token_mode=24 \
+    ${CURTAIL_EPOCHS:+--curtail_epochs=$CURTAIL_EPOCHS} \
 '
+    # NOTE: The following parameters are now controlled by --model_preset:
+    #   --blocks (preset controls)
+    #   --bsz (preset controls)
+    #   --d_model (preset controls)
+    #   --n_layers (preset controls)
+    #   --ssm_size_base (preset controls)
+    #   --ssm_lr_base (preset controls)
+    #   --lr_factor (preset controls)
+    #   --wandb_project (preset controls)
     # --restore=/lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/LOBS5/checkpoints/likely-aardvark-15_p4k79dtn \
     # --restore_step=6
 
@@ -154,3 +280,42 @@ python -u -B run_train.py \
 echo "============================================"
 echo "Training completed at: $(date)"
 echo "============================================"
+
+
+
+
+#  ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+#  Component       Sub-component         Parameters       Ratio     Param Storage   Fwd Compute   Fwd Output   Bwd Activ Grad   Bwd Param Grad   Weight Update
+#  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+#  Fused S5        B matrix (complex)    301,989,888     29.37%     FP32            BF16†         BF16★        FP32             FP32             FP32
+#  (90.00%)        C matrix (complex)    301,989,888     29.37%     FP32            BF16†         BF16★        FP32             FP32             FP32
+#                  D vector                   98,304      0.01%     FP32            FP32          BF16★        FP32             FP32             FP32
+#                  Λ (Lambda)                 98,304      0.01%     FP32            FP32          BF16★        FP32             FP32             FP32
+#                  log_step                   49,152     <0.01%     FP32            FP32          BF16★        FP32             FP32             FP32
+#                  associative_scan              —          —       —               FP32          BF16★        FP32             —                —
+#                  GLU Dense             302,088,192     29.38%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#                  LayerNorm                 196,608      0.02%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#                  Encoder Dense          18,877,440      1.84%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+#  Msg Encoder     Embedding + Dense      63,144,960      6.14%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#  (6.14%)         S5 layer (internal)         (incl.)      —       FP32            BF16†         BF16         FP32             FP32             FP32
+#  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+#  Book Encoder    Pre-layers              3,350,061      0.33%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#  (3.24%)         Projection              1,548,288      0.15%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#                  Post-layers            28,328,448      2.76%     FP32            BF16          BF16         BF16             FP32‡            FP32
+#  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+#  Decoder         Dense                   6,490,176      0.63%     FP32            FP32          FP32         FP32             FP32             FP32
+#  (0.63%)
+#  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+#  Loss            cross_entropy + z-loss        —          —       —               FP32§         FP32         FP32             —                —
+#  ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+#  TOTAL                               1,028,249,709    100.00%
+#  ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+#  ★ SSM: BF16 → FP32 (compute) → BF16. SSM receives BF16 input, casts to FP32 for internal computation, then casts output back to BF16.
+#  † B/C matmul: FP32 params cast to BF16 for matvec, result cast back to FP32 for associative_scan.
+#  ‡ All gradients cast to FP32 after backward pass (MaxText pattern) for numerical stability.
+#  § Loss computed in FP32 with z-loss (weight=0.0001) to prevent logits drift in BF16 training.
+
+
+

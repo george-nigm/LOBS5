@@ -26,8 +26,22 @@ from lob.dataloading import Datasets
 
 if __name__ == "__main__":
 	import argparse
+	import time
 	from s5.utils.util import str2bool
-	os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+
+	# ============================================
+	# Step 1: Detect Multi-Node Environment
+	# ============================================
+	is_slurm_multi_node = int(os.environ.get('SLURM_NNODES', '1')) > 1
+
+	if is_slurm_multi_node:
+		# Multi-node environment: Don't override CUDA_VISIBLE_DEVICES, let Slurm manage it
+		print(f"[*] Detected Slurm multi-node environment ({os.environ.get('SLURM_NNODES')} nodes)")
+		print(f"[*] Using Slurm GPU allocation: {os.environ.get('CUDA_VISIBLE_DEVICES', 'all')}")
+	else:
+		# Single machine environment: Set CUDA_VISIBLE_DEVICES
+		os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+
 	os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]="0.9"
 	os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 	os.environ["NCCL_TIMEOUT"] = "600"  # 10 minutes
@@ -37,6 +51,72 @@ if __name__ == "__main__":
 	#physical_devices = tf.config.list_physical_devices('GPU')
 	#tf.config.experimental.set_memory_growth(physical_devices[0], True)
 	#tf.config.experimental.set_visible_devices([], "GPU")
+
+	# ============================================
+	# Model Presets: Pre-configured Model Settings
+	# ============================================
+	MODEL_PRESETS = {
+		"2.5B-Wide": {
+			"d_model": 5120, "n_layers": 32, "blocks": 64, "ssm_size_base": 5120, "micro_bsz": 1,
+			"ssm_lr_base": 0.00003, "lr_factor": 1,
+			"wandb_project": "lobs5-2.5B-wide-d5120"
+		},
+		"2.5B-Deep": {
+			"d_model": 4096, "n_layers": 48, "blocks": 64, "ssm_size_base": 4096, "micro_bsz": 1,
+			"ssm_lr_base": 0.00003, "lr_factor": 1,
+			"wandb_project": "lobs5-2.5B-deep-d4096"
+		},
+		"2.2B-Wide": {
+			"d_model": 4704, "n_layers": 32, "blocks": 56, "ssm_size_base": 4704, "micro_bsz": 1,
+			"ssm_lr_base": 0.000032, "lr_factor": 1,
+			"wandb_project": "lobs5-2.2B-wide-d4704"
+		},
+		"2.2B-Deep": {
+			"d_model": 4352, "n_layers": 48, "blocks": 64, "ssm_size_base": 4352, "micro_bsz": 1,
+			"ssm_lr_base": 0.000032, "lr_factor": 1,
+			"wandb_project": "lobs5-2.2B-deep-d4352"
+		},
+		"2B-Wide": {
+			"d_model": 4480, "n_layers": 32, "blocks": 56, "ssm_size_base": 4480, "micro_bsz": 1,
+			"ssm_lr_base": 0.000035, "lr_factor": 1,
+			"wandb_project": "lobs5-2B-wide-d4480"
+		},
+		"2B-Deep": {
+			"d_model": 4096, "n_layers": 44, "blocks": 64, "ssm_size_base": 4096, "micro_bsz": 1,
+			"ssm_lr_base": 0.000035, "lr_factor": 1,
+			"wandb_project": "lobs5-2B-deep-d4096"
+		},
+		"1.8B-Wide": {
+			"d_model": 4144, "n_layers": 32, "blocks": 56, "ssm_size_base": 4144, "micro_bsz": 1,
+			"ssm_lr_base": 0.00004, "lr_factor": 1,
+			"wandb_project": "lobs5-1.8B-wide-d4144"
+		},
+		"1.8B-Deep": {
+			"d_model": 3840, "n_layers": 40, "blocks": 60, "ssm_size_base": 3840, "micro_bsz": 1,
+			"ssm_lr_base": 0.00004, "lr_factor": 1,
+			"wandb_project": "lobs5-1.8B-deep-d3840"
+		},
+		"1.4B": {
+			"d_model": 3584, "n_layers": 32, "blocks": 56, "ssm_size_base": 3584, "micro_bsz": 2,
+			"ssm_lr_base": 0.00005, "lr_factor": 1,
+			"wandb_project": "lobs5-1.4B-d3584"
+		},
+		"1B": {
+			"d_model": 3072, "n_layers": 32, "blocks": 48, "ssm_size_base": 3072, "micro_bsz": 3,
+			"ssm_lr_base": 0.00010, "lr_factor": 1,
+			"wandb_project": "lobs5-1B-d3072"
+		},
+		"360M": {
+			"d_model": 2048, "n_layers": 24, "blocks": 32, "ssm_size_base": 2048, "micro_bsz": 8,
+			"ssm_lr_base": 0.00020, "lr_factor": 1,
+			"wandb_project": "lobs5-300M-d2048"
+		},
+		"55M": {
+			"d_model": 1024, "n_layers": 12, "blocks": 16, "ssm_size_base": 1024, "micro_bsz": 28,
+			"ssm_lr_base": 5e-5, "lr_factor": 1,
+			"wandb_project": "lobs5-55M-d1024"
+		},
+	}
 
 	parser = argparse.ArgumentParser()
 
@@ -77,6 +157,19 @@ if __name__ == "__main__":
 						help="How many past messages to include in each sample")
 	parser.add_argument("--n_data_workers", type=int, default=0,
 		     			help="number of workers used in DataLoader")
+	parser.add_argument("--pin_memory", type=str2bool, default=True,
+		     			help="enable pin_memory for DataLoader (faster GPU transfer)")
+	parser.add_argument("--prefetch_factor", type=int, default=2,
+		     			help="number of batches to prefetch per worker")
+	parser.add_argument("--persistent_workers", type=str2bool, default=False,
+		     			help="keep DataLoader workers alive between epochs")
+	parser.add_argument("--enable_goodput_monitor", type=str2bool, default=False,
+		     			help="enable goodput monitoring (data loading vs compute time)")
+
+	# Model Preset (overrides individual model parameters if specified)
+	parser.add_argument("--model_preset", type=str, default=None,
+						choices=list(MODEL_PRESETS.keys()),
+						help="Pre-configured model settings: 2.5B-Wide, 2.5B-Deep, 2B-Wide, 2B-Deep, 1.8B-Wide, 1.8B-Deep, 1.4B, 1B, 300M, 55M. Overrides d_model, n_layers, blocks, ssm_size_base, micro_bsz (converted to global_bsz), ssm_lr_base, lr_factor, wandb_project")
 
 	# Model Parameters
 	parser.add_argument("--n_message_layers", type=int, default=2,  # 2
@@ -127,7 +220,7 @@ if __name__ == "__main__":
 						help="True: use batchnorm, False: use layernorm")
 	parser.add_argument("--bn_momentum", type=float, default=0.95,
 						help="batchnorm momentum")
-	parser.add_argument("--bsz", type=int, default=16, #64, (max 16 with full size)
+	parser.add_argument("--global_bsz", type=int, default=16, #64, (max 16 with full size)
 						help="batch size")
 	parser.add_argument("--num_devices", type=int, default=1,
 		     			help="number of devices (GPUs) to use")
@@ -185,19 +278,238 @@ if __name__ == "__main__":
 	parser.add_argument("--use_bf16", type=str2bool, default=True,
 				help="Use BF16 mixed precision training")
 
+	# ============================================================================
+	# Prodigy LR Estimation Mode (Plan B)
+	# ============================================================================
+	#
+	# Instead of guessing ssm_lr_base, use Prodigy to estimate optimal LR:
+	#
+	# Usage:
+	#   # Enable Prodigy warmup for 1000 steps:
+	#   python run_train.py --model_preset 55M --prodigy_warmup_steps 1000
+	#
+	# What happens:
+	#   1. Phase 1 (warmup): Train with Prodigy optimizer for N steps
+	#   2. Extract estimated LR from Prodigy state (estim_lr)
+	#   3. Phase 2: Switch to AdamW + cosine annealing with estimated LR
+	#
+	# Benefits:
+	#   - No manual LR tuning needed
+	#   - Prodigy adapts to model size and data distribution
+	#   - Preserves your existing schedule architecture
+	#
+	# ============================================================================
+	parser.add_argument("--prodigy_warmup_steps", type=int, default=0,
+				help="Number of steps to run Prodigy LR estimation (0=disabled). "
+				     "After warmup, switches to AdamW with estimated LR + cosine annealing.")
+	parser.add_argument("--prodigy_lr_multiplier", type=float, default=1.0,
+				help="Multiplier for Prodigy's estimated LR (default 1.0). "
+				     "Use <1.0 for more conservative, >1.0 for more aggressive.")
+
+	# ============================================================================
+	# Step-Level Checkpointing for Long-Running Jobs (12.5-14h epochs, 24h max)
+	# ============================================================================
+	#
+	# This system provides mid-epoch checkpoint saves and time-aware auto-save:
+	#
+	# Usage:
+	#   # Time-based (auto mode, using wall clock):
+	#   #   - WANDB LOSS LOGGING: EVERY 10 MINUTES
+	#   #   - CHECKPOINT SAVING:  EVERY 30 MINUTES
+	#   python run_train.py --model_preset 55M --checkpoint_every_n_steps auto
+	#
+	#   # Manual interval (every 5000 steps):
+	#   python run_train.py --model_preset 55M --checkpoint_every_n_steps 5000
+	#
+	#   # Resume from mid-epoch checkpoint:
+	#   python run_train.py --model_preset 55M \
+	#       --restore checkpoints/[run_name]/ \
+	#       --restore_step [global_step]
+	#
+	# What gets saved in each checkpoint (verified):
+	#   - state.step      - Training step counter (affects LR schedule)
+	#   - opt_state.mu    - Adam first moment (momentum) ~130 params
+	#   - opt_state.nu    - Adam second moment ~130 params
+	#   - params          - Model parameters, 133 keys
+	#   - Total: 686 keys, 553 optimizer state (80%)
+	#
+	# Why optimizer state matters:
+	#   - Preserves Adam momentum for smooth training continuation
+	#   - LR schedule continues from correct step (no restart)
+	#   - No "cold start" penalty when resuming
+	#
+	# Time-aware auto-save:
+	#   - Monitors elapsed time vs max_job_hours
+	#   - Auto-saves checkpoint when save_before_timeout_minutes remaining
+	#   - Prints resume command on timeout exit
+	#
+	# ============================================================================
+	parser.add_argument("--checkpoint_every_n_steps", type=str, default="auto",
+				help="'auto': wandb every 10min, checkpoint every 30min. Integer: both at N steps. 0: disable.")
+	parser.add_argument("--max_job_hours", type=float, default=24.0,
+				help="Maximum job duration in hours (default: 24.0). Used for time-aware checkpointing.")
+	parser.add_argument("--save_before_timeout_minutes", type=int, default=30,
+				help="Save checkpoint this many minutes before max_job_hours timeout (default: 30).")
+	parser.add_argument("--resume_from_step", type=int, default=None,
+				help="When restoring, skip to this step within the epoch. Used for mid-epoch resume.")
+
 	args = parser.parse_args()
+
+	# ============================================
+	# Apply Model Preset (if specified)
+	# ============================================
+	if args.model_preset is not None:
+		preset = MODEL_PRESETS[args.model_preset]
+		print(f"[*] Using model preset: {args.model_preset}")
+		for key, value in preset.items():
+			if key == "micro_bsz":
+				continue  # Handle micro_bsz separately below
+			setattr(args, key, value)
+		print(f"    d_model={args.d_model}, n_layers={args.n_layers}, blocks={args.blocks}, ssm_size_base={args.ssm_size_base}")
+		# Preset micro_bsz is PER-GPU batch size, convert to GLOBAL batch size
+		micro_bsz = preset["micro_bsz"]
+		args.global_bsz = micro_bsz * args.num_devices
+		print(f"    micro_bsz={micro_bsz}/GPU × {args.num_devices} devices = {args.global_bsz} (global_bsz)")
+		print(f"    ssm_lr_base={args.ssm_lr_base}, lr_factor={args.lr_factor}")
+		print(f"    wandb_project={args.wandb_project}")
+
+	# Override global_bsz with PER_GPU_BSZ environment variable (if set)
+	# This allows batch size sweeps while using model presets
+	# PER_GPU_BSZ specifies the micro batch size per GPU, so we multiply by num_devices
+	if 'PER_GPU_BSZ' in os.environ:
+		micro_bsz = int(os.environ['PER_GPU_BSZ'])
+		args.global_bsz = micro_bsz * args.num_devices
+		print(f"[*] Overriding: micro_bsz={micro_bsz} × {args.num_devices} devices = {args.global_bsz} (global_bsz)")
 
 	# Set BF16 environment variable based on command-line argument
 	os.environ['USE_BF16'] = '1' if args.use_bf16 else '0'
+
+	# Parse checkpoint_every_n_steps: "auto", "0", or integer
+	if args.checkpoint_every_n_steps.lower() == "auto":
+		args.checkpoint_every_n_steps = "auto"  # Keep as string, train.py will calculate
+	else:
+		args.checkpoint_every_n_steps = int(args.checkpoint_every_n_steps)
+
+	# ============================================
+	# Step 2: JAX Distributed Initialization (for Multi-Node)
+	# ============================================
+	import jax
+	from jax.experimental import multihost_utils
+
+	if is_slurm_multi_node or os.environ.get('JAX_COORDINATOR_ADDRESS'):
+		# Multi-node mode: Explicitly initialize JAX distributed
+		coord = os.environ.get('JAX_COORDINATOR_ADDRESS')
+		pid = int(os.environ.get('JAX_PROCESS_INDEX', os.environ.get('SLURM_PROCID', '0')))
+		pcnt = int(os.environ.get('JAX_PROCESS_COUNT', os.environ.get('SLURM_NNODES', '1')))
+
+		if not coord:
+			raise RuntimeError('JAX_COORDINATOR_ADDRESS is not set for multi-node run')
+
+		# CRITICAL: Infer local visible GPUs and explicitly specify local_device_ids
+		cvd = os.environ.get('CUDA_VISIBLE_DEVICES', '')
+		if cvd and cvd != '-1':
+			try:
+				n_local = len([d for d in cvd.split(',') if d.strip() != ''])
+			except Exception:
+				n_local = 1
+		else:
+			n_local = 1
+		local_device_ids = list(range(n_local))
+
+		print(f"\n[*] Initializing JAX distributed: coord={coord}, pid={pid}, pcnt={pcnt}")
+		print(f"[*] CRITICAL: Explicitly specifying local_device_ids={local_device_ids}")
+
+		jax.distributed.initialize(
+			coordinator_address=coord,
+			num_processes=pcnt,
+			process_id=pid,
+			local_device_ids=local_device_ids  # CRITICAL: ensures all 4 local GPUs are used
+		)
+
+		is_distributed = True
+		process_index = jax.process_index()
+		process_count = jax.process_count()
+		local_device_count = jax.local_device_count()
+
+		print(f"[*] JAX distributed mode enabled:")
+		print(f"    Process ID: {process_index}/{process_count}")
+		print(f"    GPUs per process: {local_device_count}")
+		print(f"    Total global GPUs: {len(jax.devices())}")
+
+		# Sync barrier after distributed init
+		print(f"[*] Synchronization barrier: waiting for all {process_count} nodes...")
+		sync_start = time.time()
+		multihost_utils.sync_global_devices("jax_distributed_init")
+		print(f"[*] ✓ All nodes synchronized (took: {time.time() - sync_start:.2f}s)")
+
+		# CRITICAL: In multi-node mode, num_devices should equal local device count
+		args.num_devices = local_device_count
+		print(f"    Adjusted num_devices: {args.num_devices} (local device count)")
+	else:
+		# Single machine mode
+		is_distributed = False
+		process_index = 0
+		process_count = 1
+		print(f"\n[*] Single machine mode (no distributed init)")
+
+	# Add distributed info to args
+	args.is_distributed = is_distributed
+	args.process_index = process_index
+	args.process_count = process_count
 
 	import torch
 	torch.multiprocessing.set_start_method('spawn')
 
 	from lob.train import train
-	#import tensorflow as tf
-	# import jax	
-	# import cProfile
 
-	#with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
 	train(args)
+
+	# Clean shutdown for multi-node
+	if is_distributed:
+		print(f"[*] Process {process_index}: entering final sync...")
+		multihost_utils.sync_global_devices("end-of-train")
+		print(f"[*] Process {process_index}: shutting down JAX distributed...")
+		jax.distributed.shutdown()
+		print(f"[*] Process {process_index}: shutdown complete")
 	#cProfile.run('train(parser.parse_args())')
+
+
+
+
+'''
+
+     ┌─────────────────────────────────────────────────────────────────────────────────┐
+     │                   JAX/GPU Data Loading Pipeline (Multi-Node)                    │
+     └─────────────────────────────────────────────────────────────────────────────────┘
+
+       ┌──────────┐      ┌──────────┐      ┌────────────┐      ┌──────────┐      ┌──────────┐
+       │   DISK   │ ──▶  │   RAM    │ ──▶  │ Pinned RAM │ ──▶  │   VRAM   │ ──▶  │  TRAIN   │
+       │   (IO)   │      │  (CPU)   │      │  (CPU)     │      │  (GPU)   │      │  (GPU)   │
+       └──────────┘      └──────────┘      └────────────┘      └──────────┘      └──────────┘
+             │                 │                  │                  │                 │
+             ▼                 ▼                  ▼                  ▼                 ▼
+           .npy          preprocess          page-locked        device_put       jit train_step
+        mmap read        tokenize         cudaHostAlloc()     CUDA async DMA     (with shardings)
+                         batching           non-swappable       np.split()       global sharding
+                         shuffle                               to local GPUs
+
+             │                 │                  │                  │
+             └────────┬────────┘                  │                  │
+                      │                           │                  │
+                      ▼                           ▼                  ▼
+         ┌────────────────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+         │      num_workers = N       │  │  pin_memory=T   │  │ prefetch_factor │
+         │  ┌────┐ ┌────┐ ┌────┐      │  │                 │  │      = M        │
+         │  │ W0 │ │ W1 │ │... │      │  │  Page-locked    │  │                 │
+         │  └────┘ └────┘ └────┘      │  │  memory         │  │  Prefetch M     │
+         │  N subprocesses parallel   │  │  No swap to     │  │  batches ahead  │
+         │  preloading data           │  │  disk allowed   │  │  per worker     │
+         └────────────────────────────┘  │  Faster DMA     │  └─────────────────┘
+                      │                  └─────────────────┘
+                      ▼
+         ┌──────────────────────────────────────────────────────────────────────────────┐
+         │   persistent_workers=T:                                                      │
+         │   Keep worker processes alive across epochs. Avoid restart overhead          │
+         └──────────────────────────────────────────────────────────────────────────────┘
+         
+'''

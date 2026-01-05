@@ -305,11 +305,23 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
     # Ensure input is FP32 for scan stability (Reference: 7DEC:354)
     input_fp32 = input_sequence.astype(np.float32)
 
-    # Broadcast Lambda_bar to (L, P), keep as complex64 (FP32) for scan
+    # Broadcast Lambda_bar to (L, P) - required by @jax.vmap'd binary_operator
+    # Note: This creates 48.8 MB of duplicated data, but removing it would require
+    # rewriting binary_operator without vmap (complex refactor)
     Lambda_elements = Lambda_bar * np.ones((input_fp32.shape[0], Lambda_bar.shape[0]))
 
-    # BF16 matmul: B_bar @ u, returns complex64 (FP32) for scan (Reference: 7DEC:146)
-    Bu_elements = jax.vmap(lambda u: complex_matvec_bf16_real_x(B_bar, u))(input_fp32)
+    # BF16 batched matmul: B_bar @ u (optimized: single matmul instead of vmap)
+    # B_bar: (P, H) complex → input: (L, H) real → Bu: (L, P) complex
+    input_T = input_fp32.T.astype(np.bfloat16)  # (H, L) BF16
+    B_re = B_bar.real.astype(np.bfloat16)  # (P, H) BF16
+    B_im = B_bar.imag.astype(np.bfloat16)  # (P, H) BF16
+
+    # Single batched matmul (Tensor Core!) - replaces 12000 vmap calls
+    Bu_re = np.matmul(B_re, input_T)  # (P, L) BF16
+    Bu_im = np.matmul(B_im, input_T)  # (P, L) BF16
+
+    # Cast to FP32 for scan stability and transpose to (L, P)
+    Bu_elements = (Bu_re.astype(np.float32) + 1j * Bu_im.astype(np.float32)).T
     # jax.debug.print("[apply_ssm] Bu_elements has NaN: {}, dtype: {}", np.any(np.isnan(Bu_elements)), Bu_elements.dtype)  # DEBUG BF16
 
     # FP32 scan: binary_operator works on complex64 for numerical stability
@@ -322,11 +334,20 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
                                           reverse=True)
         xs = np.concatenate((xs, xs2), axis=-1)
 
-    # BF16 matmul: C_tilde @ x, returns complex64 (FP32) (Reference: 7DEC:159)
-    if conj_sym:
-        ys = jax.vmap(lambda x: 2 * complex_matvec_bf16(C_tilde, x).real)(xs)
-    else:
-        ys = jax.vmap(lambda x: complex_matvec_bf16(C_tilde, x).real)(xs)
+    # BF16 batched matmul: C_tilde @ xs (optimized: single matmul instead of vmap)
+    # C_tilde: (H, P) complex → xs: (L, P) complex → ys: (L, H) real
+    xs_T = xs.T  # (P, L) complex64
+    C_re = C_tilde.real.astype(np.bfloat16)  # (H, P) BF16
+    C_im = C_tilde.imag.astype(np.bfloat16)  # (H, P) BF16
+    xs_re = xs_T.real.astype(np.bfloat16)  # (P, L) BF16
+    xs_im = xs_T.imag.astype(np.bfloat16)  # (P, L) BF16
+
+    # Complex matmul: (C_re + i*C_im) @ (xs_re + i*xs_im) → take real part
+    # = C_re @ xs_re - C_im @ xs_im (real part)
+    ys_re = np.matmul(C_re, xs_re) - np.matmul(C_im, xs_im)  # (H, L) BF16
+
+    # Transpose and apply conjugate symmetry
+    ys = (2 * ys_re if conj_sym else ys_re).T.astype(np.float32)  # (L, H) FP32
 
     # jax.debug.print("[apply_ssm] Final ys has NaN: {}, dtype: {}, range: [{}, {}]", np.any(np.isnan(ys)), ys.dtype, np.min(ys), np.max(ys))  # DEBUG BF16
 
@@ -356,8 +377,13 @@ def apply_ssm_rnn(Lambda_bar, B_bar, C_tilde, hidden, input_sequence, resets, co
     # Broadcast Lambda_bar, keep as complex64 (FP32) for scan
     Lambda_elements = Lambda_bar * np.ones((input_fp32.shape[0], Lambda_bar.shape[0]))
 
-    # BF16 matmul: B_bar @ u, returns complex64 (FP32) for scan
-    Bu_elements = jax.vmap(lambda u: complex_matvec_bf16_real_x(B_bar, u))(input_fp32)
+    # BF16 batched matmul: B_bar @ u (single matmul instead of vmap)
+    input_T = input_fp32.T.astype(np.bfloat16)  # (H, L)
+    B_re = B_bar.real.astype(np.bfloat16)  # (P, H)
+    B_im = B_bar.imag.astype(np.bfloat16)  # (P, H)
+    Bu_re = np.matmul(B_re, input_T)  # (P, L)
+    Bu_im = np.matmul(B_im, input_T)  # (P, L)
+    Bu_elements = (Bu_re.astype(np.float32) + 1j * Bu_im.astype(np.float32)).T  # (L, P)
 
     # Prepend hidden state (complex64)
     Lambda_elements = np.concatenate([
@@ -387,11 +413,16 @@ def apply_ssm_rnn(Lambda_bar, B_bar, C_tilde, hidden, input_sequence, resets, co
     if bidirectional:
         raise ValueError("Cannot expect a bidirectional view if doing rnn")
 
-    # BF16 matmul: C_tilde @ x, returns complex64 (FP32) (Reference: 7DEC:200-201)
-    if conj_sym:
-        return hidden_out, jax.vmap(lambda x: 2 * complex_matvec_bf16(C_tilde, x).real)(xs)
-    else:
-        return hidden_out, jax.vmap(lambda x: complex_matvec_bf16(C_tilde, x).real)(xs)
+    # BF16 batched matmul: C_tilde @ xs (single matmul instead of vmap)
+    xs_T = xs.T  # (P, L)
+    C_re = C_tilde.real.astype(np.bfloat16)  # (H, P)
+    C_im = C_tilde.imag.astype(np.bfloat16)  # (H, P)
+    xs_re = xs_T.real.astype(np.bfloat16)  # (P, L)
+    xs_im = xs_T.imag.astype(np.bfloat16)  # (P, L)
+    ys_re = np.matmul(C_re, xs_re) - np.matmul(C_im, xs_im)  # (H, L)
+
+    ys = (2 * ys_re if conj_sym else ys_re).T.astype(np.float32)  # (L, H)
+    return hidden_out, ys
 
 
 class S5SSM(nn.Module):
@@ -579,8 +610,8 @@ class S5SSM(nn.Module):
 
         # jax.debug.print("[S5SSM.__call__] ys from apply_ssm has NaN: {}, dtype: {}", np.any(np.isnan(ys)), ys.dtype)  # DEBUG BF16
 
-        # D feedthrough in FP32
-        Du = jax.vmap(lambda u: self.D * u)(input_fp32)
+        # D feedthrough in FP32 (optimized: broadcast instead of vmap)
+        Du = self.D * input_fp32  # (H,) broadcast to (L, H)
         # jax.debug.print("[S5SSM.__call__] Du has NaN: {}", np.any(np.isnan(Du)))  # DEBUG BF16
 
         output = ys + Du
@@ -617,8 +648,8 @@ class S5SSM(nn.Module):
                                         self.conj_sym,
                                         self.bidirectional)
 
-        # D feedthrough in FP32
-        Du = jax.vmap(lambda u: self.D * u)(input_fp32)
+        # D feedthrough in FP32 (optimized: broadcast instead of vmap)
+        Du = self.D * input_fp32  # (H,) broadcast to (L, H)
         output = ys + Du
 
         return hidden_out, output
