@@ -78,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument('--test_split', type=float, default=0.1, help='Which test split to use')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for inference')
     parser.add_argument("--n_sequences", type=int, default=1024, help="Number of sequences to generate")
-
+    parser.add_argument("--n_cond_msgs", type=int, default=500, help="Number of sequences to generate")
 
     run_args = parser.parse_args()
 
@@ -87,15 +87,16 @@ if __name__ == "__main__":
     if run_args.stock == 'AMZN':
         data_dir = '/home/myuser/processed_data/AMZN/2024_Dec'
         ckpt_path='/home/myuser/checkpoints/ruby-aardvark-62_98nov1i7'
-        save_dir='/home/myuser/data/evalsequences/s5v2/AMZN/2024'
+        save_dir='/home/myuser/data/evalsequences/s5v2N5/AMZN/2024'
     if run_args.stock == 'GOOG':
         data_dir = '/home/myuser/data/processed_data/GOOG/2023_Jan'
         ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/twilight-sound-77_s42sujip'
-        save_dir='/home/myuser/data/evalsequences/s5v2/GOOG/2023_Jan'
+        save_dir='/home/myuser/data/evalsequences/s5v2N5/GOOG/2023_Jan'
     elif run_args.stock == 'INTC':
         data_dir = '/home/myuser/data/processed_data/INTC/2023_Jan'
         ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/dazzling-meadow-75_zpp3bf6z'
-        save_dir='/home/myuser/data/evalsequences/s5v2/INTC/2023_Jan'
+        save_dir='/home/myuser/data/evalsequences/s5v2N5/INTC/2023_Jan'
+    else:
         raise Warning("Saved Model was trained on GOOGLE data. Generating for TSLA")
         data_dir = '/data1/sascha/data/lobster_proc'
         ckpt_path = '/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5' # Dummy model trained on just 5 days... for debugging. 
@@ -103,7 +104,7 @@ if __name__ == "__main__":
     ##################################################
 
     n_gen_msgs = 500  #500 # how many messages to generate into the future
-    n_messages_conditional = 500
+    n_messages_conditional = run_args.n_cond_msgs
     n_eval_messages = n_gen_msgs  # how many to load from dataset 
     eval_seq_len = (n_eval_messages-1) * Message_Tokenizer.MSG_LEN
     cond_seq_len = (n_messages_conditional) * Message_Tokenizer.MSG_LEN
@@ -228,7 +229,7 @@ if __name__ == "__main__":
         save_folder=save_dir,
         sample_top_n= sample_top_n,
         args=args,
-        conditional= True,
+        conditional= True if n_messages_conditional>0 else False,
         overfit_debug=overfit_debug,
     )
     print(f"Generation time for {n_samples} sequences across {batch_size} batch size: {time()-start}")
