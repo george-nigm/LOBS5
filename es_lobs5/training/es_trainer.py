@@ -21,6 +21,8 @@ Key Features:
 - Policy can observe market changes before making decisions
 - Fitness = PnL (profit/loss based on execution quality)
 - Supports two background modes: world_model (autoregressive) and historical_replay (data)
+
+gymanx_exchange env path: https://github.com/KangOxford/JaxMARL-HFT
 """
 
 import os
@@ -131,11 +133,20 @@ def create_es_config():
     parser.add_argument('--lora_rank', type=int, default=4, help='LORA rank')
 
     # Training configuration
-    parser.add_argument('--n_threads', type=int, default=128, help='Population size')
+    parser.add_argument('--n_perturbations', type=int, default=128,
+                        help='Population size (number of ES perturbations, must be divisible by n_devices)')
+    # Legacy alias alias
+    parser.add_argument('--n_threads', type=int, default=None,
+                        help='[DEPRECATED] Use --n_perturbations instead')
     parser.add_argument('--n_epochs', type=int, default=1000, help='Training epochs')
     parser.add_argument('--n_steps', type=int, default=100, help='Steps per episode')
-    parser.add_argument('--world_msgs_per_step', type=int, default=10,
-                        help='Background messages per step')
+    parser.add_argument('--n_warmup_msgs', type=int, default=500,
+                        help='Number of warmup messages to replay before episode starts (0 = no warmup)')
+    parser.add_argument('--background_msgs_per_step', type=int, default=10,
+                        help='Background messages per step (applies to both world_model and historical_replay)')
+    # Legacy alias alias
+    parser.add_argument('--world_msgs_per_step', type=int, default=None,
+                        help='[DEPRECATED] Use --background_msgs_per_step instead')
 
     # Execution task
     parser.add_argument('--task', type=str, default='sell',
@@ -287,35 +298,50 @@ def transform_L2_state_wrapper(
     sim_state: 'LobState',
     price_levels: int = 500,
     tick_size: int = 100,
+    in_shard_map: bool = False,
 ) -> jnp.ndarray:
     """
     Convert JaxLOB sim_state to model book input.
 
     Args:
-        cfg: JaxLOB Configuration (required for get_L2_state)
+        cfg: JaxLOB Configuration (not used, kept for API compatibility)
         sim_state: JaxLOB LobState
         price_levels: Volume image size (default 500)
         tick_size: Tick size in cents
+        in_shard_map: If True, use pure versions without internal JIT to avoid
+                      device placement conflicts in shard_map context.
 
     Returns:
         book_feat: (503,) = [mid_diff, time_s_norm, time_ns_norm, volume_image(500)]
     """
     _lazy_import_jaxlob()
-    from gymnax_exchange.jaxob.JaxOrderBookArrays import get_L2_state
-    from preproc import transform_L2_state_gpu
+
+    # Select function versions based on context
+    if in_shard_map:
+        # Pure versions for shard_map compatibility (no internal JIT)
+        from gymnax_exchange.jaxob.JaxOrderBookArrays import get_L2_state_pure
+        from preproc import transform_L2_state_pure
+        _get_L2 = get_L2_state_pure
+        _transform = transform_L2_state_pure
+    else:
+        # Original JIT versions for single-GPU performance
+        from gymnax_exchange.jaxob.JaxOrderBookArrays import get_L2_state
+        from preproc import transform_L2_state_gpu
+        _get_L2 = get_L2_state
+        _transform = transform_L2_state_gpu
 
     # Extract L2 from JaxLOB
     # Note: get_L2_state signature is (asks, bids, n_levels, cfg)
-    l2_state = get_L2_state(sim_state.asks, sim_state.bids, 10, cfg)
+    l2_state = _get_L2(sim_state.asks, sim_state.bids, 10, cfg)
     l2_state = jnp.asarray(l2_state, dtype=jnp.int32)
 
     # Construct (43,) input
     metadata = jnp.array([0, 34200, 0], dtype=jnp.int32)
     book_input = jnp.concatenate([metadata, l2_state])
 
-    # Apply training transform (use GPU version for device consistency)
+    # Apply training transform
     book_input_batched = book_input[None, :]
-    book_feat_batched = transform_L2_state_gpu(book_input_batched, price_levels, tick_size)
+    book_feat_batched = _transform(book_input_batched, price_levels, tick_size)
     return book_feat_batched[0]
 
 
@@ -359,6 +385,25 @@ class ESTrainer:
         print("[INIT] Starting ESTrainer initialization")
 
         self.config = config
+
+        # Legacy alias: n_threads -> n_perturbations
+        if hasattr(config, 'n_threads') and getattr(config, 'n_threads', None) is not None:
+            if not hasattr(config, 'n_perturbations') or getattr(config, 'n_perturbations', 128) == 128:
+                print("[WARN] --n_threads is deprecated, use --n_perturbations instead")
+                config.n_perturbations = config.n_threads
+        # Ensure n_perturbations exists
+        if not hasattr(config, 'n_perturbations'):
+            config.n_perturbations = getattr(config, 'n_threads', 128)
+
+        # Legacy alias: world_msgs_per_step -> background_msgs_per_step
+        if hasattr(config, 'world_msgs_per_step') and getattr(config, 'world_msgs_per_step', None) is not None:
+            if not hasattr(config, 'background_msgs_per_step') or getattr(config, 'background_msgs_per_step', 10) == 10:
+                print("[WARN] --world_msgs_per_step is deprecated, use --background_msgs_per_step instead")
+                config.background_msgs_per_step = config.world_msgs_per_step
+        # Ensure background_msgs_per_step exists
+        if not hasattr(config, 'background_msgs_per_step'):
+            config.background_msgs_per_step = getattr(config, 'world_msgs_per_step', 10)
+
         _lazy_import_jaxlob()
 
         # Load LOBS5 checkpoint
@@ -376,7 +421,7 @@ class ESTrainer:
         self._init_historical_replay_data()
 
         print("[INIT] ESTrainer initialization complete")
-        print(f"[INIT]   n_threads: {config.n_threads}")
+        print(f"[INIT]   n_perturbations: {config.n_perturbations}")
         print(f"[INIT]   n_steps: {config.n_steps}")
         print(f"[INIT]   background_mode: {config.background_mode}")
 
@@ -433,7 +478,8 @@ class ESTrainer:
         from dataclasses import replace
 
         # Calculate required capacity
-        expected_orders = 500 + self.config.n_steps * (self.config.world_msgs_per_step + 1)
+        n_warmup = getattr(self.config, 'n_warmup_msgs', 500)
+        expected_orders = n_warmup + self.config.n_steps * (self.config.background_msgs_per_step + 1)
         n_orders = max(1000, int(expected_orders * 1.5))
         n_trades = max(500, self.config.n_steps * 2)
 
@@ -442,11 +488,16 @@ class ESTrainer:
         self.jaxlob_cfg = jaxlob_cfg  # Store for use in get_mid_price
         self.sim = OrderBook(cfg=jaxlob_cfg)
 
+        print(f"[INIT] JaxLOB OrderBook initialized:")
+        print(f"  nOrders: {n_orders} (capacity for order book)")
+        print(f"  nTrades: {n_trades} (capacity for trade history)")
+        print(f"  expected_orders: {expected_orders} ({n_warmup} warmup + {self.config.n_steps} steps × {self.config.background_msgs_per_step + 1} msgs)")
+
         # Create encoder from Vocab
         from lob.encoding import Vocab
         vocab = Vocab(token_mode=self.config.token_mode)
         self.encoder = vocab.ENCODING
-        print(f"[INIT] Using token_mode={self.config.token_mode}")
+        print(f"[INIT] token_mode: {self.config.token_mode}")
 
     def _init_historical_replay_data(self):
         """Pre-load historical data for replay mode."""
@@ -489,7 +540,7 @@ class ESTrainer:
         Reference: HyperscaleES/llm_experiments/general_do_evolution_multi_gpu.py
 
         Args:
-            x: Array to shard (typically population data with leading dimension = n_threads)
+            x: Array to shard (typically population data with leading dimension = n_perturbations)
 
         Returns:
             Sharded array distributed across devices
@@ -545,17 +596,37 @@ class ESTrainer:
         init_l2_book = jnp.array(ob[0, 3:43], dtype=jnp.int32)
         sim_state = self.sim.reset(init_l2_book)
 
-        # Replay first 500 messages
-        n_replay = min(500, len(msg))
+        # Replay warmup messages to initialize order book state
+        n_init_background_msgs = getattr(self.config, 'n_warmup_msgs', 500)
+        n_replay = min(n_init_background_msgs, len(msg))
         replay_msgs_raw = msg[:n_replay]
         replay_jaxlob = msgs_to_jnp(replay_msgs_raw)
         sim_state = self.sim.process_orders_array(sim_state, replay_jaxlob)
 
         # Encode messages as context
-        tokens = encode_msgs(replay_msgs_raw, self.encoder, token_mode=self.config.token_mode)
-        msg_history = tokens.flatten()
+        # msg_seq_len from frozen_params determines expected context size
+        msg_seq_len = self.lobs5_init.frozen_params.get('msg_seq_len', 500)
+        expected_context_len = msg_seq_len * self.config.token_mode
 
-        print(f"  Initialized with {n_replay} messages, context size: {msg_history.shape}")
+        if n_replay > 0:
+            tokens = encode_msgs(replay_msgs_raw, self.encoder, token_mode=self.config.token_mode)
+            msg_history = tokens.flatten()
+            # Pad or truncate to expected size
+            if len(msg_history) < expected_context_len:
+                # Pad with zeros at the beginning
+                msg_history = jnp.concatenate([
+                    jnp.zeros(expected_context_len - len(msg_history), dtype=msg_history.dtype),
+                    msg_history
+                ])
+            elif len(msg_history) > expected_context_len:
+                # Keep most recent tokens
+                msg_history = msg_history[-expected_context_len:]
+        else:
+            # No warmup - initialize with zeros
+            msg_history = jnp.zeros(expected_context_len, dtype=jnp.int32)
+
+        print(f"  n_init_background_msgs (warmup): {n_replay}")
+        print(f"  context_size: {msg_history.shape} (expected: {expected_context_len})")
 
         return sim_state, msg_history
 
@@ -682,7 +753,7 @@ class ESTrainer:
         3. JIT compile with proper in_axes
 
         H1: When multi-GPU is available, uses shard_map to distribute threads
-        across devices. Each device runs n_threads/n_devices threads in parallel.
+        across devices. Each device runs n_perturbations/n_devices threads in parallel.
 
         H2: When using shard_map, passes in_shard_map=True to _build_eval_thread
         so that pvary is applied to scan carry values.
@@ -709,7 +780,7 @@ class ESTrainer:
             # Strategy:
             # - shard_map distributes data across devices (outer layer)
             # - vmap handles threads per device (inner layer)
-            # - Each device gets n_threads/n_devices threads
+            # - Each device gets n_perturbations/n_devices threads
             #
             # H2: in_shard_map=True enables pvary for scan carry values
             # ====================================================================
@@ -717,7 +788,7 @@ class ESTrainer:
             print(f"[H2] pvary enabled for scan carry values")
 
             # Inner vmap: vectorize over keys and thread_ids within each device
-            # After sharding, each device sees (n_threads/n_devices,) shaped arrays
+            # After sharding, each device sees (n_perturbations/n_devices,) shaped arrays
             vmapped_eval = jax.vmap(
                 _eval_thread,
                 in_axes=(None, None, 0, 0, None, None, None)
@@ -896,7 +967,7 @@ class ESTrainer:
             msg_history = jnp.zeros((context_len,), dtype=jnp.int32)
 
         book_depth = fp.get('book_depth', 500)
-        book_feat = transform_L2_state_wrapper(jaxlob_cfg, sim_state, price_levels=book_depth, tick_size=config.tick_size)
+        book_feat = transform_L2_state_wrapper(jaxlob_cfg, sim_state, price_levels=book_depth, tick_size=config.tick_size, in_shard_map=in_shard_map)
 
         task_size = jnp.int32(config.task_size)
 
@@ -921,7 +992,7 @@ class ESTrainer:
                 sim_msg = sim_msg.at[5].set(-2000)
 
                 sim_st = process_order_array(sim_st, sim_msg)
-                book_f = transform_L2_state_wrapper(jaxlob_cfg, sim_st, price_levels=book_depth, tick_size=config.tick_size)
+                book_f = transform_L2_state_wrapper(jaxlob_cfg, sim_st, price_levels=book_depth, tick_size=config.tick_size, in_shard_map=in_shard_map)
                 msg_hist = jnp.concatenate([msg_hist[msg_len:], replayed_msg_tokens])
 
                 new_replay_ptr = replay_ptr + 1
@@ -975,16 +1046,17 @@ class ESTrainer:
                 )
 
                 sim_st = process_order_array(sim_st, sim_msg)
-                book_f = transform_L2_state_wrapper(jaxlob_cfg, sim_st, price_levels=book_depth, tick_size=config.tick_size)
+                book_f = transform_L2_state_wrapper(jaxlob_cfg, sim_st, price_levels=book_depth, tick_size=config.tick_size, in_shard_map=in_shard_map)
                 msg_hist = jnp.concatenate([msg_hist[msg_len:], world_msg])
                 oid_offset = oid_offset + 1
 
                 return (key, msg_hist, hidden, sim_st, book_f, oid_offset, replay_ptr), world_msg
 
             # Select background generation function
+            n_warmup_cfg = getattr(config, 'n_warmup_msgs', 500)
             if config.background_mode == 'historical_replay':
                 step_fn_background = historical_replay_step
-                replay_ptr_init = jnp.int32(500 + step_idx * config.world_msgs_per_step)
+                replay_ptr_init = jnp.int32(n_warmup_cfg + step_idx * config.background_msgs_per_step)
             else:
                 step_fn_background = world_model_step
                 replay_ptr_init = jnp.int32(0)
@@ -1004,8 +1076,8 @@ class ESTrainer:
              world_oid_offset, _), _ = jax.lax.scan(
                 step_fn_background,
                 background_scan_init,
-                jnp.arange(config.world_msgs_per_step),
-                length=config.world_msgs_per_step,
+                jnp.arange(config.background_msgs_per_step),
+                length=config.background_msgs_per_step,
             )
 
             # Policy generates action
@@ -1075,7 +1147,7 @@ class ESTrainer:
             quant_executed = quant_executed + step_executed
 
             # Update state
-            book_feat = transform_L2_state_wrapper(jaxlob_cfg, sim_state, price_levels=book_depth, tick_size=config.tick_size)
+            book_feat = transform_L2_state_wrapper(jaxlob_cfg, sim_state, price_levels=book_depth, tick_size=config.tick_size, in_shard_map=in_shard_map)
             msg_history = jnp.concatenate([msg_history[msg_len:], policy_msg])
 
             return (key, msg_history, hiddens_world, hiddens_policy, sim_state,
@@ -1175,29 +1247,31 @@ class ESTrainer:
         initial_msg_history: Optional[jnp.ndarray] = None,
     ) -> Tuple[float, jnp.ndarray, Dict]:
         """Run one training epoch."""
-        n_threads = self.config.n_threads
+        n_perturbations = self.config.n_perturbations
         n_devices = getattr(self, '_n_devices', 1)
 
         # ========================================================================
-        # H1: Validate n_threads divisibility for shard_map
-        # When using multi-GPU, n_threads must be evenly divisible by n_devices
-        # so each device gets the same number of threads to evaluate.
+        # H1: Validate n_perturbations divisibility for shard_map
+        # When using multi-GPU, n_perturbations must be evenly divisible by n_devices
+        # so each device gets the same number of perturbations to evaluate.
         # ========================================================================
         if n_devices > 1:
-            assert n_threads % n_devices == 0, \
-                f"[H1 ERROR] n_threads ({n_threads}) must be divisible by n_devices ({n_devices}). " \
-                f"Consider using n_threads={n_devices * (n_threads // n_devices)} or n_threads={n_devices * ((n_threads // n_devices) + 1)}"
+            assert n_perturbations % n_devices == 0, \
+                f"[H1 ERROR] n_perturbations ({n_perturbations}) must be divisible by n_devices ({n_devices}). " \
+                f"Consider using n_perturbations={n_devices * (n_perturbations // n_devices)} or n_perturbations={n_devices * ((n_perturbations // n_devices) + 1)}"
 
-        # Generate keys for all threads
-        keys = jax.random.split(key, n_threads)
-        thread_ids = jnp.arange(n_threads)
+        # Generate keys for all perturbations
+        keys = jax.random.split(key, n_perturbations)
+        thread_ids = jnp.arange(n_perturbations)
 
         # ========================================================================
         # G1 + H1: Use pre-compiled eval_batch function
         # The function was compiled in __init__ and is reused here.
         # Arguments: (noiser_params, params, keys, thread_ids, epoch, sim_state, msg_history)
         #
-        # H2: For multi-GPU with shard_map, replicate params to all devices
+        # H2: For multi-GPU with shard_map, shard inputs correctly across devices
+        # - params/noiser_params: P() replicated to all devices
+        # - keys/thread_ids: P('data') sharded across devices for parallel eval
         # ========================================================================
         n_devices = getattr(self, '_n_devices', 1)
 
@@ -1210,6 +1284,16 @@ class ESTrainer:
             params_rep = jax.device_put(
                 self.lobs5_init.params,
                 NamedSharding(self._mesh, P())
+            )
+            # Shard keys and thread_ids across devices for parallel evaluation
+            # Each device gets (n_perturbations/n_devices) threads to evaluate
+            keys = jax.device_put(
+                keys,
+                NamedSharding(self._mesh, P('data'))
+            )
+            thread_ids = jax.device_put(
+                thread_ids,
+                NamedSharding(self._mesh, P('data'))
             )
         else:
             # Single GPU: use params as-is
@@ -1228,24 +1312,43 @@ class ESTrainer:
 
         # ES gradient update
         iterinfos = (
-            jnp.full(n_threads, epoch, dtype=jnp.int32),
+            jnp.full(n_perturbations, epoch, dtype=jnp.int32),
             thread_ids
         )
 
+        # ========================================================================
+        # H2: Use replicated params for gradient updates in multi-GPU mode
+        # The fitnesses returned from shard_map are sharded, so params must
+        # also be replicated to avoid device mismatch in do_updates
+        # ========================================================================
         normalized_fitnesses = self.noiser_cls.convert_fitnesses(
-            self.frozen_noiser_params, self.noiser_params, fitnesses
+            self.frozen_noiser_params, noiser_params_rep, fitnesses
         )
 
-        self.noiser_params, updated_params = self.noiser_cls.do_updates(
+        noiser_params_updated, updated_params = self.noiser_cls.do_updates(
             self.frozen_noiser_params,
-            self.noiser_params,
-            self.lobs5_init.params,
+            noiser_params_rep,
+            params_rep,
             self.es_tree_key,
             normalized_fitnesses,
             iterinfos,
             self.lobs5_init.es_map,
         )
-        self.lobs5_init.params = updated_params
+
+        # Extract updated params back to single device for storage
+        if n_devices > 1 and hasattr(self, '_mesh'):
+            # Get first shard from replicated params
+            self.noiser_params = jax.tree.map(
+                lambda x: jax.device_put(x, jax.devices()[0]),
+                noiser_params_updated
+            )
+            self.lobs5_init.params = jax.tree.map(
+                lambda x: jax.device_put(x, jax.devices()[0]),
+                updated_params
+            )
+        else:
+            self.noiser_params = noiser_params_updated
+            self.lobs5_init.params = updated_params
 
         aggregated_info = {k: jnp.mean(v) for k, v in infos.items()}
 
@@ -1299,9 +1402,9 @@ class ESTrainer:
             wandb_run = wandb.init(
                 project=self.config.wandb_project,
                 entity=self.config.wandb_entity,
-                name=f"es_jaxlob_n{self.config.n_threads}_s{self.config.seed}",
+                name=f"es_jaxlob_n{self.config.n_perturbations}_s{self.config.seed}",
                 config={
-                    'n_threads': self.config.n_threads,
+                    'n_perturbations': self.config.n_perturbations,
                     'n_steps': self.config.n_steps,
                     'noiser': self.config.noiser,
                     'sigma': self.config.sigma,
