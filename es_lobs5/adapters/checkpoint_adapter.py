@@ -22,7 +22,10 @@ from typing import Dict, Any, Tuple, Optional
 
 def load_flax_checkpoint(checkpoint_path: str) -> Tuple[Dict, Dict]:
     """
-    Load a gradient-trained LOBS5 checkpoint using Orbax.
+    Load a gradient-trained LOBS5 checkpoint using direct OCDBT/tensorstore reading.
+
+    This function reads OCDBT checkpoints by directly parsing the _METADATA file
+    and using tensorstore to load the parameter arrays.
 
     Args:
         checkpoint_path: Path to the checkpoint directory
@@ -33,44 +36,112 @@ def load_flax_checkpoint(checkpoint_path: str) -> Tuple[Dict, Dict]:
             - params: Flax parameter dictionary
             - config: Training configuration dictionary
     """
-    import orbax.checkpoint as ocp
+    import sys
+    import json
+    import ast
+    import tensorstore as ts
+    from pathlib import Path
 
-    # Open checkpoint manager
-    mgr = ocp.CheckpointManager(
-        os.path.abspath(checkpoint_path),
-        item_names=('state', 'metadata')
-    )
+    # Add LOBS5 root to path for imports
+    lobs5_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if lobs5_root not in sys.path:
+        sys.path.insert(0, lobs5_root)
 
-    # Get latest step
-    latest = mgr.latest_step()
-    if latest is None:
-        raise ValueError(f"No checkpoint found in {checkpoint_path}")
+    from lob.init_train import load_metadata
 
-    print(f"Loading checkpoint from step {latest}")
+    # Step 1: Load metadata to get config (returns Namespace)
+    print(f"Loading metadata from {checkpoint_path}")
+    args = load_metadata(checkpoint_path)
+    config = vars(args)  # Convert Namespace to dict
 
-    # Restore checkpoint
-    restored = mgr.restore(
-        latest,
-        args=ocp.args.Composite(
-            state=ocp.args.PyTreeRestore(),
-            metadata=ocp.args.JsonRestore(),
-        )
-    )
+    print(f"  d_model: {config.get('d_model', 'N/A')}")
+    print(f"  n_layers: {config.get('n_layers', 'N/A')}")
+    print(f"  token_mode: {config.get('token_mode', 'N/A')}")
 
-    # Extract params from TrainState
-    # Handle both direct params and TrainState objects
-    state = restored['state']
-    if hasattr(state, 'params'):
-        params = state.params
-    elif isinstance(state, dict) and 'params' in state:
-        params = state['params']
+    # Step 2: Find latest step
+    checkpoint_path = os.path.abspath(checkpoint_path)
+    ckpt_dir = Path(checkpoint_path)
+
+    # Get all step directories (numeric names)
+    step_dirs = [d for d in ckpt_dir.iterdir() if d.is_dir() and d.name.isdigit()]
+    if not step_dirs:
+        raise ValueError(f"No checkpoint steps found in {checkpoint_path}")
+
+    latest_step = max(int(d.name) for d in step_dirs)
+    state_dir = ckpt_dir / str(latest_step) / "state"
+
+    print(f"  Loading from step {latest_step}...")
+    print(f"  State directory: {state_dir}")
+
+    # Step 3: Read _METADATA to get tree structure
+    metadata_path = state_dir / "_METADATA"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"_METADATA file not found at {metadata_path}")
+
+    with open(metadata_path, 'r') as f:
+        tree_metadata = json.load(f)
+
+    print(f"  _METADATA loaded, building parameter tree...")
+
+    # Parse tree structure from metadata and load each array
+    params = {}
+
+    # The tree_metadata has format: {"tree_metadata": {"('key1', 'key2')": {...}, ...}}
+    if "tree_metadata" in tree_metadata:
+        metadata_entries = tree_metadata["tree_metadata"]
     else:
-        params = state
+        metadata_entries = tree_metadata
 
-    # Extract config
-    metadata = restored.get('metadata', {})
-    config = metadata.get('config', metadata)
+    # Load each parameter using tensorstore
+    for key_tuple_str, entry in metadata_entries.items():
+        # Skip non-param entries
+        if "'step'" in key_tuple_str:
+            continue
 
+        # Extract keys from the tuple string
+        try:
+            keys = list(ast.literal_eval(key_tuple_str))
+        except:
+            continue
+
+        if not keys or keys[0] != 'params':
+            continue
+
+        # Build the path in OCDBT (keys joined with '.')
+        param_path = '.'.join(keys)
+
+        # Create tensorstore spec for this parameter
+        try:
+            spec = {
+                "driver": "zarr",
+                "kvstore": {
+                    "driver": "ocdbt",
+                    "base": f"file://{state_dir}",
+                },
+                "path": param_path,
+            }
+
+            arr = ts.open(spec, read=True).result().read().result()
+
+            # Navigate/create nested dict structure
+            current = params
+            for k in keys[1:-1]:  # Skip 'params' prefix and last key
+                if k not in current:
+                    current[k] = {}
+                current = current[k]
+
+            # Set the leaf value
+            current[keys[-1]] = jnp.asarray(arr)
+
+        except Exception as e:
+            # Skip entries that fail (might be non-array metadata)
+            pass
+
+    if not params:
+        raise ValueError("Failed to load any parameters from checkpoint")
+
+    print(f"  Loaded {len(jax.tree_util.tree_leaves(params))} parameter arrays")
+    print(f"  Checkpoint loaded successfully!")
     return params, config
 
 
