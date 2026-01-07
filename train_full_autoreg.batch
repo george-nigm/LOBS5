@@ -232,7 +232,6 @@ cd /lus/lfs1aip2/home/s5e/kangli.s5e/AlphaTrade/LOBS5
 # ssm_lr_base: 0.0002 (1-node) * 25 = 0.0005 (linear scaling)
 # Original preset: --model_preset=360M
 python -u -B run_train.py \
-    --model_preset='"$MODEL_PRESET"' \
     --USE_WANDB=True \
     --d_model=2048 \
     --n_layers=24 \

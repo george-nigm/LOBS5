@@ -450,12 +450,19 @@ class ESTrainer:
         Note: solver=None uses default optax.sgd. The init_noiser API expects
         a callable (like optax.sgd), not a pre-built optimizer chain.
         See learned_lessons.md Lesson 4 for details.
+
+        For EggRollBS (baseline subtraction), group_size must be > 0.
+        Threads 0,1 in each group are baselines (no noise).
         """
         config = self.config
         all_noisers = _get_all_noisers()
         NOISER = all_noisers[config.noiser]
 
         self.noiser_cls = NOISER
+
+        # Get group_size from config (required for EggRollBS, default 0 for EggRoll)
+        group_size = getattr(config, 'group_size', 0)
+
         self.frozen_noiser_params, self.noiser_params = NOISER.init_noiser(
             self.lobs5_init.params,
             sigma=config.sigma,
@@ -463,6 +470,7 @@ class ESTrainer:
             rank=config.lora_rank,
             freeze_nonlora=False,
             noise_reuse=0,
+            group_size=group_size,
             solver=None,  # Uses default optax.sgd
         )
 
@@ -520,7 +528,11 @@ class ESTrainer:
         if len(message_files) == 0:
             raise FileNotFoundError(f"No message files found in {data_path}")
 
-        file_idx = np.random.randint(0, len(message_files))
+        # Use fixed file_idx if specified, otherwise random
+        if hasattr(self.config, 'file_idx') and self.config.file_idx is not None:
+            file_idx = self.config.file_idx % len(message_files)
+        else:
+            file_idx = np.random.randint(0, len(message_files))
         selected_file = message_files[file_idx]
 
         self.replay_data_date = os.path.basename(selected_file).split('_')[1]
@@ -1187,17 +1199,25 @@ class ESTrainer:
         if is_sell_task:
             sell_revenue = jnp.sum(jnp.where(is_policy_trade, trades[:, 0] * jnp.abs(trades[:, 1]), 0))
             sell_quantity = jnp.sum(jnp.where(is_policy_trade, jnp.abs(trades[:, 1]), 0))
-            pnl = (sell_revenue - init_mid_price * sell_quantity) / 1e6
+            pnl_raw = sell_revenue - init_mid_price * sell_quantity
             agent_quantity = sell_quantity
         else:
             buy_cost = jnp.sum(jnp.where(is_policy_trade, trades[:, 0] * jnp.abs(trades[:, 1]), 0))
             buy_quantity = jnp.sum(jnp.where(is_policy_trade, jnp.abs(trades[:, 1]), 0))
-            pnl = (init_mid_price * buy_quantity - buy_cost) / 1e6
+            pnl_raw = init_mid_price * buy_quantity - buy_cost
             agent_quantity = buy_quantity
 
-        # Completion penalty
-        shortfall = jnp.maximum(config.task_size - agent_quantity, 0)
-        completion_penalty = -shortfall * init_mid_price / 1e6 * 0.1
+        # Normalize PnL to -1 to 1 range using tanh
+        # pnl_normalized = "number of ticks improvement for full task execution"
+        # e.g., if you execute all task_size shares 1 tick better than mid, pnl_normalized = 1.0
+        normalization_scale = config.task_size * config.tick_size
+        pnl_normalized = pnl_raw / jnp.maximum(normalization_scale, 1.0)
+        pnl = jnp.tanh(pnl_normalized)  # squash to -1 to 1, 0 = executed at mid price
+
+        # Completion penalty (disabled - penalty was too large relative to PnL signal)
+        # shortfall = jnp.maximum(config.task_size - agent_quantity, 0)
+        # completion_penalty = -shortfall * init_mid_price / 1e6 * 0.1
+        completion_penalty = jnp.float32(0.0)
 
         total_trades = jnp.sum(valid_trades_mask)
         agent_trades = jnp.sum(is_policy_trade)
@@ -1212,7 +1232,9 @@ class ESTrainer:
 
         info = {
             'fitness': fitness,
-            'pnl': pnl,
+            'pnl': pnl,                        # normalized to -1 to 1 (tanh)
+            'pnl_raw': pnl_raw,                # raw value in cents
+            'pnl_normalized': pnl_normalized,  # before tanh (in "ticks")
             'agent_quantity': agent_quantity,
             'agent_trades': agent_trades,
             'total_trades': total_trades,
