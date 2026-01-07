@@ -117,6 +117,74 @@ def _lazy_import_jaxlob():
         get_best_bid_and_ask = _get_best_bid_and_ask
 
 
+# ============================================================================
+# Field-Aware Token Masking for Constrained Decoding (24-token mode)
+# ============================================================================
+# Direct implementation for 24-token vocabulary structure:
+#   Special: 0-3 (MASK, HIDDEN, NA, START)
+#   time: 4-1003 (1000 values)
+#   event_type: 1004-1007 (4 values: 1=new, 2=cancel, 3=delete, 4=execute)
+#   size_digit: 1008-1107 (100 values: 0-99 for base-100)
+#   price: 1108-2107 (1000 values: 0-999)
+#   sign: 2108-2109 (2 values: -1, 1)
+#   direction: 2110-2111 (2 values: 0=sell, 1=buy)
+# ============================================================================
+
+# Position -> (field_name, token_min, token_max) for 24-token messages
+POSITION_TOKEN_RANGES_24 = {
+    0: ("event_type", 1004, 1007),
+    1: ("direction", 2110, 2111),
+    2: ("price_sign", 2108, 2109),
+    3: ("price", 1108, 2107),
+    4: ("size_high", 1008, 1107),
+    5: ("size_low", 1008, 1107),
+    6: ("delta_t_s", 4, 1003),
+    7: ("delta_t_ns_0", 4, 1003),
+    8: ("delta_t_ns_1", 4, 1003),
+    9: ("delta_t_ns_2", 4, 1003),
+    10: ("time_s_0", 4, 1003),
+    11: ("time_s_1", 4, 1003),
+    12: ("time_ns_0", 4, 1003),
+    13: ("time_ns_1", 4, 1003),
+    14: ("time_ns_2", 4, 1003),
+    15: ("price_ref_sign", 2108, 2109),
+    16: ("price_ref", 1108, 2107),
+    17: ("size_ref_high", 1008, 1107),
+    18: ("size_ref_low", 1008, 1107),
+    19: ("time_s_ref_0", 4, 1003),
+    20: ("time_s_ref_1", 4, 1003),
+    21: ("time_ns_ref_0", 4, 1003),
+    22: ("time_ns_ref_1", 4, 1003),
+    23: ("time_ns_ref_2", 4, 1003),
+}
+
+_FIELD_MASKS_24 = None
+
+def get_field_masks_24(vocab_size: int = 2112):
+    """Get field masks for constrained decoding (additive mask format).
+
+    Creates masks directly from POSITION_TOKEN_RANGES_24, avoiding
+    syntax_validation_matrix which has compatibility issues with 24-token mode.
+
+    Returns:
+        jnp.array of shape (24, vocab_size) where:
+        - 0.0 for valid tokens
+        - -1e9 for invalid tokens
+    """
+    global _FIELD_MASKS_24
+    if _FIELD_MASKS_24 is None:
+        masks = []
+        for pos in range(24):
+            _, tok_min, tok_max = POSITION_TOKEN_RANGES_24[pos]
+            # Start with -1e9 (invalid) for all tokens
+            mask = jnp.full(vocab_size, -1e9)
+            # Set valid range to 0.0
+            mask = mask.at[tok_min:tok_max+1].set(0.0)
+            masks.append(mask)
+        _FIELD_MASKS_24 = jnp.stack(masks)
+    return _FIELD_MASKS_24
+
+
 def create_es_config():
     """Create argument parser for ES training configuration."""
     parser = argparse.ArgumentParser(description='ES JaxLOB Training for LOBS5')
@@ -1146,6 +1214,11 @@ class ESTrainer:
 
         task_size = jnp.int32(config.task_size)
 
+        # Pre-compute field masks OUTSIDE step_fn to avoid JAX tracer leak
+        # These masks constrain each token position to valid vocabulary ranges
+        vocab_size = fp.get('d_output', 2112)  # Default 2112 for 24-token mode
+        field_masks = get_field_masks_24(vocab_size=vocab_size)
+
         def step_fn(carry, step_idx):
             """Single step: Background messages -> Policy action."""
             (key, msg_history, hiddens_world, hiddens_policy,
@@ -1255,8 +1328,22 @@ class ESTrainer:
                 length=config.background_msgs_per_step,
             )
 
-            # Policy generates action
-            def sample_policy_token(token_carry, _):
+            # Policy generates action with field-aware constrained decoding
+            # field_masks is pre-computed OUTSIDE step_fn to avoid tracer leak
+
+            def sample_policy_token(token_carry, token_pos):
+                """Sample next token with field-aware masking.
+
+                Args:
+                    token_carry: (key, msg_history, hiddens)
+                    token_pos: Current position in 24-token message (0-23)
+
+                The field mask ensures tokens are only sampled from valid ranges:
+                - pos 0 (event_type): tokens 1004-1007
+                - pos 1 (direction): tokens 2110-2111
+                - pos 2 (price_sign): tokens 2108-2109
+                - etc.
+                """
                 key_p, msg_hist_p, hidden_p = token_carry
                 key_p, sample_key_p = jax.random.split(key_p)
 
@@ -1266,7 +1353,12 @@ class ESTrainer:
                 hidden_p = jax.tree.map(lambda h: h[:, -1:, :], hidden_p)
 
                 log_probs_p = jnp.nan_to_num(log_probs_p, nan=-1e9, posinf=1e9, neginf=-1e9)
-                next_token_p = jax.random.categorical(sample_key_p, log_probs_p[-1])
+
+                # Apply field-aware mask: add -inf to invalid token positions
+                field_mask = field_masks[token_pos]
+                masked_log_probs = log_probs_p[-1] + field_mask
+
+                next_token_p = jax.random.categorical(sample_key_p, masked_log_probs)
 
                 msg_hist_p = jnp.concatenate([msg_hist_p[1:], jnp.array([next_token_p])])
 
@@ -1279,10 +1371,11 @@ class ESTrainer:
                 maybe_pvary(msg_history),
                 maybe_pvary_tree(hiddens_policy),
             )
+            # Pass token positions (0-23) as xs to enable field-aware masking
             (key_policy, msg_history, hiddens_policy), policy_msg = jax.lax.scan(
                 sample_policy_token,
                 policy_token_init,
-                None,
+                jnp.arange(msg_len, dtype=jnp.int32),
                 length=msg_len,
             )
 
