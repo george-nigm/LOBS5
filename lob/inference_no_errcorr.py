@@ -46,23 +46,20 @@ import gymnax_exchange.jaxob.jaxob_constants as cst
 import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 # from gym_exchange.environment.base_env.assets.action import OrderIdGenerator
 
+# Import lightweight message utilities (to avoid circular deps)
+from lob.message_utils import (
+    msg_to_jnp, msgs_to_jnp, construct_sim_msg, construct_dummy_sim_msg,
+    ORDER_ID_i, EVENT_TYPE_i, DIRECTION_i, PRICE_ABS_i, PRICE_i, SIZE_i,
+    DTs_i, DTns_i, TIMEs_i, TIMEns_i, PRICE_REF_i, SIZE_REF_i, TIMEs_REF_i, TIMEns_REF_i,
+)
+
+# REF_LEN: Number of tokens for reference fields (price_ref, size_ref, time_s_ref, time_ns_ref)
+# NOTE: Computed at import time using Message_Tokenizer defaults (now 24-token mode)
+# For 24-token: MSG_LEN=24, NEW_MSG_LEN=15, REF_LEN=9
+# For 22-token: MSG_LEN=22, NEW_MSG_LEN=14, REF_LEN=8
 REF_LEN = Message_Tokenizer.MSG_LEN - Message_Tokenizer.NEW_MSG_LEN
 
-# indices for DECODED message fields
-ORDER_ID_i = 0
-EVENT_TYPE_i = 1
-DIRECTION_i = 2
-PRICE_ABS_i = 3
-PRICE_i = 4
-SIZE_i = 5
-DTs_i = 6
-DTns_i = 7
-TIMEs_i = 8
-TIMEns_i = 9
-PRICE_REF_i = 10
-SIZE_REF_i = 11
-TIMEs_REF_i = 12
-TIMEns_REF_i = 13
+# REMOVED: Field indices now imported from lob.message_utils (line 50-55)
 
 l2_state_n = 10
 
@@ -108,27 +105,7 @@ def df_msgs_to_jnp(m_df: pd.DataFrame) -> jnp.ndarray:
     mJNP = jnp.array(m_df)
     return mJNP
 
-@jax.jit
-def msg_to_jnp(
-        m_raw: jax.Array,
-    ) -> jax.Array:
-    """ Select only the relevant columns from the raw messages
-        and rearrange for simulator.
-    """
-    m = m_raw.copy()
-    
-    return jnp.array([
-        m[EVENT_TYPE_i],
-        (m[DIRECTION_i] * 2) - 1,
-        m[SIZE_i],
-        m[PRICE_ABS_i],
-        0, # TradeID
-        m[ORDER_ID_i],
-        m[TIMEs_i],
-        m[TIMEns_i],
-    ])
-
-msgs_to_jnp = jax.jit(jax.vmap(msg_to_jnp))
+# REMOVED: msg_to_jnp and msgs_to_jnp now imported from lob.message_utils (line 50-52)
 
 # # NOTE: cannot jit due to side effects --> resolve later
 # @jax.jit
@@ -196,6 +173,7 @@ def get_dataset(
         n_messages: int,
         n_eval_messages: int,
         *,
+        token_mode: int = 24,  # Added: token mode for encoding (24 = base-100 size)
         n_cache_files: int = 500,
         seed: int = 42,
         book_depth: int = 500,
@@ -205,9 +183,9 @@ def get_dataset(
     ):
     msg_files = sorted(glob(str(data_dir) + '/*message*.npy'))
     book_files = sorted(glob(str(data_dir) + '/*book*.npy'))
-    
+
     if day_indeces is not None:
-        #restricts the data to only include certain days. 
+        #restricts the data to only include certain days.
         msg_files=[msg_files[i] for i in day_indeces]
         book_files=[book_files[i] for i in day_indeces]
     if test_split>0:
@@ -227,8 +205,9 @@ def get_dataset(
         book_transform=False,
         book_depth=book_depth,
         return_raw_msgs=True,
-        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message. 
+        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message.
         limit_seq_per_file=limit_seq,
+        token_mode=token_mode,  # Added: pass token_mode to LOBSTER_Dataset
     )
     return ds
 
@@ -270,11 +249,12 @@ def get_sim_msg(
         new_order_id: int,
         tick_size: int,
         encoder: Dict[str, Tuple[jax.Array, jax.Array]],
+        token_mode: int = 24,  # token mode for decode_msg
     ) -> Dict[str, Any]:
     """"""
     # decoded predicted message
     # pred_msg = tok.decode(pred_msg_enc, v).squeeze()
-    msg_decoded = encoding.decode_msg(pred_msg_enc, encoder)
+    msg_decoded = encoding.decode_msg(pred_msg_enc, encoder, token_mode=token_mode)
     # jax.debug.print('decoded predicted message: \n {}', msg_decoded)
     new_part = msg_decoded[: Message_Tokenizer.N_NEW_FIELDS]
     # ref part is not needed for the simulator logic
@@ -342,33 +322,7 @@ def get_sim_msg(
         sim_msg, msg_decoded
     )
 
-# event_type, side, quantity, price,order_id,trade(r)_id, time_s, time_ns
-@jax.jit
-def construct_sim_msg(
-        event_type: int,
-        side: int,
-        quantity: int,
-        price: int,
-        order_id: int,
-        time_s: int,
-        time_ns: int,
-    ):
-    """ NOTE: trader ID is set to 0
-    """
-    return jnp.array([
-        event_type,
-        (side * 2) - 1,
-        quantity,
-        price,
-        order_id, # order_id
-        -88, 
-        time_s,
-        time_ns,
-    ], dtype=jnp.int32)
-
-@jax.jit
-def construct_dummy_sim_msg(*args) -> jax.Array:
-    return jnp.ones((8,), dtype=jnp.int32) * (-1)
+# REMOVED: construct_sim_msg and construct_dummy_sim_msg now imported from lob.message_utils (line 51-52)
 
 @jax.jit
 def construct_raw_msg(
@@ -703,9 +657,10 @@ def _generate_msg(
         sample_top_n: int,
         tick_size: int,
         debug_book: bool,
-        
-        m_init: jax.Array, #last token from prev message, or start tok. 
-        b_init: jax.Array, #last book state after prev message, or start book. 
+        token_mode: int,  # token mode for decode_msg
+
+        m_init: jax.Array, #last token from prev message, or start tok.
+        b_init: jax.Array, #last book state after prev message, or start book.
         n_msg_todo: int,
         p_mid: jax.Array,
         sim_state: LobState,
@@ -813,6 +768,7 @@ def _generate_msg(
         new_order_id = order_id,
         tick_size = tick_size,
         encoder = encoder,
+        token_mode = token_mode,  # pass token_mode for correct decoding
     )
     # def print_cond(string_,msg,n_msg_todo):
     #     if n_msg_todo==500:
@@ -866,12 +822,13 @@ def _make_generate_msg_scannable(
         sample_top_n: int,
         tick_size: int,
         debug_book: bool,
+        token_mode: int,  # token mode for decode_msg
     ):
     """
     """
     __generate_msg = jax.jit(functools.partial(
         _generate_msg, sim, train_state, model, batchnorm,
-        encoder, valid_mask_array, sample_top_n, tick_size,debug_book
+        encoder, valid_mask_array, sample_top_n, tick_size, debug_book, token_mode
     ),device=jax.devices()[0])
 
     def _generate_msg_scannable(gen_state, input):
@@ -887,7 +844,7 @@ def _make_generate_msg_scannable(
         return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, book_l2, msg_token)
     return _generate_msg_scannable
 
-@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
+@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9, 13, 15, 17),backend='gpu')  # Added 17 for token_mode
 def generate(
         sim: OrderBook,  # static
         train_state: TrainState,
@@ -905,10 +862,11 @@ def generate(
         conditional : bool, # static
         init_time : jax.Array,
         debug_book: bool=False,
-        b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging. 
+        b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging.
+        token_mode: int = 24,  # static - vocab token mode (22 or 24)
         # if eval_msgs given, also returns loss of predictions
         # e.g. to calculate perplexity
-        # m_seq_eval: Optional[jax.Array] = None,  
+        # m_seq_eval: Optional[jax.Array] = None,
     ) -> Tuple[jax.Array, jax.Array, jax.Array]:
 
     # id_gen = OrderIdGenerator()
@@ -924,7 +882,8 @@ def generate(
     # b_seq_cond=b_seq_cond.copy()
 
     with jax.ensure_compile_time_eval():
-        valid_mask_array = valh.syntax_validation_matrix()
+        v = Vocab(token_mode=token_mode)
+        valid_mask_array = valh.syntax_validation_matrix(v)
 
     # valid_mask_array=None
     # jax.debug.print("Note: Valid mask turned off in generate_token")
@@ -979,8 +938,8 @@ def generate(
     # jax.debug.print('generate - p_mid {}', p_mid)
 
     generate_msg_scannable = _make_generate_msg_scannable(
-        sim, train_state, model, batchnorm, 
-        encoder, valid_mask_array, sample_top_n, tick_size, debug_book,
+        sim, train_state, model, batchnorm,
+        encoder, valid_mask_array, sample_top_n, tick_size, debug_book, token_mode,
     )
     gen_state, (msgs_decoded, l2_book_states,msgs_tokens) = jax.lax.scan(
         generate_msg_scannable,
@@ -1006,10 +965,10 @@ generate_batched = jax.jit(
             None, None, None, None, None,
             None, None,    0,    0, None,
             0,       0,    0, None,    0,
-            None,    0,
+            None,    0, None,  # Added None for token_mode (static)
         )
     ),
-    static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
+    static_argnums=(0, 2, 3, 5, 6, 9, 13, 15, 17),backend='gpu'  # Added 17 for token_mode
 )
 
 @partial(jax.jit, static_argnums=(3, 4, 5, 6))
@@ -1184,9 +1143,13 @@ def sample_new(
         init_hidden: Optional[Tuple] = None,
         args: Optional[Any] = None,
         conditional: bool = True,
-        v: Vocab = Vocab(),
+        v: Vocab = None,  # Changed from Vocab() to None
         overfit_debug: bool = False,
     ):
+    """Get token_mode from Vocab if provided"""
+    if v is None:
+        v = Vocab(token_mode=24)  # Default to 24
+    token_mode = v.token_mode
     """
     """
     assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
@@ -1342,6 +1305,7 @@ def sample_new(
                 init_time_batched,
                 debug_book,  # static
                 real_book,
+                token_mode,  # static - added for vocab size
             )
             # print("trace complete")
             # print(generate_traced.jaxpr)
@@ -1353,6 +1317,7 @@ def sample_new(
             # print("Cost analysis:", generate_compiled.cost_analysis())
 
         start_time = time.time()
+        # Note: token_mode is a static arg (captured at trace time), so NOT passed here
         msgs_decoded, l2_book_states, num_errors, mgs_tokens = generate_compiled(
             train_state,  # None map, static?
             encoder,  # None map, static?

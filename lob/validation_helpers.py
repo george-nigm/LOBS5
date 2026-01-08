@@ -21,7 +21,26 @@ info = lambda *args: logger.info(' '.join((str(arg) for arg in args)))
 from lob.lobster_dataloader import LOBSTER_Dataset
 from lob.train_helpers import repeat_book
 
-v = Vocab()
+# REMOVED: Global Vocab instance was causing token_mode issues
+# v = Vocab()  # DEPRECATED - pass Vocab explicitly to functions instead
+
+
+def get_encoder_key(field: str, token_mode: int) -> str:
+    """Get the correct encoder key for a field based on token_mode.
+
+    In token_mode=22, 'size' uses a single token (0-10000).
+    In token_mode=24, 'size' uses 'size_digit' (base-100 encoding).
+
+    Args:
+        field: The field name from Message_Tokenizer
+        token_mode: Either 22 or 24
+
+    Returns:
+        The correct encoder key for v.ENCODING lookup
+    """
+    if field in ('size', 'size_ref') and token_mode == 24:
+        return 'size_digit'
+    return Message_Tokenizer.FIELD_ENC_TYPES.get(field, field)
 
 
 def syntax_validation_matrix(v = None):
@@ -34,10 +53,14 @@ def syntax_validation_matrix(v = None):
         v = Vocab()
     encoder = v.ENCODING
 
+    # CRITICAL: Sync Message_Tokenizer class state with Vocab token_mode
+    # This ensures MSG_LEN and get_field_from_idx() use correct token mode
+    Message_Tokenizer.set_token_mode(v.token_mode)
+
     idx = []
     for i in range(Message_Tokenizer.MSG_LEN):
         field = Message_Tokenizer.get_field_from_idx(i)
-        decoder_key = Message_Tokenizer.FIELD_ENC_TYPES[field[0]]
+        decoder_key = get_encoder_key(field[0], v.token_mode)  # token_mode-aware lookup
         #for tok, val in v.DECODING[decoder_key].items():
         for tok in encoder[decoder_key][1]:
             idx.append([i, tok])
@@ -79,9 +102,10 @@ def update_allowed_tok_slice(mask, i, allowed_toks, field_encoder):
 def is_tok_valid(tok, field, vocab):
     tok = tok.tolist()
     if isinstance(field, str):
-        return tok in vocab.DECODING[Message_Tokenizer.FIELD_ENC_TYPES[field]]
+        enc_key = get_encoder_key(field, vocab.token_mode)  # token_mode-aware lookup
+        return tok in vocab.DECODING[enc_key]
     else:
-        return [t in vocab.DECODING[Message_Tokenizer.FIELD_ENC_TYPES[f]] 
+        return [t in vocab.DECODING[get_encoder_key(f, vocab.token_mode)]
                 for t, f in zip(tok, field)]
 
 def get_masked_idx(seq):
@@ -91,7 +115,7 @@ def get_masked_idx(seq):
         seq = seq.reshape(-1, Message_Tokenizer.MSG_LEN)
     elif seq.ndim == 2:
         seq = seq.reshape(seq.shape[0], -1, Message_Tokenizer.MSG_LEN)
-    return np.argwhere(seq == v.MASK_TOK)
+    return np.argwhere(seq == Vocab.MASK_TOK)  # Use class constant instead of instance
 
 def get_field_from_idx(idx):
     """ Get the field of a given index (or indices) in a message
@@ -108,11 +132,17 @@ def get_masked_fields(inp_maybe_batched):
     mask_pos = get_masked_idx(inp_maybe_batched)
     return get_field_from_idx(mask_pos[..., -1])
 
-def get_valid_toks_for_field(fields):
+def get_valid_toks_for_field(fields, vocab: Vocab = None):
     """ Get the valid labels for given fields
+
+    Args:
+        fields: List of field names
+        vocab: Optional Vocab instance. If None, creates default Vocab(token_mode=24)
     """
+    if vocab is None:
+        vocab = Vocab()  # Default to 24-token mode
     return tuple(tuple(
-        v.DECODING[Message_Tokenizer.FIELD_ENC_TYPES[field]].keys())
+        vocab.DECODING[Message_Tokenizer.FIELD_ENC_TYPES[field]].keys())
           for field in fields)
 
 def get_valid_toks_for_input(inp_maybe_batched):

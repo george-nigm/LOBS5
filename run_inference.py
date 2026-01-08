@@ -78,7 +78,7 @@ if __name__ == "__main__":
     parser.add_argument('--test_split', type=float, default=0.1, help='Which test split to use')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for inference')
     parser.add_argument('--n_sequences', type=int, default=1024, help='Number of sequences to generate')
-    parser.add_argument('--n_cond_msgs', type=int, default=500, help='Number of conditional messages (0 for unconditional)')
+    parser.add_argument('--n_cond_msgs', type=int, default=0, help='Number of conditional messages (0 for unconditional)')
     # Add custom paths for Isambard/custom runs
     parser.add_argument('--data_dir', type=str, default=None, help='Custom data directory')
     parser.add_argument('--ckpt_path', type=str, default=None, help='Custom checkpoint path')
@@ -134,8 +134,9 @@ if __name__ == "__main__":
 
     n_vol_series = 500  # how many book volume series model uses as input
 
-    v = Vocab()
-    n_classes = len(v)
+    # NOTE: Vocab creation moved after load_metadata() to use correct token_mode
+    # v = Vocab()  # OLD: defaults to token_mode=22
+    # n_classes = len(v)
     book_dim = 503 #b_enc.shape[1]
     eval_book_seq_len = eval_seq_len
 
@@ -154,14 +155,22 @@ if __name__ == "__main__":
     args.num_devices=1
     args.bsz=1
 
+    # Create Vocab with correct token_mode from checkpoint metadata
+    token_mode = getattr(args, 'token_mode', 24)  # Default to 24 if not in metadata
+    print(f"[*] Using token_mode={token_mode} from checkpoint metadata")
+    v = Vocab(token_mode=token_mode)
+    n_classes = len(v)
+    print(f"[*] Vocab size: {n_classes}")
 
-    new_train_state, model_cls = init_train_state(
+    new_train_state, model_cls, total_params = init_train_state(
         args,
         n_classes=n_classes,
         seq_len=eval_seq_len,
         book_dim=book_dim,
         book_seq_len=eval_book_seq_len,
+        train_size=1,  # dummy value for inference (only used for lr schedule)
     )
+    print(f"[*] Model parameters: {total_params:,}")
 
 
     # jax.tree_util.tree_map(lambda x: x.shape,state)
@@ -190,9 +199,10 @@ if __name__ == "__main__":
     ds = inference.get_dataset(data_dir,
                                n_messages_conditional,
                                n_eval_messages,
-                               test_split= run_args.test_split,
+                               test_split=run_args.test_split,
+                               token_mode=token_mode,  # Pass token_mode to ensure correct encoding
                             #    day_indeces= [0],
-                            #    limit_seq=4 
+                            #    limit_seq=4
                                )
 
     print("Dataset length: ", len(ds))
@@ -251,5 +261,6 @@ if __name__ == "__main__":
         args=args,
         conditional=True if n_messages_conditional > 0 else False,  # conditional generation
         overfit_debug=overfit_debug,
+        v=v,  # Pass Vocab instance with correct token_mode
     )
     print(f"Generation time for {n_samples} sequences across {batch_size} batch size: {time()-start}")

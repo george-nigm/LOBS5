@@ -58,6 +58,11 @@ encoding = None
 get_best_bid_and_ask = None
 _all_noisers = None
 _ES_PaddedLobPredModel = None
+
+# Flax inference globals (lazy loaded)
+_flax_init_train_state = None
+_flax_load_checkpoint = None
+_flax_load_metadata = None
 _CommonParams = None
 _simple_es_tree_key = None
 _load_checkpoint_for_es = None
@@ -117,6 +122,39 @@ def _lazy_import_jaxlob():
         get_best_bid_and_ask = _get_best_bid_and_ask
 
 
+def _get_flax_loaders():
+    """Lazy load Flax model initialization functions (same as run_inference.py)."""
+    global _flax_init_train_state, _flax_load_checkpoint, _flax_load_metadata
+    if _flax_init_train_state is None:
+        from lob.init_train import init_train_state, load_checkpoint, load_metadata
+        _flax_init_train_state = init_train_state
+        _flax_load_checkpoint = load_checkpoint
+        _flax_load_metadata = load_metadata
+    return _flax_init_train_state, _flax_load_checkpoint, _flax_load_metadata
+
+
+# ============================================================================
+# Import shared utilities from lob/ for code reuse
+# ============================================================================
+from lob.validation_helpers import syntax_validation_matrix
+from lob.encoding import Vocab
+# Import lightweight message utils (avoids heavy gymnax_exchange imports)
+from lob.message_utils import (
+    msg_to_jnp,              # Replaces decoded_msg_to_jaxlob_format
+    msgs_to_jnp,             # Replaces vmap version
+    construct_sim_msg,       # Replaces inline construction in get_sim_msg_es
+    construct_dummy_sim_msg, # NOOP message fallback
+    ORDER_ID_i, EVENT_TYPE_i, DIRECTION_i, SIZE_i, TIMEs_i, TIMEns_i,  # Field indices
+)
+
+# ============================================================================
+# Import inference module for code reuse (run_inference.py code path)
+# This ensures ESTrainer uses the SAME data loading, encoding, and generation
+# code as the validated run_inference.py
+# ============================================================================
+from lob import inference_no_errcorr as inference
+from lob.lobster_dataloader import LOBSTER_Dataset
+
 # ============================================================================
 # Field-Aware Token Masking for Constrained Decoding (24-token mode)
 # ============================================================================
@@ -130,59 +168,89 @@ def _lazy_import_jaxlob():
 #   direction: 2110-2111 (2 values: 0=sell, 1=buy)
 # ============================================================================
 
+# DEPRECATED: This is replaced by syntax_validation_matrix from lob/validation_helpers.py
+# which now correctly supports token_mode=24 with the get_encoder_key() fix.
+# COMMENTED OUT to prevent accidental usage - use get_field_masks_from_validation_matrix() instead.
 # Position -> (field_name, token_min, token_max) for 24-token messages
-POSITION_TOKEN_RANGES_24 = {
-    0: ("event_type", 1004, 1007),
-    1: ("direction", 2110, 2111),
-    2: ("price_sign", 2108, 2109),
-    3: ("price", 1108, 2107),
-    4: ("size_high", 1008, 1107),
-    5: ("size_low", 1008, 1107),
-    6: ("delta_t_s", 4, 1003),
-    7: ("delta_t_ns_0", 4, 1003),
-    8: ("delta_t_ns_1", 4, 1003),
-    9: ("delta_t_ns_2", 4, 1003),
-    10: ("time_s_0", 4, 1003),
-    11: ("time_s_1", 4, 1003),
-    12: ("time_ns_0", 4, 1003),
-    13: ("time_ns_1", 4, 1003),
-    14: ("time_ns_2", 4, 1003),
-    15: ("price_ref_sign", 2108, 2109),
-    16: ("price_ref", 1108, 2107),
-    17: ("size_ref_high", 1008, 1107),
-    18: ("size_ref_low", 1008, 1107),
-    19: ("time_s_ref_0", 4, 1003),
-    20: ("time_s_ref_1", 4, 1003),
-    21: ("time_ns_ref_0", 4, 1003),
-    22: ("time_ns_ref_1", 4, 1003),
-    23: ("time_ns_ref_2", 4, 1003),
-}
+# POSITION_TOKEN_RANGES_24 = {
+#     0: ("event_type", 1004, 1007),
+#     1: ("direction", 2110, 2111),
+#     2: ("price_sign", 2108, 2109),
+#     3: ("price", 1108, 2107),
+#     4: ("size_high", 1008, 1107),
+#     5: ("size_low", 1008, 1107),
+#     6: ("delta_t_s", 4, 1003),
+#     7: ("delta_t_ns_0", 4, 1003),
+#     8: ("delta_t_ns_1", 4, 1003),
+#     9: ("delta_t_ns_2", 4, 1003),
+#     10: ("time_s_0", 4, 1003),
+#     11: ("time_s_1", 4, 1003),
+#     12: ("time_ns_0", 4, 1003),
+#     13: ("time_ns_1", 4, 1003),
+#     14: ("time_ns_2", 4, 1003),
+#     15: ("price_ref_sign", 2108, 2109),
+#     16: ("price_ref", 1108, 2107),
+#     17: ("size_ref_high", 1008, 1107),
+#     18: ("size_ref_low", 1008, 1107),
+#     19: ("time_s_ref_0", 4, 1003),
+#     20: ("time_s_ref_1", 4, 1003),
+#     21: ("time_ns_ref_0", 4, 1003),
+#     22: ("time_ns_ref_1", 4, 1003),
+#     23: ("time_ns_ref_2", 4, 1003),
+# }
 
-_FIELD_MASKS_24 = None
+# _FIELD_MASKS_24 = None  # COMMENTED OUT - no longer needed
 
-def get_field_masks_24(vocab_size: int = 2112):
-    """Get field masks for constrained decoding (additive mask format).
+# DEPRECATED: Use get_field_masks_from_validation_matrix() instead.
+# COMMENTED OUT to prevent accidental usage.
+# def get_field_masks_24(vocab_size: int = 2112):
+#     """Get field masks for constrained decoding (additive mask format).
+#
+#     Creates masks directly from POSITION_TOKEN_RANGES_24, avoiding
+#     syntax_validation_matrix which has compatibility issues with 24-token mode.
+#
+#     Returns:
+#         jnp.array of shape (24, vocab_size) where:
+#         - 0.0 for valid tokens
+#         - -1e9 for invalid tokens
+#     """
+#     global _FIELD_MASKS_24
+#     if _FIELD_MASKS_24 is None:
+#         masks = []
+#         for pos in range(24):
+#             _, tok_min, tok_max = POSITION_TOKEN_RANGES_24[pos]
+#             # Start with -1e9 (invalid) for all tokens
+#             mask = jnp.full(vocab_size, -1e9)
+#             # Set valid range to 0.0
+#             mask = mask.at[tok_min:tok_max+1].set(0.0)
+#             masks.append(mask)
+#         _FIELD_MASKS_24 = jnp.stack(masks)
+#     return _FIELD_MASKS_24
 
-    Creates masks directly from POSITION_TOKEN_RANGES_24, avoiding
-    syntax_validation_matrix which has compatibility issues with 24-token mode.
+
+def get_field_masks_from_validation_matrix(token_mode: int, vocab_size: int):
+    """Create field masks by converting syntax_validation_matrix to additive format.
+
+    This function uses the unified validation logic from lob/validation_helpers.py,
+    ensuring that constraint fixes automatically propagate from LOB inference to ES training.
+
+    Args:
+        token_mode: 22 or 24
+        vocab_size: Vocabulary size (12012 for token_mode=22, 2112 for token_mode=24)
 
     Returns:
-        jnp.array of shape (24, vocab_size) where:
-        - 0.0 for valid tokens
-        - -1e9 for invalid tokens
+        Additive masks of shape (MSG_LEN, vocab_size): 0.0=valid, -1e9=invalid
     """
-    global _FIELD_MASKS_24
-    if _FIELD_MASKS_24 is None:
-        masks = []
-        for pos in range(24):
-            _, tok_min, tok_max = POSITION_TOKEN_RANGES_24[pos]
-            # Start with -1e9 (invalid) for all tokens
-            mask = jnp.full(vocab_size, -1e9)
-            # Set valid range to 0.0
-            mask = mask.at[tok_min:tok_max+1].set(0.0)
-            masks.append(mask)
-        _FIELD_MASKS_24 = jnp.stack(masks)
-    return _FIELD_MASKS_24
+    from lob.validation_helpers import syntax_validation_matrix
+    from lob.encoding import Vocab
+
+    v = Vocab(token_mode=token_mode)
+    bool_mask = syntax_validation_matrix(v)  # (MSG_LEN, vocab_size), True=valid
+
+    # Convert: True → 0.0 (valid), False → -1e9 (invalid)
+    additive_mask = jnp.where(bool_mask, 0.0, -1e9)
+
+    return additive_mask
 
 
 def create_es_config():
@@ -224,9 +292,9 @@ def create_es_config():
     parser.add_argument('--tick_size', type=int, default=100,
                         help='Tick size in cents')
 
-    # Token mode
-    parser.add_argument('--token_mode', type=int, default=22, choices=[22, 24],
-                        help='Token mode: 22 (single token size) or 24 (base-100 size)')
+    # Token mode (auto-detected from checkpoint if not specified)
+    parser.add_argument('--token_mode', type=int, default=24, choices=[22, 24],
+                        help='Token mode: 22 (single token size) or 24 (base-100 size). Auto-detected from checkpoint.')
 
     # Background model configuration
     parser.add_argument('--background_mode', type=str, default='world_model',
@@ -292,6 +360,19 @@ def detect_data_format(file_path: str, data: 'np.ndarray', token_mode: int = 24)
     elif n_cols in [22, 24]:
         format_type = 'encoded'
         format_desc = f'ENCODED ({n_cols} cols, tokenized, token_mode mismatch)'
+    elif n_cols == 43:
+        # LOBSTER orderbook format: 10 levels × 2 sides × 2 fields (price, size) + 3 (bid_time, ask_time, seq_num)
+        # Columns: [ask_price1, ask_size1, ..., ask_price10, ask_size10, bid_price1, bid_size1, ..., bid_price10, bid_size10, bid_time, ask_time, seq_num]
+        format_type = 'orderbook'
+        format_desc = f'ORDERBOOK (43 cols: 10-level LOB × 2 sides × 2 fields + 3 meta)'
+    elif n_cols == 41:
+        # LOBSTER orderbook format without seq_num: 10 levels × 2 sides × 2 fields + 1 (timestamp)
+        format_type = 'orderbook'
+        format_desc = f'ORDERBOOK (41 cols: 10-level LOB × 2 sides × 2 fields + 1 timestamp)'
+    elif n_cols == 21:
+        # LOBSTER orderbook format: 5 levels × 2 sides × 2 fields + 1 (timestamp)
+        format_type = 'orderbook'
+        format_desc = f'ORDERBOOK (21 cols: 5-level LOB × 2 sides × 2 fields + 1 timestamp)'
     else:
         format_type = 'unknown'
         format_desc = f'UNKNOWN ({n_cols} cols)'
@@ -322,40 +403,9 @@ def log_data_format(info: dict, prefix: str = "[DATA]") -> None:
     print(f"{prefix}   Shape: ({info['n_rows']}, {info['n_cols']}), dtype: {info['dtype']}")
 
 
-# Helper function to convert decoded messages to JaxLOB format
-@jax.jit
-def decoded_msg_to_jaxlob_format(msg_decoded: jax.Array) -> jax.Array:
-    """
-    Convert 14-column decoded message to 8-column JaxLOB format.
-
-    Args:
-        msg_decoded: (14,) decoded message
-
-    Returns:
-        (8,) JaxLOB message [type, side, qty, price, trade_id, order_id, time_s, time_ns]
-    """
-    ORDER_ID_i = 0
-    EVENT_TYPE_i = 1
-    DIRECTION_i = 2
-    PRICE_ABS_i = 3
-    SIZE_i = 5
-    TIMEs_i = 8
-    TIMEns_i = 9
-
-    return jnp.array([
-        msg_decoded[EVENT_TYPE_i],
-        (msg_decoded[DIRECTION_i] * 2) - 1,  # 0/1 -> -1/1
-        msg_decoded[SIZE_i],
-        msg_decoded[PRICE_ABS_i],
-        0,  # trade_id
-        msg_decoded[ORDER_ID_i],
-        msg_decoded[TIMEs_i],
-        msg_decoded[TIMEns_i],
-    ], dtype=jnp.int32)
-
-
-# Vectorized version for batch conversion
-msgs_to_jnp = jax.jit(jax.vmap(decoded_msg_to_jaxlob_format))
+# REMOVED: decoded_msg_to_jaxlob_format and msgs_to_jnp are now imported
+# from lob.inference_no_errcorr (see imports at top of file).
+# This eliminates ~30 lines of duplicated code.
 
 
 def get_sim_msg_es(
@@ -416,17 +466,17 @@ def get_sim_msg_es(
     p_abs = mid_price + safe_rel_price * tick_size
     p_abs = jnp.maximum(p_abs, tick_size)
 
-    # Construct JaxLOB message
-    sim_msg = jnp.array([
+    # Construct JaxLOB message using shared function from lob.inference_no_errcorr
+    sim_msg = construct_sim_msg(
         safe_event_type,
-        (safe_side * 2) - 1,
+        safe_side,
         safe_quantity,
         p_abs,
         order_id,
-        trader_id,
         time_s,
         time_ns,
-    ], dtype=jnp.int32)
+        trader_id=trader_id,
+    )
 
     return sim_msg, msg_decoded
 
@@ -549,6 +599,20 @@ class ESTrainer:
         load_checkpoint_for_es = _get_checkpoint_loader()
         self.lobs5_init, self.es_tree_key = load_checkpoint_for_es(config.lobs5_checkpoint)
 
+        # Auto-detect token_mode from checkpoint (like run_inference.py)
+        # This overrides the command-line default to ensure correct encoding/decoding
+        ckpt_token_mode = self.lobs5_init.frozen_params.get('token_mode', None)
+        if ckpt_token_mode is not None:
+            if config.token_mode != ckpt_token_mode:
+                print(f"[INIT] WARNING: Command-line token_mode={config.token_mode} differs from checkpoint={ckpt_token_mode}")
+                print(f"[INIT] Using checkpoint token_mode={ckpt_token_mode} for consistency")
+            config.token_mode = ckpt_token_mode
+        print(f"[INIT] token_mode: {config.token_mode}")
+
+        # Initialize Flax model for inference (same code path as run_inference.py)
+        # This provides correct token generation - separate from ES params
+        self._init_flax_inference()
+
         # Initialize noiser for Policy
         self._init_noiser()
 
@@ -581,6 +645,70 @@ class ESTrainer:
         # ========================================================================
         print("[INIT] Building eval_batch function (compilation on first call)...")
         self._compiled_eval_batch = self._compile_eval_batch()
+
+    def _init_flax_inference(self):
+        """Initialize Flax model for inference (same code path as run_inference.py).
+
+        This loads the original Flax model and train_state, which are required for
+        using inference_no_errcorr._generate_msg() for token generation.
+
+        The ES-converted params in self.lobs5_init are ONLY used for ES gradient updates.
+        For inference/generation, we use the original Flax model.
+
+        NOTE: We use load_flax_checkpoint() from checkpoint_adapter instead of
+        load_checkpoint() from lob.init_train, because the checkpoint is in OCDBT
+        format which Orbax's PyTreeCheckpointHandler doesn't recognize properly.
+        """
+        config = self.config
+        init_train_state, _, load_metadata = _get_flax_loaders()
+
+        print(f"[INIT-FLAX] Loading Flax model from {config.lobs5_checkpoint}")
+
+        # Step 1: Load metadata (config) from checkpoint
+        args = load_metadata(config.lobs5_checkpoint)
+        token_mode = getattr(args, 'token_mode', 24)
+
+        # Step 2: Initialize vocabulary
+        from lob.encoding import Vocab
+        self.vocab = Vocab(token_mode=token_mode)
+        n_classes = len(self.vocab)
+
+        # Step 3: Get frozen params for model dimensions
+        fp = self.lobs5_init.frozen_params
+        msg_seq_len = fp.get('msg_seq_len', 500)
+        book_depth = fp.get('book_depth', 500)
+        book_dim = fp.get('d_book', 503)
+
+        # Step 4: Initialize Flax train_state and model class (with random params)
+        self.flax_train_state, self.flax_model_cls, total_params = init_train_state(
+            args,
+            n_classes=n_classes,
+            seq_len=msg_seq_len,
+            book_dim=book_dim,
+            book_seq_len=book_depth,
+            train_size=1,  # dummy value for inference
+        )
+        print(f"[INIT-FLAX] Model parameters: {total_params:,}")
+
+        # Step 5: Load checkpoint params using OCDBT-compatible loader
+        # (same loader already used successfully in checkpoint_adapter.py)
+        from es_lobs5.adapters.checkpoint_adapter import load_flax_checkpoint
+        loaded_params, _ = load_flax_checkpoint(config.lobs5_checkpoint)
+        print(f"[INIT-FLAX] Loaded {len(jax.tree_util.tree_leaves(loaded_params))} param arrays from checkpoint")
+
+        # Step 6: Replace random params with loaded checkpoint params
+        self.flax_train_state = self.flax_train_state.replace(params=loaded_params)
+
+        # Step 7: Instantiate model for inference
+        self.flax_model = self.flax_model_cls(training=False, step_rescale=1.0)
+        self.flax_batchnorm = getattr(args, 'batchnorm', False)
+
+        # Step 8: Pre-compute syntax validation matrix for token generation
+        from lob.validation_helpers import syntax_validation_matrix
+        self.syntax_valid_mask = syntax_validation_matrix(self.vocab)
+
+        print(f"[INIT-FLAX] Flax model loaded successfully")
+        print(f"[INIT-FLAX]   token_mode={token_mode}, batchnorm={self.flax_batchnorm}")
 
     def _init_noiser(self):
         """Initialize EGGROLL noiser for Policy.
@@ -646,56 +774,86 @@ class ESTrainer:
         print(f"[INIT] token_mode: {self.config.token_mode}")
 
     def _init_historical_replay_data(self):
-        """Pre-load historical data for replay mode."""
+        """Pre-load historical data for replay mode using LOBSTER_Dataset.
+
+        REFACTORED: Uses inference.get_dataset() for consistent data loading.
+        This ensures the same code path as run_inference.py, guaranteeing:
+        - Correct token_mode (24-token) encoding
+        - Proper raw message format for simulation
+        - Consistent book initialization
+        """
         if self.config.background_mode != 'historical_replay':
             self.replay_data_raw = None
             self.replay_tokens = None
+            self.replay_dataset = None
             return
 
         if self.config.replay_data_path is None:
             raise ValueError("--replay_data_path required when background_mode=historical_replay")
 
         import os
-        import glob
-        import numpy as np
-        from lob.encoding import encode_msgs
 
         data_path = self.config.replay_data_path
-        message_files = sorted(glob.glob(os.path.join(data_path, '*message*proc.npy')))
 
-        if len(message_files) == 0:
-            raise FileNotFoundError(f"No message files found in {data_path}")
+        # Use inference.get_dataset() - SAME code path as run_inference.py
+        # This ensures consistent token_mode handling
+        n_warmup = getattr(self.config, 'n_warmup_msgs', 500)
+        n_sim = getattr(self.config, 'n_sim_steps', 1000)
 
-        # Use fixed file_idx if specified, otherwise random
+        self.replay_dataset = inference.get_dataset(
+            data_dir=data_path,
+            n_messages=n_warmup,  # warmup messages
+            n_eval_messages=n_sim + 500,  # simulation messages + buffer
+            token_mode=self.config.token_mode,
+            test_split=0.0,  # Use all data for ES training
+        )
+
+        print(f"[INIT-REPLAY] Loaded dataset with {len(self.replay_dataset)} files")
+        print(f"[INIT-REPLAY] token_mode={self.config.token_mode}, n_messages={n_warmup + n_sim + 500}")
+
+        # Select file: fixed or random
+        import numpy as np
         if hasattr(self.config, 'file_idx') and self.config.file_idx is not None:
-            file_idx = self.config.file_idx % len(message_files)
+            file_idx = self.config.file_idx % len(self.replay_dataset)
         else:
-            file_idx = np.random.randint(0, len(message_files))
-        selected_file = message_files[file_idx]
+            file_idx = np.random.randint(0, len(self.replay_dataset))
 
-        self.replay_data_date = os.path.basename(selected_file).split('_')[1]
+        self.replay_file_idx = file_idx
+
+        # Get data from dataset (consistent with run_inference.py)
+        # Returns: (X_tokens_masked, y, book_data, X_raw, book_l2_init)
+        data_tuple = self.replay_dataset[file_idx]
+
+        # Unpack based on return format
+        # With return_raw_msgs=True and use_book_data=True:
+        # (tokens, y, book, raw_msgs, book_l2_init)
+        msg_tokens, _, book_data, msg_raw, book_l2_init = data_tuple
+
+        # Store raw messages and encode them ourselves
+        # LOBSTER_Dataset's msg_tokens has masking applied (for training), not suitable for replay
+        # Instead, encode raw messages directly like run_inference.py does
+        from lob.encoding import encode_msgs
+
+        self.replay_data_raw = jnp.array(msg_raw)
+        self.init_book_l2 = jnp.array(book_l2_init)
+
+        # Encode raw messages to tokens (same as run_inference.py)
+        # Shape: (n_msgs, token_mode) for message-level indexing
+        encoded = encode_msgs(msg_raw, self.encoder, token_mode=self.config.token_mode)
+        self.replay_tokens = jnp.array(encoded)  # (n_msgs, token_mode)
+
+        # Extract date from dataset files for logging
+        from glob import glob
+        msg_files = sorted(glob(os.path.join(data_path, '*message*.npy')))
+        if msg_files:
+            self.replay_data_date = os.path.basename(msg_files[file_idx]).split('_')[1]
+        else:
+            self.replay_data_date = 'unknown'
         self.replay_data_dir = data_path
 
-        msg_data = np.load(selected_file)
-
-        # Log data format using standard utilities
-        format_info = detect_data_format(selected_file, msg_data, self.config.token_mode)
-        log_data_format(format_info, prefix="[INIT-REPLAY]")
-
-        # Auto-detect data format: preproc (N, 14) vs encoded (N, 24)
-        if format_info['format_type'] == 'preproc':
-            # Preproc format: need to encode to tokens
-            print(f"[INIT-REPLAY] Action: encoding to {self.config.token_mode}-token format...")
-            self.replay_tokens = encode_msgs(msg_data, self.encoder, token_mode=self.config.token_mode)
-            self.replay_data_raw = jnp.array(msg_data)
-        elif format_info['format_type'] == 'encoded':
-            # Encoded format: already tokenized, use directly
-            print(f"[INIT-REPLAY] Action: using tokens directly (already encoded)")
-            self.replay_tokens = jnp.array(msg_data)
-            # For raw data, we need to decode back (or leave as None)
-            self.replay_data_raw = None  # Not available in encoded format
-        else:
-            raise ValueError(f"Unknown data format: expected 14 (preproc) or {self.config.token_mode} (encoded), got {format_info['n_cols']} columns")
+        print(f"[INIT-REPLAY] File {file_idx}: date={self.replay_data_date}")
+        print(f"[INIT-REPLAY] Raw msgs shape: {msg_raw.shape}, Tokens shape: {msg_tokens.shape}")
+        print(f"[INIT-REPLAY] Init book L2 shape: {book_l2_init.shape}")
 
     def _shard_to_mesh(self, x):
         """Shard array across devices along 'data' axis.
@@ -712,112 +870,46 @@ class ESTrainer:
         return jax.device_put(x, NamedSharding(self._mesh, P('data')))
 
     def _create_initial_sim_state(self) -> Tuple['LobState', jnp.ndarray]:
-        """
-        Load initial JaxLOB state and message history from LOBSTER data.
+        """Load initial JaxLOB state and message history.
+
+        REFACTORED: Uses data already loaded by _init_historical_replay_data().
+        This eliminates duplicate file loading and ensures consistent data handling.
 
         Returns:
-            (sim_state, msg_history)
+            (sim_state, msg_history): Initial simulation state and token context
         """
-        import numpy as np
-        import glob
-        from lob.encoding import encode_msgs
-
         config = self.config
 
-        # Determine data directory
-        if hasattr(config, 'data_dir') and config.data_dir:
-            data_dir = config.data_dir
-        elif config.background_mode == 'historical_replay' and config.replay_data_path:
-            data_dir = config.replay_data_path
-        else:
-            data_dir = "/lus/lfs1aip2/home/s5e/kangli.s5e/GOOG_GOOGL_2016TO2021_24tok_preproc/GOOG/2022"
+        # Ensure replay data is initialized
+        if not hasattr(self, 'init_book_l2') or self.init_book_l2 is None:
+            # Fallback: initialize replay data now
+            self._init_historical_replay_data()
 
-        # Find data files
-        orderbook_files = sorted(glob.glob(f"{data_dir}/*orderbook_10_proc.npy"))
-        message_files = sorted(glob.glob(f"{data_dir}/*message_10_proc.npy"))
+        # 1. Initialize JaxLOB with L2 book from dataset
+        # init_book_l2 was set by _init_historical_replay_data() using LOBSTER_Dataset
+        sim_state = self.sim.reset(self.init_book_l2)
+        print(f"[INIT-STATE] Initialized JaxLOB with L2 book shape: {self.init_book_l2.shape}")
 
-        if len(orderbook_files) == 0:
-            raise FileNotFoundError(f"No orderbook files found in {data_dir}")
-
-        # Select data file
-        if config.background_mode == 'historical_replay' and hasattr(self, 'replay_data_date'):
-            matching_files = [f for f in orderbook_files if self.replay_data_date in f]
-            if len(matching_files) == 0:
-                raise FileNotFoundError(f"No orderbook file for date {self.replay_data_date}")
-            file_idx = orderbook_files.index(matching_files[0])
-        elif hasattr(config, 'file_idx'):
-            file_idx = config.file_idx % len(orderbook_files)
-        else:
-            file_idx = np.random.randint(0, len(orderbook_files))
-
-        # Load data
-        ob = np.load(orderbook_files[file_idx])
-        msg = np.load(message_files[file_idx])
-
-        # Log data format using standard utilities
-        ob_format_info = detect_data_format(orderbook_files[file_idx], ob, self.config.token_mode)
-        msg_format_info = detect_data_format(message_files[file_idx], msg, self.config.token_mode)
-        log_data_format(ob_format_info, prefix="[INIT-STATE] Orderbook")
-        log_data_format(msg_format_info, prefix="[INIT-STATE] Message")
-
-        # Auto-detect data format: preproc (N, 14) vs encoded (N, 24)
-        if msg_format_info['format_type'] == 'unknown':
-            raise ValueError(f"Unknown data format: expected 14 (preproc) or {self.config.token_mode} (encoded), got {msg_format_info['n_cols']} columns")
-
-        if msg_format_info['format_type'] == 'encoded':
-            # Need to decode for JaxLOB warmup
-            from lob.encoding import decode_msgs, Vocab
-            v = Vocab(token_mode=self.config.token_mode)
-            print(f"[INIT-STATE] Action: decoding {msg_format_info['n_cols']}-token format for JaxLOB warmup...")
-            msg_decoded = np.array(decode_msgs(msg, v.ENCODING, token_mode=self.config.token_mode))
-            msg_raw = msg_decoded
-            msg_tokens = msg  # Already tokenized
-        else:
-            # Preproc format
-            print(f"[INIT-STATE] Action: using raw data, will encode to {self.config.token_mode}-token format")
-            msg_raw = msg
-            msg_tokens = None  # Will encode below
-
-        # Initialize L2 book
-        init_l2_book = jnp.array(ob[0, 3:43], dtype=jnp.int32)
-        sim_state = self.sim.reset(init_l2_book)
-
-        # Replay warmup messages to initialize order book state
-        n_init_background_msgs = getattr(self.config, 'n_warmup_msgs', 500)
-        n_replay = min(n_init_background_msgs, len(msg_raw))
-        replay_msgs_raw = msg_raw[:n_replay]
-        replay_jaxlob = msgs_to_jnp(replay_msgs_raw)
-        sim_state = self.sim.process_orders_array(sim_state, replay_jaxlob)
-
-        # Encode messages as context
-        # msg_seq_len from frozen_params determines expected context size
-        msg_seq_len = self.lobs5_init.frozen_params.get('msg_seq_len', 500)
-        expected_context_len = msg_seq_len * self.config.token_mode
+        # 2. Warmup: replay messages to initialize order book state
+        n_warmup = getattr(config, 'n_warmup_msgs', 500)
+        n_replay = min(n_warmup, len(self.replay_data_raw))
 
         if n_replay > 0:
-            if msg_tokens is not None:
-                # Already have tokens from encoded format
-                tokens = msg_tokens[:n_replay]
-            else:
-                # Need to encode from preproc format
-                tokens = encode_msgs(replay_msgs_raw, self.encoder, token_mode=self.config.token_mode)
-            msg_history = tokens.flatten()
-            # Pad or truncate to expected size
-            if len(msg_history) < expected_context_len:
-                # Pad with zeros at the beginning
-                msg_history = jnp.concatenate([
-                    jnp.zeros(expected_context_len - len(msg_history), dtype=msg_history.dtype),
-                    msg_history
-                ])
-            elif len(msg_history) > expected_context_len:
-                # Keep most recent tokens
-                msg_history = msg_history[-expected_context_len:]
-        else:
-            # No warmup - initialize with zeros
-            msg_history = jnp.zeros(expected_context_len, dtype=jnp.int32)
+            replay_msgs_raw = self.replay_data_raw[:n_replay]
+            replay_jaxlob = msgs_to_jnp(replay_msgs_raw)
+            sim_state = self.sim.process_orders_array(sim_state, replay_jaxlob)
+            print(f"[INIT-STATE] Replayed {n_replay} warmup messages")
 
-        print(f"  n_init_background_msgs (warmup): {n_replay}")
-        print(f"  context_size: {msg_history.shape} (expected: {expected_context_len})")
+        # 3. Build context tokens from replay_tokens (encoded by LOBSTER_Dataset)
+        # CRITICAL: Do NOT pad with zeros - zeros are MASK tokens which corrupt RNN hidden states!
+        # Instead, just use the actual warmup tokens and let simulate_episode() handle the warmup.
+        warmup_tokens = self.replay_tokens[:n_replay]  # (n_replay, token_mode)
+        msg_history = warmup_tokens.flatten()  # (n_replay * token_mode,)
+
+        # Store n_warmup_msgs for simulate_episode() to use
+        self._n_warmup_msgs = n_replay
+
+        print(f"[INIT-STATE] Context: {msg_history.shape} (warmup={n_replay} real messages, no zero padding)")
 
         return sim_state, msg_history
 
@@ -1088,6 +1180,16 @@ class ESTrainer:
         replay_tokens = self.replay_tokens
         replay_data_raw = self.replay_data_raw
         n_replay_msgs = replay_tokens.shape[0] if replay_tokens is not None else 0
+
+        # ========================================================================
+        # FLAX MODEL: Extract Flax model for correct token generation
+        # This uses the same code path as run_inference.py (verified correct)
+        # ========================================================================
+        flax_train_state = self.flax_train_state
+        flax_model = self.flax_model
+        flax_batchnorm = self.flax_batchnorm
+        syntax_valid_mask = self.syntax_valid_mask
+        import lob.validation_helpers as valh_module
         # ========================================================================
 
         # ========================================================================
@@ -1109,29 +1211,44 @@ class ESTrainer:
             return tree
         # ========================================================================
 
-        # Get ES model class
+        # Get ES model class (still used for world model)
         ES_PaddedLobPredModel = _get_es_model()
 
         # Initialize hidden states
+        # CRITICAL: Match parameter names from checkpoint metadata exactly!
+        # Checkpoint uses: n_layers (for fused), ssm_size_base (for SSM size)
+        ssm_size = fp.get('ssm_size_base', fp.get('ssm_size', 256))  # Try both keys
+        n_fused = fp.get('n_layers', fp.get('n_fused_layers', 4))    # Try both keys
+        conj_sym = fp.get('conj_sym', True)
+        d_model = fp.get('d_model', 256)
+        print(f"[HIDDEN-INIT] ssm_size={ssm_size}, conj_sym={conj_sym}, n_fused={n_fused}, d_model={d_model}")
+
+        # World model still uses ES hidden states (for background generation)
         hiddens_world = ES_PaddedLobPredModel.initialize_carry(
             batch_size=1,
-            ssm_size=fp.get('ssm_size', 256),
+            ssm_size=ssm_size,  # Pass full ssm_size - initialize_carry handles conj_sym
             n_message_layers=fp.get('n_message_layers', 2),
             n_book_pre_layers=fp.get('n_book_pre_layers', 1),
             n_book_post_layers=fp.get('n_book_post_layers', 1),
-            n_fused_layers=fp.get('n_fused_layers', 4),
-            d_model=fp.get('d_model', 256),
-            conj_sym=fp.get('conj_sym', True),
+            n_fused_layers=n_fused,
+            d_model=d_model,
+            conj_sym=conj_sym,
         )
-        hiddens_policy = ES_PaddedLobPredModel.initialize_carry(
-            batch_size=1,
-            ssm_size=fp.get('ssm_size', 256),
+
+        # ========================================================================
+        # FLAX MODEL: Policy uses Flax model hidden states (same as inference)
+        # NOTE: Flax model expects hidden_size = ssm_size // 2 when conj_sym=True
+        # This matches inference_no_errcorr.py line 1179-1185
+        # ========================================================================
+        hidden_size_policy = ssm_size // (2 if conj_sym else 1)
+        hiddens_policy = flax_model.initialize_carry(
+            1,  # batch_size
+            hidden_size=hidden_size_policy,
             n_message_layers=fp.get('n_message_layers', 2),
             n_book_pre_layers=fp.get('n_book_pre_layers', 1),
             n_book_post_layers=fp.get('n_book_post_layers', 1),
-            n_fused_layers=fp.get('n_fused_layers', 4),
-            d_model=fp.get('d_model', 256),
-            conj_sym=fp.get('conj_sym', True),
+            n_fused_layers=n_fused,
+            h_size_ema=ssm_size,  # Full size for EMA
         )
 
         # Message length based on token mode
@@ -1217,7 +1334,10 @@ class ESTrainer:
         # Pre-compute field masks OUTSIDE step_fn to avoid JAX tracer leak
         # These masks constrain each token position to valid vocabulary ranges
         vocab_size = fp.get('d_output', 2112)  # Default 2112 for 24-token mode
-        field_masks = get_field_masks_24(vocab_size=vocab_size)
+        field_masks = get_field_masks_from_validation_matrix(
+            token_mode=config.token_mode,
+            vocab_size=vocab_size
+        )
 
         def step_fn(carry, step_idx):
             """Single step: Background messages -> Policy action."""
@@ -1234,7 +1354,7 @@ class ESTrainer:
                 replayed_msg_tokens = replay_tokens[replay_ptr]
                 replayed_msg_raw = replay_data_raw[replay_ptr]
 
-                sim_msg = decoded_msg_to_jaxlob_format(replayed_msg_raw)
+                sim_msg = msg_to_jnp(replayed_msg_raw)  # Using imported function from lob.inference_no_errcorr
                 bg_order_id = WORLD_ORDER_ID_START + oid_offset
                 sim_msg = sim_msg.at[4].set(bg_order_id)
                 sim_msg = sim_msg.at[5].set(-2000)
@@ -1330,39 +1450,59 @@ class ESTrainer:
 
             # Policy generates action with field-aware constrained decoding
             # field_masks is pre-computed OUTSIDE step_fn to avoid tracer leak
+            # Temperature controls sampling sharpness: T<1 sharpens, T>1 flattens
+            # NOTE: T=0.1 tested but made distribution worse (amplified wrong peak preferences)
+            # Using T=1.0 (standard sampling) as default
+            temperature = getattr(config, 'temperature', 1.0)
 
-            def sample_policy_token(token_carry, token_pos):
-                """Sample next token with field-aware masking.
+            def sample_policy_token_flax(token_carry, token_pos):
+                """Sample next token using FLAX model (same as run_inference.py).
+
+                This replaces the ES model path with the verified-correct Flax path.
+                Uses valh.apply_model() and valh.fill_predicted_tok() for proper
+                token generation with syntax validation.
 
                 Args:
                     token_carry: (key, msg_history, hiddens)
                     token_pos: Current position in 24-token message (0-23)
-
-                The field mask ensures tokens are only sampled from valid ranges:
-                - pos 0 (event_type): tokens 1004-1007
-                - pos 1 (direction): tokens 2110-2111
-                - pos 2 (price_sign): tokens 2108-2109
-                - etc.
                 """
                 key_p, msg_hist_p, hidden_p = token_carry
                 key_p, sample_key_p = jax.random.split(key_p)
 
-                hidden_p, log_probs_p = ES_PaddedLobPredModel._forward_step(
-                    policy_common_params, hidden_p, msg_hist_p[-msg_len:], book_feat[None, :]
+                # Get syntax validation mask for current token position
+                valid_mask = valh_module.get_valid_mask(syntax_valid_mask, token_pos)
+
+                # Use Flax model (same as inference_no_errcorr._generate_token)
+                # CRITICAL: Pass only the LAST token, not the full sequence!
+                # The RNN hidden state carries all context information.
+                # Passing multiple tokens would produce logits for each token.
+                hidden_p, logits = valh_module.apply_model(
+                    hidden_p,
+                    msg_hist_p[-1:],  # Only LAST token (shape (1,)), not full message!
+                    book_feat[None, :],  # book features
+                    flax_train_state,
+                    flax_model,
+                    flax_batchnorm,
+                    False,  # shift_start
                 )
-                hidden_p = jax.tree.map(lambda h: h[:, -1:, :], hidden_p)
+                # logits shape: (1, 1, n_classes) -> (1, n_classes) after [0]
+                logits = logits[0]
 
-                log_probs_p = jnp.nan_to_num(log_probs_p, nan=-1e9, posinf=1e9, neginf=-1e9)
+                # Apply syntax validation mask (same as inference)
+                logits = valh_module.filter_valid_pred(logits, valid_mask)
 
-                # Apply field-aware mask: add -inf to invalid token positions
-                field_mask = field_masks[token_pos]
-                masked_log_probs = log_probs_p[-1] + field_mask
+                # Sample next token (same as inference)
+                # sample_top_n=-1 means sample from full distribution
+                next_token_p = valh_module.fill_predicted_tok(
+                    logits, -1, jnp.array([sample_key_p])
+                )
 
-                next_token_p = jax.random.categorical(sample_key_p, masked_log_probs)
+                # Update message history
+                # next_token_p is shape (1,) from fill_predicted_tok, so use directly
+                msg_hist_p = jnp.concatenate([msg_hist_p[1:], next_token_p])
 
-                msg_hist_p = jnp.concatenate([msg_hist_p[1:], jnp.array([next_token_p])])
-
-                return (key_p, msg_hist_p, hidden_p), next_token_p
+                # Return scalar token for scan output (squeeze the (1,) array)
+                return (key_p, msg_hist_p, hidden_p), next_token_p[0]
 
             key_policy, sample_key = jax.random.split(key_policy)
             # H2: Apply pvary to initial carry values when inside shard_map
@@ -1372,8 +1512,9 @@ class ESTrainer:
                 maybe_pvary_tree(hiddens_policy),
             )
             # Pass token positions (0-23) as xs to enable field-aware masking
+            # NOTE: Using sample_policy_token_flax for correct token generation
             (key_policy, msg_history, hiddens_policy), policy_msg = jax.lax.scan(
-                sample_policy_token,
+                sample_policy_token_flax,  # FLAX model path (verified correct)
                 policy_token_init,
                 jnp.arange(msg_len, dtype=jnp.int32),
                 length=msg_len,
