@@ -1,0 +1,50 @@
+save_folder: "/app/data_saved/"
+
+batch_size: 8
+n_samples: 1024
+bsz: 8
+
+use_sample_file: true
+sample_file_path: "batches_random_sample_indices_b128_bs8_ins100_cool20.json"
+
+# generation = historical
+n_gen_msgs: 5
+midprice_step_size: 1
+
+num_insertions: 5
+num_coolings: 5
+
+EVENT_TYPE_i: 4
+DIRECTION_i: 0 # 0 for buying - 1 for selling
+
+order_volume: 75
+use_relative_volume: False
+order_volume_ratio: 1.00
+
+n_messages: 500
+book_dim: 503  # Must match checkpoint (503 = 1 + 2 + 500 for price_change, time_f, book_l2)
+n_vol_series: 500
+sample_top_n: -1
+
+model_size: "large"
+# data_dir: "data/test_set/"
+data_dir: "/app/data/test_set/"
+sample_all: false
+stock: "GOOG"
+
+tick_size: 100
+rng_seed: 42
+
+# ckpt_path: "checkpoints/denim-elevator-754_czg1ss71/"
+ckpt_path: "checkpoints/twilight-sound-77_s42sujip"
+# ckpt_path: "checkpoints/goog2022_rwkv_6g0.1B/"
+# ckpt_path: "checkpoints/goog2022_rwkv_6g0.1B_orbax"
+# ckpt_path: "checkpoints/orbax_goog2022_rwkv_6g0.1B/0/default"
+
+start_batch: 0
+end_batch: 1 #128
+
+
+# order_volume explanation:
+# 75 - is the mean of all market orders in the data
+# 300, 485, 695, 865, 1400 - are the quantiles, q50, q75, q90, q95, q99 of best (ask U BID) volume in the book data

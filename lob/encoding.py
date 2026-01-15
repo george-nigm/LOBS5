@@ -9,6 +9,7 @@ from functools import partial
 NA_VAL = -9999
 HIDDEN_VAL = -20000
 MASK_VAL = -10000
+START_VAL = -30000
 
 
 @jax.jit
@@ -24,7 +25,7 @@ def decode(ar, ks, vs):
 
 @jax.jit
 def is_special_val(x):
-    return jnp.isin(x, jnp.array([MASK_VAL, HIDDEN_VAL, NA_VAL])).any()
+    return jnp.isin(x, jnp.array([MASK_VAL, HIDDEN_VAL, NA_VAL, START_VAL])).any()
 
 def expand_special_val(x, n_tokens):
     return jnp.tile(x, (n_tokens,))
@@ -141,36 +142,121 @@ def encode_time(
     return time_comb
 
 
+# ============================================
+# 22-TOKEN MODE: Original decoding (single token for size, base-10000)
+# ============================================
 @jax.jit
-def decode_msg(msg_enc, encoding):
-    # TODO: check if fields with same decoder can be combined into one decode call
-
+def decode_msg_22(msg_enc, encoding):
+    """Decode message from 22-token format (single token for size, base-10000)."""
     event_type = decode(msg_enc[0], *encoding['event_type'])
-    
+
     direction = decode(msg_enc[1], *encoding['direction'])
 
-    price_sign =  decode(msg_enc[2], *encoding['sign'])
+    price_sign = decode(msg_enc[2], *encoding['sign'])
     price = decode(msg_enc[3], *encoding['price'])
     price = combine_field(price, 3, price_sign)
 
+    # 22-token mode: single token for size (base-10000)
     size = decode(msg_enc[4], *encoding['size'])
 
+    # 22-token indices: time is at 5:14
     delta_t_s, delta_t_ns, time_s, time_ns = decode_time(msg_enc[5:14], encoding)
 
     price_ref_sign = decode(msg_enc[14], *encoding['sign'])
     price_ref = decode(msg_enc[15], *encoding['price'])
     price_ref = combine_field(price_ref, 3, price_ref_sign)
 
+    # 22-token mode: single token for size_ref (base-10000)
     size_ref = decode(msg_enc[16], *encoding['size'])
+
     time_s_ref, time_ns_ref = decode_time(msg_enc[17:22], encoding)
 
     # order ID is not encoded, so it's set to NA
     # same for price_abs
-    return jnp.hstack([ NA_VAL,
+    return jnp.hstack([NA_VAL,
         event_type, direction, NA_VAL, price, size, delta_t_s, delta_t_ns, time_s, time_ns,
         price_ref, size_ref, time_s_ref, time_ns_ref])
 
-decode_msgs = jax.jit(jax.vmap(decode_msg, in_axes=(0,)))
+
+# ============================================
+# 24-TOKEN MODE: Base-100 decoding for size
+# ============================================
+@jax.jit
+def decode_msg_24(msg_enc, encoding):
+    """Decode message from 24-token format (two tokens for size, base-100)."""
+    event_type = decode(msg_enc[0], *encoding['event_type'])
+
+    direction = decode(msg_enc[1], *encoding['direction'])
+
+    price_sign = decode(msg_enc[2], *encoding['sign'])
+    price = decode(msg_enc[3], *encoding['price'])
+    price = combine_field(price, 3, price_sign)
+
+    # Base-100 decoding for size: combine high and low 2-digit parts
+    size_high = decode(msg_enc[4], *encoding['size_digit'])
+    size_low = decode(msg_enc[5], *encoding['size_digit'])
+    size = size_high * 100 + size_low
+
+    # 24-token indices: time is at 6:15
+    delta_t_s, delta_t_ns, time_s, time_ns = decode_time(msg_enc[6:15], encoding)
+
+    price_ref_sign = decode(msg_enc[15], *encoding['sign'])
+    price_ref = decode(msg_enc[16], *encoding['price'])
+    price_ref = combine_field(price_ref, 3, price_ref_sign)
+
+    # Base-100 decoding for size_ref: combine high and low 2-digit parts
+    size_ref_high = decode(msg_enc[17], *encoding['size_digit'])
+    size_ref_low = decode(msg_enc[18], *encoding['size_digit'])
+    size_ref = size_ref_high * 100 + size_ref_low
+
+    time_s_ref, time_ns_ref = decode_time(msg_enc[19:24], encoding)
+
+    # order ID is not encoded, so it's set to NA
+    # same for price_abs
+    return jnp.hstack([NA_VAL,
+        event_type, direction, NA_VAL, price, size, delta_t_s, delta_t_ns, time_s, time_ns,
+        price_ref, size_ref, time_s_ref, time_ns_ref])
+
+
+# Vectorized versions
+decode_msgs_22 = jax.jit(jax.vmap(decode_msg_22, in_axes=(0, None)))
+decode_msgs_24 = jax.jit(jax.vmap(decode_msg_24, in_axes=(0, None)))
+
+
+def decode_msg(msg_enc, encoding, token_mode=22):
+    """
+    Decode a single message using the specified token mode.
+
+    Args:
+        msg_enc: Single encoded message (22 or 24 tokens)
+        encoding: Encoding dictionary from Vocab
+        token_mode: 22 (default) or 24
+
+    Returns:
+        Decoded message (14 fields)
+    """
+    if token_mode == 22:
+        return decode_msg_22(msg_enc, encoding)
+    else:
+        return decode_msg_24(msg_enc, encoding)
+
+
+def decode_msgs(msgs_enc, encoding, token_mode=22):
+    """
+    Decode messages using the specified token mode.
+
+    Args:
+        msgs_enc: Array of encoded messages
+        encoding: Encoding dictionary from Vocab
+        token_mode: 22 (default) or 24
+
+    Returns:
+        Decoded messages array
+    """
+    if token_mode == 22:
+        return decode_msgs_22(msgs_enc, encoding)
+    else:
+        return decode_msgs_24(msgs_enc, encoding)
 
 @jax.jit
 def decode_time(time_toks, encoding):
@@ -208,9 +294,18 @@ class Vocab:
     MASK_TOK = 0
     HIDDEN_TOK = 1
     NA_TOK = 2
+    START_TOK = 3
 
-    def __init__(self) -> None:
-        self.counter = 3  # 0: MSK, 1: HID, 2: NAN
+    def __init__(self, token_mode=22) -> None:
+        """
+        Initialize vocabulary for message encoding.
+
+        Args:
+            token_mode: 22 (default, base-10000 size) or 24 (base-100 size)
+        """
+        assert token_mode in [22, 24], f"token_mode must be 22 or 24, got {token_mode}"
+        self.token_mode = token_mode
+        self.counter = 4  # 0: MSK, 1: HID, 2: NAN, 3: START
         self.ENCODING = {}
         self.DECODING = {}
         self.DECODING_GLOBAL = {}
@@ -218,7 +313,15 @@ class Vocab:
 
         self._add_field('time', range(1000), [3,6,9,12])
         self._add_field('event_type', range(1,5), None)
-        self._add_field('size', range(10000), [])
+
+        # Size encoding depends on token_mode
+        if token_mode == 22:
+            # 22tok: Single token for size (range 0-10000)
+            self._add_field('size', range(10000), [])
+        elif token_mode == 24:
+            # 24tok: Base-100 encoding for size (two tokens: high/low digits)
+            self._add_field('size_digit', range(100), [])  # Shared tokens for size high/low digits
+
         self._add_field('price', range(1000), [1])
         self._add_field('sign', [-1, 1], None)
         self._add_field('direction', [0, 1], None)
@@ -227,9 +330,9 @@ class Vocab:
         return self.counter
 
     def _add_field(self, name, values, delim_i=None):
-        enc = [(MASK_VAL, Vocab.MASK_TOK), (HIDDEN_VAL, Vocab.HIDDEN_TOK), (NA_VAL, Vocab.NA_TOK)]
+        enc = [(MASK_VAL, Vocab.MASK_TOK), (HIDDEN_VAL, Vocab.HIDDEN_TOK), (NA_VAL, Vocab.NA_TOK), (START_VAL, Vocab.START_TOK)]
         enc += [(val, self.counter + i) for i, val in enumerate(values)]
-        self.counter += len(enc) - 3  # don't count special tokens
+        self.counter += len(enc) - 4  # don't count special tokens
         enc = tuple(zip(*enc))
         self.ENCODING[name] = (
             jnp.array(enc[0], dtype=jnp.int32),
@@ -240,18 +343,22 @@ class Vocab:
             self.ENCODING[field]['MSK'] = Vocab.MASK_TOK
             self.ENCODING[field]['HID'] = Vocab.HIDDEN_TOK
             self.ENCODING[field]['NAN'] = Vocab.NA_TOK
+            self.ENCODING[field]['START'] = Vocab.START_TOK
 
             self.DECODING[field][Vocab.MASK_TOK] = 'MSK'
             self.DECODING[field][Vocab.HIDDEN_TOK] = 'HID'
             self.DECODING[field][Vocab.NA_TOK] = 'NAN'
+            self.DECODING[field][Vocab.START_TOK] = 'START'
         self.ENCODING['generic'] = {
             'MSK': Vocab.MASK_TOK,
             'HID': Vocab.HIDDEN_TOK,
             'NAN': Vocab.NA_TOK,
+            'START': Vocab.START_TOK,
         }
         self.DECODING_GLOBAL[Vocab.MASK_TOK] = ('generic', 'MSK')
         self.DECODING_GLOBAL[Vocab.HIDDEN_TOK] = ('generic', 'HID')
         self.DECODING_GLOBAL[Vocab.NA_TOK] = ('generic', 'NAN')
+        self.DECODING_GLOBAL[Vocab.START_TOK] = ('generic', 'START')
 
 class Message_Tokenizer:
 

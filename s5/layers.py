@@ -88,3 +88,52 @@ class SequenceLayer(nn.Module):
         if not self.prenorm:
             x = self.norm(x)
         return x
+
+    def __call_rnn__(self, hidden, x, d):
+        """
+        Compute the LxH output of S5 layer given an LxH input, with hidden state.
+
+        Args:
+            hidden: hidden state (1, P) complex64
+            x (float32): input sequence (L, d_model)
+            d (bool): reset signal (L,) - unused currently
+        Returns:
+            hidden_out: updated hidden state (1, P) complex64
+            output sequence (float32): (L, d_model)
+        """
+        skip = x
+        if self.prenorm:
+            x = self.norm(x)
+
+        hidden, x = self.seq.__call_rnn__(hidden, x, d)
+
+        if self.activation in ["full_glu"]:
+            x = self.drop(nn.gelu(x))
+            x = self.out1(x) * jax.nn.sigmoid(self.out2(x))
+            x = self.drop(x)
+        elif self.activation in ["half_glu1"]:
+            x = self.drop(nn.gelu(x))
+            x = x * jax.nn.sigmoid(self.out2(x))
+            x = self.drop(x)
+        elif self.activation in ["half_glu2"]:
+            # Only apply GELU to the gate input
+            x1 = self.drop(nn.gelu(x))
+            x = x * jax.nn.sigmoid(self.out2(x1))
+            x = self.drop(x)
+        elif self.activation in ["gelu"]:
+            x = self.drop(nn.gelu(x))
+        else:
+            raise NotImplementedError(
+                   "Activation: {} not implemented".format(self.activation))
+
+        x = skip + x
+        if not self.prenorm:
+            x = self.norm(x)
+
+        return hidden, x
+
+    @staticmethod
+    def initialize_carry(batch_size, hidden_size):
+        """Initialize hidden state for RNN mode."""
+        import jax.numpy as jnp
+        return jnp.zeros((batch_size, 1, hidden_size), dtype=jnp.complex64)

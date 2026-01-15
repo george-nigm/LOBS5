@@ -88,6 +88,63 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
         return jax.vmap(lambda x: (C_tilde @ x).real)(xs)
 
 
+def apply_ssm_rnn(Lambda_bar, B_bar, C_tilde, hidden, input_sequence, resets, conj_sym, bidirectional):
+    """Compute the LxH output of discretized SSM in RNN mode.
+
+    This function processes the input sequence step-by-step, maintaining hidden state
+    for autoregressive inference.
+
+    Args:
+        Lambda_bar (complex64): discretized diagonal state matrix    (P,)
+        B_bar      (complex64): discretized input matrix             (P, H)
+        C_tilde    (complex64): output matrix                        (H, P)
+        hidden: hidden state - complex64 (1, P)
+        input_sequence (float32): input sequence of features         (L, H)
+        resets (bool): reset signals                                 (L,) or None
+        conj_sym (bool): whether conjugate symmetry is enforced
+        bidirectional (bool): whether bidirectional (not supported in RNN mode)
+    Returns:
+        hidden_out: complex64 (1, P) for next call
+        ys (float32): the SSM outputs                                (L, H)
+    """
+    # Broadcast Lambda_bar
+    Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0], Lambda_bar.shape[0]))
+
+    # Compute B @ u for all timesteps
+    Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
+
+    # Prepend hidden state
+    Lambda_elements = np.concatenate([
+        np.ones((1, Lambda_bar.shape[0])),
+        Lambda_elements,
+    ])
+
+    Bu_elements = np.concatenate([
+        hidden,
+        Bu_elements,
+    ])
+
+    # Run associative scan
+    # Note: resets are not used currently - we always run without resets
+    # If reset support is needed, implement masking logic here
+    _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
+
+    # Extract hidden state for next call
+    hidden_out = xs[np.newaxis, -1]
+    xs = xs[1:]
+
+    if bidirectional:
+        raise ValueError("Cannot use bidirectional mode with RNN inference")
+
+    # Compute output
+    if conj_sym:
+        ys = jax.vmap(lambda x: 2*(C_tilde @ x).real)(xs)
+    else:
+        ys = jax.vmap(lambda x: (C_tilde @ x).real)(xs)
+
+    return hidden_out, ys
+
+
 class S5SSM(nn.Module):
     Lambda_re_init: jax.Array
     Lambda_im_init: jax.Array
@@ -245,6 +302,32 @@ class S5SSM(nn.Module):
         # Add feedthrough matrix output Du;
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
         return ys + Du
+
+    def __call_rnn__(self, hidden, input_sequence, resets):
+        """
+        Compute the LxH output of the S5 SSM given an LxH input sequence
+        using RNN-style forward pass with hidden state.
+
+        Args:
+             hidden: complex64 (1, P) hidden state
+             input_sequence (float32): input sequence (L, H)
+             resets (bool): reset signals (L,) - currently not supported
+        Returns:
+            hidden_out: complex64 (1, P) for next call
+            output sequence (float32): (L, H)
+        """
+        hidden_out, ys = apply_ssm_rnn(self.Lambda_bar,
+                                        self.B_bar,
+                                        self.C_tilde,
+                                        hidden,
+                                        input_sequence,
+                                        resets,
+                                        self.conj_sym,
+                                        self.bidirectional)
+
+        # Add feedthrough matrix output Du
+        Du = jax.vmap(lambda u: self.D * u)(input_sequence)
+        return hidden_out, ys + Du
 
 
 def init_S5SSM(H,

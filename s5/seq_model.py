@@ -71,6 +71,33 @@ class StackedEncoderModel(nn.Module):
             x = layer(x)
         return x
 
+    def __call_rnn__(self, hidden, x, d, integration_timesteps):
+        """
+        Compute the LxH output of the stacked encoder given an Lxd_input
+        input sequence, with hidden state support.
+
+        Args:
+             hidden: list of hidden states, one per layer, each (1, P) complex64
+             x (float32): input sequence (L, d_input)
+             d (bool): reset signal (L,) - unused currently
+             integration_timesteps: unused in RNN mode
+        Returns:
+            new_hiddens: updated list of hidden states
+            output sequence (float32): (L, d_model)
+        """
+        x = self.encoder(x)
+        new_hiddens = []
+        for i, layer in enumerate(self.layers):
+            new_h, x = layer.__call_rnn__(hidden[i], x, d)
+            new_hiddens.append(new_h)
+        return new_hiddens, x
+
+    @staticmethod
+    def initialize_carry(batch_size, hidden_size, n_layers):
+        """Initialize hidden states for RNN mode."""
+        return [SequenceLayer.initialize_carry(batch_size, hidden_size)
+                for _ in range(n_layers)]
+
 
 def masked_meanpool(x, lengths):
     """
