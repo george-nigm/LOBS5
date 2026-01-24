@@ -122,8 +122,8 @@ def msg_to_jnp(
         (m[DIRECTION_i] * 2) - 1,
         m[SIZE_i],
         m[PRICE_ABS_i],
-        0, # TradeID
-        m[ORDER_ID_i],
+        m[ORDER_ID_i], 
+        0,  # TraderID
         m[TIMEs_i],
         m[TIMEns_i],
     ])
