@@ -61,18 +61,31 @@ RUN echo 'export PATH=$PATH:/home/duser/.local/bin' >> ~/.bashrc
 
 
 # Ensure home directory is on the Python path
-ENV PYTHONPATH="/home/${MYUSER}:$PYTHONPATH"
+# ENV PYTHONPATH="/home/${MYUSER}:$PYTHONPATH"
+ENV PYTHONPATH="/home/${MYUSER}"
 RUN export PATH="$HOME/.local/bin:$PATH"
 RUN export PATH="$HOME/.local/lib:$PATH"
 # Uncomment below if you want jupyter 
 # RUN pip install jupyterlab
 
 #for secrets and debug
-ENV WANDB_API_KEY=""
-ENV WANDB_ENTITY=""
+# ENV WANDB_API_KEY=""
+# ENV WANDB_ENTITY=""
 RUN git config --global --add safe.directory /home/${MYUSER}
 
 
 # Probably unnecessary to configure git user, but uncomment if needed
 # RUN git config --global user.email "reuben@robots.ox.ac.uk" && \
 #     git config --global user.name "reuben"
+
+
+# ===== Commands ===== #
+
+#1. docker build -t georgenigm_25jan --build-arg UID=$(id -u) --build-arg MYUSER=$(whoami) -f Dockerfile_LOBS5 .            # create image
+
+#2. docker rmi georgenigm_25jan             # delete image
+
+#3.1. docker run -d -it --gpus '"device=5"' --name georgenigm_lobs5_viz --user $(id -u):$(id -g) --group-add 652 -p 8888:8888 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan /bin/bash           # run viz container
+
+#3.2 docker run --rm --gpus '"device=5"' --name georgenigm_lobs5_exp --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u run_inference.py --stock GOOG --batch_size 2 --n_sequences 4 --n_cond_msgs 500             # run exp container
+
