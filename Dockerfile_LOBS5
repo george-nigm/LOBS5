@@ -95,3 +95,21 @@ RUN git config --global --add safe.directory /home/${MYUSER}
 #(old)3.2. docker run --rm --gpus '"device=5"' --name georgenigm_lobs5_exp --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u run_inference.py --stock GOOG --batch_size 2 --n_sequences 4 --n_cond_msgs 500             # run exp container
 
 # 3.2. docker run --rm --gpus '"device=5"' --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml 2>&1
+
+
+for n in 15 50; do
+  echo "=== Starting experiment with n_gen_msgs=$n ===" && \
+  sed -e "s/n_gen_msgs:.*/n_gen_msgs: $n/" \
+      -e "s/num_insertions:.*/num_insertions: 0/" \
+      -e "s/direction:.*/direction: 1/" \
+      -e "s/num_coolings:.*/num_coolings: 50/" \
+      -e "s/n_cond_msgs:.*/n_cond_msgs: 500/" \
+      /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/1.aggressive_scenario_config.yaml > /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/config_n${n}.yaml && \
+  docker run --rm --gpus '"device=5"' --user $(id -u):$(id -g) --group-add 652 \
+    -v /scratch/local/homes/80/georgenigm/LOBS5:/app \
+    -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade \
+    -v /homes/groups/finance/data:/home/myuser/data \
+    -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences \
+    --shm-size=1g -w /app georgenigm_25jan \
+    python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/config_n${n}.yaml 2>&1 | tee /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/exp_n${n}.log
+done

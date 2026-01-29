@@ -15,7 +15,7 @@ use_relative_volume: false
 order_volume_ratio: 1.0
 
 # Sampling
-n_samples: 96           # total number of samples to generate
+n_samples: 240           # total number of samples to generate
 batch_size: 8           # samples per batch (vmap parallelism on single GPU)
 rng_seed: 42            # fixed seed for reproducibility
 
