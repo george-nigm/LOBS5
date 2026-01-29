@@ -31,3 +31,19 @@ sample_top_n: -1        # -1 = sample from full distribution
 n_vol_series: 500
 book_dim: 503
 test_split: 0.1
+
+
+# for n in 5 15 25 50; do
+#   echo "=== Starting experiment with n_gen_msgs=$n ===" && \
+#   sed -e "s/n_gen_msgs:.*/n_gen_msgs: $n/" \
+#       -e "s/num_insertions:.*/num_insertions: 5/" \
+#       -e "s/num_coolings:.*/num_coolings: 15/" \
+#       /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/1.aggressive_scenario_config.yaml > /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/config_n${n}.yaml && \
+#   docker run --rm --gpus '"device=3"' --user $(id -u):$(id -g) --group-add 652 \
+#     -v /scratch/local/homes/80/georgenigm/LOBS5:/app \
+#     -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade \
+#     -v /homes/groups/finance/data:/home/myuser/data \
+#     -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences \
+#     --shm-size=1g -w /app georgenigm_25jan \
+#     python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/config_n${n}.yaml 2>&1 | tee /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/exp_n${n}.log
+# done
