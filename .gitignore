@@ -211,3 +211,4 @@ lobs5_wandb_curves/*
 output_figures/*
 artifacts/*
 output/
+archive/*

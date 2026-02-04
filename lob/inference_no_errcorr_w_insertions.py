@@ -1,5 +1,12 @@
+"""
+inference_no_errcorr_w_insertions.py
+
+Copy of inference_no_errcorr.py with insertion_schedule support for aggressive scenario.
+Allows inserting aggressive orders at specific steps during single-call generation.
+"""
+
 from jax import config
-config.update("jax_disable_jit", False) 
+config.update("jax_disable_jit", False)
 #config.update("jax_disable_jit", True)
 
 from datetime import datetime
@@ -72,24 +79,6 @@ l2_state_n = 10
 TIME_START_I, _ = valh.get_idx_from_field('time_s')
 _, TIME_END_I = valh.get_idx_from_field('time_ns')
 
-# @jax.jit
-# def init_msgs_from_l2(book: Union[pd.Series, onp.ndarray]) -> jnp.ndarray:
-#     """"""
-#     orderbookLevels = len(book) // 4  # price/quantity for bid/ask
-#     data = jnp.array(book).reshape(int(orderbookLevels*2),2)
-#     newarr = jnp.zeros((int(orderbookLevels*2),8))
-#     initOB = newarr \
-#         .at[:,3].set(data[:,0]) \
-#         .at[:,2].set(data[:,1]) \
-#         .at[:,0].set(1) \
-#         .at[0:orderbookLevels*4:2,1].set(-1) \
-#         .at[1:orderbookLevels*4:2,1].set(1) \
-#         .at[:,4].set(0) \
-#         .at[:,5].set(job.INITID) \
-#         .at[:,6].set(34200) \
-#         .at[:,7].set(0).astype('int32')
-#     return initOB
-
 
 def df_msgs_to_jnp(m_df: pd.DataFrame) -> jnp.ndarray:
     """"""
@@ -116,13 +105,13 @@ def msg_to_jnp(
         and rearrange for simulator.
     """
     m = m_raw.copy()
-    
+
     return jnp.array([
         m[EVENT_TYPE_i],
         (m[DIRECTION_i] * 2) - 1,
         m[SIZE_i],
         m[PRICE_ABS_i],
-        m[ORDER_ID_i], 
+        m[ORDER_ID_i],
         0,  # TraderID
         m[TIMEs_i],
         m[TIMEns_i],
@@ -130,22 +119,6 @@ def msg_to_jnp(
 
 msgs_to_jnp = jax.jit(jax.vmap(msg_to_jnp))
 
-# # NOTE: cannot jit due to side effects --> resolve later
-# @jax.jit
-# def reset_orderbook(
-#         b: OrderBook,
-#         l2_book: Optional[Union[pd.Series, onp.ndarray]] = None,
-#     ) -> OrderBook:
-#     """"""
-#     b.bids = b.bids.at[:].set(-1)
-#     b.asks = b.asks.at[:].set(-1)
-#     b.trades = b.trades.at[:].set(-1)
-#     if l2_book is not None:
-#         msgs = init_msgs_from_l2(l2_book)
-#         # NOTE: cannot jit due to side effects --> resolve later
-#         # CONTINUE HERE....
-#         b.process_orders_array(msgs)
-#     return b
 
 def copy_orderbook(
         b: OrderBook
@@ -161,17 +134,13 @@ def get_sim(
         replay_msgs_raw: jax.Array,
         start_time: jax.Array,
         sim: OrderBook,
-        # nOrders: int = 100,
-        # nTrades: int = 100
-        # sim_book_levels: int,
-        # sim_queue_len: int,
     ) -> Tuple[OrderBook, jax.Array]:
     """
     """
 
-    # reset simulator : args are (nOrders, nTrades)        
+    # reset simulator : args are (nOrders, nTrades)
     #Set the ns component of the start time to 0 to ensure that init messages are before first message.
-    # Only edge case is if first message and init are 0 ns - unlikely. 
+    # Only edge case is if first message and init are 0 ns - unlikely.
     start_time=start_time.at[1].set(0)
     # init simulator at the start of the sequence
     sim_state = sim.reset(init_l2_book,start_time)
@@ -183,7 +152,7 @@ def get_sim(
     return sim_state
 
 get_sims_vmap = jax.jit(
-    jax.vmap( 
+    jax.vmap(
         get_sim,
         in_axes=(0, 0,0,None),
         out_axes=(0),
@@ -205,9 +174,9 @@ def get_dataset(
     ):
     msg_files = sorted(glob(str(data_dir) + '/*message*.npy'))
     book_files = sorted(glob(str(data_dir) + '/*book*.npy'))
-    
+
     if day_indeces is not None:
-        #restricts the data to only include certain days. 
+        #restricts the data to only include certain days.
         msg_files=[msg_files[i] for i in day_indeces]
         book_files=[book_files[i] for i in day_indeces]
     if test_split>0:
@@ -227,7 +196,7 @@ def get_dataset(
         book_transform=False,
         book_depth=book_depth,
         return_raw_msgs=True,
-        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message. 
+        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message.
         limit_seq_per_file=limit_seq,
     )
     return ds
@@ -260,7 +229,7 @@ def switch(
         )
     else:
         raise ValueError(f'Invalid number of conditions and functions, got {len(condlist)} and {len(funclist)}')
-            
+
 
 def get_sim_msg(
         pred_msg_enc: jax.Array,
@@ -277,7 +246,7 @@ def get_sim_msg(
     msg_decoded = encoding.decode_msg(pred_msg_enc, encoder)
     # jax.debug.print('decoded predicted message: \n {}', msg_decoded)
     new_part = msg_decoded[: Message_Tokenizer.N_NEW_FIELDS]
-    # ref part is not needed for the simulator logic
+    # ref part is not needed for the simulator logic
     # ref_part = pred_msg[Message_Tokenizer.N_NEW_FIELDS: ]
 
     event_type = msg_decoded[EVENT_TYPE_i]
@@ -296,21 +265,8 @@ def get_sim_msg(
 
     p_abs = mid_price + rel_price * tick_size
 
-    # get message for jax lob simulator
-    # sim_msg = switch(
-    #     (event_type == 1, (event_type == 2) | (event_type == 3), event_type == 4),
-    #     (get_sim_msg_new, get_sim_msg_mod, get_sim_msg_exec, construct_dummy_sim_msg),
-    #     (event_type, quantity, side, p_abs, time_s, time_ns, 
-    #             rel_price_ref, quantity_ref, time_s_ref, time_ns_ref,
-    #             new_order_id, sim, sim_state,
-    #     )
-    # )
     orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
-    # jax.debug.print('orig_order: \n {}', orig_order)
 
-    # jax.debug.print('ref time is \n {} {}',time_s_ref,time_ns_ref)
-
-    # jax.debug.print('orig_order \n {}', orig_order)
     order_id_ref = orig_order[2]
 
     order_id = jax.lax.cond(
@@ -319,7 +275,6 @@ def get_sim_msg(
         lambda new_id, ref_id: new_id,
         new_order_id, order_id_ref
     )
-    # jax.debug.print("{}",order_id)
 
     sim_msg = construct_sim_msg(
         event_type,  # type: execution
@@ -361,7 +316,7 @@ def construct_sim_msg(
         quantity,
         price,
         order_id, # order_id
-        -88, 
+        -88,
         time_s,
         time_ns,
     ], dtype=jnp.int32)
@@ -460,10 +415,6 @@ def search_orig_msg(
     ):
     vol = sim.get_volume_at_price(sim_state, side, p_mod_raw)
     ret_none = (vol==0)
-    
-    # if sim.get_volume_at_price(sim_state, side, p_mod_raw) == 0:
-    #     debug('No volume at given price, discarding...')
-    #     return None, None, None
 
     m_seq = m_seq.copy().reshape((-1, Message_Tokenizer.MSG_LEN))
     # ref part is only needed to match to an order ID
@@ -475,7 +426,7 @@ def search_orig_msg(
     debug('sim IDs', sim_ids[sim_ids > 1])
     mask = get_invalid_ref_mask(m_seq_raw, p_mod_raw, sim_ids)
     orig_i, n_fields_removed = valh.try_find_msg(orig_enc, m_seq, mask)
-    
+
     # didn't find matching original message
     if orig_i is None:
         if sim.get_volume_at_price(sim_state, side, p_mod_raw, True) == 0:
@@ -484,7 +435,7 @@ def search_orig_msg(
         order_id = job.INITID
         # keep generated ref part, which we cannot validate
         orig_msg_found = orig_enc[-REF_LEN: ]
-    
+
     # found matching original message
     else:
         # get order ID from raw data for simulator
@@ -548,7 +499,7 @@ def _get_safe_mid_price(
     # bid negative:  2 ~> ask - tick_size
     # both negative: 3 ~> 0
     case_i = (ask <= 0) * 1 + (bid <= 0) * 2
-    
+
     p_mid = jax.lax.switch(
         case_i,
         (
@@ -606,7 +557,7 @@ def _add_time_tokens(
     # debug('delta_t', delta_t_s, delta_t_ns)
     time_s_ret, time_ns_ret = add_times(time_init_s, time_init_ns, delta_t_s, delta_t_ns)
     # debug('time', time_s, time_ns)
-    
+
     # encode time and add to sequence
     time_s = encoding.split_field(time_s_ret, 2, 3)
     time_s_toks = encoding.encode(time_s, *encoder['time'])
@@ -633,38 +584,20 @@ def _generate_token(
     ):
     # syntactically valid tokens for current message position
     valid_mask = valh.get_valid_mask(valid_mask_array, token_index)
-    # jax.debug.print("Calling apply model with token {} at index {}",m_tok,token_index)
-    
 
-    # TODO Turn hidden[4] to none here, and use dummy 0 for input. 
-    # if start_ema:
-    #     hidden=hidden[:3]+(None,)
-
-    # jax.debug.print("Start ema{}",start_ema)
-    # print(start_ema)
     hidden, logits = valh.apply_model(hidden,
                               m_tok,
                               b_tok,
                               train_state,
-                              model, 
+                              model,
                               batchnorm,
                               False)
-    # jax.debug.print("{}",logits.shape)
     logits=logits[0]
     argsortedlogits=jnp.argsort(logits,descending=True)
-    # jax.debug.print("Best tokens for index {} before the mask: \n {} \n best logits: \n {}",token_index,argsortedlogits,logits[0][argsortedlogits])
-    
-    
-    # filter out (syntactically) invalid tokens for current position
-    #TODO: check that the masking works correctly 
 
+    # filter out (syntactically) invalid tokens for current position
     if valid_mask is not None:
         logits = valh.filter_valid_pred(logits, valid_mask)
-    
-
-    
-    # jax.debug.print("Best logits for index {} after the mask: \n {}",token_index,jnp.flip(jnp.argsort(logits)))
-
 
     # update sequence
     # NOTE: rng arg expects one element per batch element
@@ -703,9 +636,12 @@ def _generate_msg(
         sample_top_n: int,
         tick_size: int,
         debug_book: bool,
-        
-        m_init: jax.Array, #last token from prev message, or start tok. 
-        b_init: jax.Array, #last book state after prev message, or start book. 
+        # NEW: insertion_schedule parameters
+        insertion_schedule: Optional[jax.Array],  # shape (total_msgs, 9) or None
+        total_n_msg_todo: int,  # original n_msg_todo for calculating current_step
+
+        m_init: jax.Array, #last token from prev message, or start tok.
+        b_init: jax.Array, #last book state after prev message, or start book.
         n_msg_todo: int,
         p_mid: jax.Array,
         sim_state: LobState,
@@ -717,8 +653,6 @@ def _generate_msg(
     ) -> Tuple[jax.Array, LobState, jax.Array, jax.Array, jax.Array, jax.Array, int]:
     """
     """
-    # jax.debug.print("Input token with {} msg todo \n {}",n_msg_todo, m_init)
-
     rng, rng_ = jax.random.split(rng)
     # treat as compile time constants
     with jax.ensure_compile_time_eval():
@@ -728,12 +662,9 @@ def _generate_msg(
         delta_t_s_start_i, delta_t_s_end_i = valh.get_idx_from_field('delta_t_s')
         delta_t_ns_start_i, delta_t_ns_end_i = valh.get_idx_from_field('delta_t_ns')
 
-    # 
+    #
     time_init_s = time_i[0]
     time_init_ns = time_i[1]
-
-    # TODO: calculating time in case where generation is not sequentially left to right
-    #       --> check if delta_t complete --> calc time once
 
     generate_token_scannable = _make_generate_token_scannable(
         train_state, model, batchnorm, valid_mask_array, sample_top_n
@@ -748,7 +679,6 @@ def _generate_msg(
     # Pass the first token & book (last from prev msg or START)
     #Generate tokens up to the last delta t (before first abs time)
     gen_token_carry = (m_init, b_init,hidden, token_idx, rng_)
-    # jax.debug.print("Book  going into scan token for with {} msg todo \n {}",n_msg_todo, b_init)
     (m_inter, b_inter, hidden, token_idx, rng_), tok_seq_A = jax.lax.scan(
         generate_token_scannable,
         gen_token_carry,
@@ -756,7 +686,7 @@ def _generate_msg(
         length=time_s_start_i
     )
     tok_seq_A=jnp.squeeze(tok_seq_A)
-    # fill the time tokens, retain the actual times, to generate the next message. 
+    # fill the time tokens, retain the actual times, to generate the next message.
     tok_seq_T, time_s, time_ns= _add_time_tokens(
         tok_seq_A,
         encoder,
@@ -769,10 +699,7 @@ def _generate_msg(
     )
     time_f=jnp.array([time_s, time_ns])
 
-    # jax.debug.print("Calling apply model with time tokens {} with {} msgs to go",tok_seq_T,n_msg_todo)
-    
     tok_seq_roll_thru_hidden=jnp.concatenate([tok_seq_A[-1:],tok_seq_T[:-1]])
-    # jax.debug.print("Calling apply model with 'time' tokens {} with {} msgs to go",tok_seq_roll_thru_hidden,n_msg_todo)
 
     hidden,_=valh.apply_model(hidden,
                             tok_seq_roll_thru_hidden,
@@ -804,9 +731,6 @@ def _generate_msg(
 
     sim_msg, msg_decoded = get_sim_msg(
         tok_seq_gen,  # the generated message
-        # m_seq[:-l],  # sequence without generated message
-        # m_seq_raw[1:],   # raw data (same length as sequence without generated message)
-        # None,
         sim,
         sim_state,
         mid_price = p_mid,
@@ -814,48 +738,92 @@ def _generate_msg(
         tick_size = tick_size,
         encoder = encoder,
     )
-    # def print_cond(string_,msg,n_msg_todo):
-    #     if n_msg_todo==500:
-    #         print(f"{string_} with {n_msg_todo} msg todo \n {msg}")
-
-    # jax.debug.callback(print_cond, "sim_msg", sim_msg,n_msg_todo)
 
     # feed message to simulator, updating book state
-    # jax.debug.callback(print_cond, "sim_state before", sim_state,n_msg_todo)
-
     sim_state = sim.process_order_array(sim_state, sim_msg)
 
-    # jax.debug.callback(print_cond, "sim_state after", sim_state,n_msg_todo)
+    # === CAPTURE BOOK STATE AFTER REGULAR MESSAGE ===
+    p_mid_after_regular = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
+    p_change_regular = ((p_mid_after_regular - p_mid) // tick_size)
+    book_l2_regular = sim.get_L2_state(sim_state, l2_state_n)
 
+    # === INSERTION SCHEDULE LOGIC ===
+    aggressive_msg_decoded = jnp.zeros(14, dtype=jnp.int32)
+    # Initialize book_l2_after_aggressive as copy of regular (will be overwritten if insertion)
+    book_l2_after_aggressive = book_l2_regular
+    p_mid_after_aggressive = p_mid_after_regular
 
-    # debug('trades', _trades)
+    if insertion_schedule is not None:
+        current_step = total_n_msg_todo - n_msg_todo
+        should_insert = insertion_schedule[current_step, 0] == 1
 
-    # get current mid price from simulator
-    p_mid_new = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
-    # jax.debug.print('p_mid_new {}', p_mid_new)
+        def do_insert(operands):
+            sim_state_in, n_msg_todo_in, time_f_in, p_mid_in = operands
 
-    # price change in ticks
-    p_change = ((p_mid_new - p_mid) // tick_size)#.astype(jnp.int32)
+            # Get dynamic price from book
+            best_ask = sim.get_best_ask(sim_state_in)
+            best_bid = sim.get_best_bid(sim_state_in)
+            direction = insertion_schedule[current_step, 2]
+            price = jax.lax.cond(
+                direction == 0,
+                lambda: best_ask,  # BUY hits ask
+                lambda: best_bid   # SELL hits bid
+            )
 
-    # get new book state
-    book_l2 = sim.get_L2_state(sim_state, l2_state_n)
-    # l2_book_states.append(book_l2)
+            # Aggressive order gets NEXT order_id (same decreasing sequence)
+            aggressive_order_id = n_msg_todo_in - 1
 
-    # error if the new message does not change the book state
-    # is_error = (book_l2 == b_seq[-1, 1:]).all()
+            aggressive_msg = construct_sim_msg(
+                event_type=insertion_schedule[current_step, 1],
+                side=direction,
+                quantity=insertion_schedule[current_step, 3],
+                price=price,
+                order_id=aggressive_order_id,
+                time_s=time_f_in[0],
+                time_ns=time_f_in[1] + 1,
+            )
+            new_sim_state = sim.process_order_array(sim_state_in, aggressive_msg)
+            new_n_msg_todo = n_msg_todo_in - 1  # Decrement for aggressive order
 
-    new_book_raw = jnp.concatenate([jnp.array([p_change]),time_f, book_l2[0:40]]).reshape(1,-1)
-    # jax.debug.print("book shape with time and midprice sim for with {} msg todo \n {}",n_msg_todo,new_book_raw)
+            # Create decoded representation of aggressive order
+            agg_msg_decoded = jnp.zeros(14, dtype=jnp.int32)
+            agg_msg_decoded = agg_msg_decoded.at[ORDER_ID_i].set(aggressive_order_id)
+            agg_msg_decoded = agg_msg_decoded.at[EVENT_TYPE_i].set(insertion_schedule[current_step, 1])
+            agg_msg_decoded = agg_msg_decoded.at[DIRECTION_i].set(direction)
+            agg_msg_decoded = agg_msg_decoded.at[PRICE_ABS_i].set(price)
+            agg_msg_decoded = agg_msg_decoded.at[SIZE_i].set(insertion_schedule[current_step, 3])
+            agg_msg_decoded = agg_msg_decoded.at[TIMEs_i].set(time_f_in[0])
+            agg_msg_decoded = agg_msg_decoded.at[TIMEns_i].set(time_f_in[1] + 1)
+
+            # Capture book state AFTER aggressive order
+            book_l2_after = sim.get_L2_state(new_sim_state, l2_state_n)
+            p_mid_after = _get_new_mid_price(sim, new_sim_state, p_mid_in, tick_size)
+
+            return new_sim_state, new_n_msg_todo, agg_msg_decoded, book_l2_after, p_mid_after
+
+        def no_insert(operands):
+            sim_state_in, n_msg_todo_in, time_f_in, p_mid_in = operands
+            # Return same book state (no change from aggressive)
+            book_l2_same = sim.get_L2_state(sim_state_in, l2_state_n)
+            return sim_state_in, n_msg_todo_in, jnp.zeros(14, dtype=jnp.int32), book_l2_same, p_mid_in
+
+        sim_state, n_msg_todo, aggressive_msg_decoded, book_l2_after_aggressive, p_mid_after_aggressive = jax.lax.cond(
+            should_insert,
+            do_insert,
+            no_insert,
+            (sim_state, n_msg_todo, time_f, p_mid_after_regular)
+        )
+
+    new_book_raw = jnp.concatenate([jnp.array([p_change_regular]),time_f, book_l2_regular[0:40]]).reshape(1,-1)
 
     b_final = preproc.transform_L2_state_gpu(new_book_raw, 500, 100)
-    # jax.debug.print("book after transform after message, for with {} msg todo \n {}",n_msg_todo,b_final)
-    # update book sequence
 
     n_msg_todo -= 1
 
-    return msg_decoded, sim_state, m_final, tok_seq_gen, b_final, book_l2, p_mid_new, n_msg_todo, hidden, time_f
+    # Return both book states: regular (for regular msg) and after_aggressive (for aggressive msg)
+    return msg_decoded, aggressive_msg_decoded, sim_state, m_final, tok_seq_gen, b_final, book_l2_regular, book_l2_after_aggressive, p_mid_after_aggressive, n_msg_todo, hidden, time_f
 
-    
+
 def _make_generate_msg_scannable(
         sim: OrderBook,
         train_state: TrainState,
@@ -866,12 +834,16 @@ def _make_generate_msg_scannable(
         sample_top_n: int,
         tick_size: int,
         debug_book: bool,
+        # NEW: insertion_schedule parameters
+        insertion_schedule: Optional[jax.Array],
+        total_n_msg_todo: int,
     ):
     """
     """
     __generate_msg = jax.jit(functools.partial(
         _generate_msg, sim, train_state, model, batchnorm,
-        encoder, valid_mask_array, sample_top_n, tick_size,debug_book
+        encoder, valid_mask_array, sample_top_n, tick_size, debug_book,
+        insertion_schedule, total_n_msg_todo,  # NEW
     ),device=jax.devices()[0])
 
     def _generate_msg_scannable(gen_state, input):
@@ -880,11 +852,12 @@ def _make_generate_msg_scannable(
         b_seq_real=input
         m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng, hidden, time= gen_state
         rng, rng_ = jax.random.split(rng)
-        
-        msg_decoded, sim_state, m_seq, msg_token, b_seq, book_l2, p_mid, n_msg_todo,hidden, time = __generate_msg(
+
+        msg_decoded, aggressive_msg_decoded, sim_state, m_seq, msg_token, b_seq, book_l2_regular, book_l2_after_agg, p_mid, n_msg_todo, hidden, time = __generate_msg(
             m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng_, hidden, time, b_seq_real
         )
-        return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, book_l2, msg_token)
+        # Return both book states: regular and after_aggressive
+        return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, aggressive_msg_decoded, book_l2_regular, book_l2_after_agg, msg_token)
     return _generate_msg_scannable
 
 @partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
@@ -905,48 +878,34 @@ def generate(
         conditional : bool, # static
         init_time : jax.Array,
         debug_book: bool=False,
-        b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging. 
-        # if eval_msgs given, also returns loss of predictions
-        # e.g. to calculate perplexity
-        # m_seq_eval: Optional[jax.Array] = None,  
+        b_seq_real: Optional[jax.Array]=None,
+        # NEW: insertion_schedule parameter
+        insertion_schedule: Optional[jax.Array] = None,
     ) -> Tuple[jax.Array, jax.Array, jax.Array]:
 
-    # id_gen = OrderIdGenerator()
-    # l = Message_Tokenizer.MSG_LEN
-    # v = Vocab()
-    # vocab_len = len(v)
-    # last_start_i = m_seq.shape[0] - l
-    # l2_book_states = []
-    # m_seq_raw = m_seq_raw.copy()
-    # num_errors = 0
     print("WARNING: Compiling the generate function, you should only see this once.")
-    # m_seq_cond=m_seq_cond.copy()
-    # b_seq_cond=b_seq_cond.copy()
 
     with jax.ensure_compile_time_eval():
         valid_mask_array = valh.syntax_validation_matrix()
 
-    # valid_mask_array=None 
-    # jax.debug.print("Note: Valid mask turned off in generate_token")
-
     if not debug_book:
         b_seq_real=None
 
-    
+
     if conditional:
         def roll_hidden_scan(carry,xs):
             m_seq,b_seq=xs
             h=carry
             h,log=valh.apply_model(h,
-                                m_seq, #All but the last token go in here to run fwd the hidden state. 
-                                b_seq, # All of the books, because last book needed for 21 1st toks of last message. 
+                                m_seq,
+                                b_seq,
                                 train_state,
                                 model,
                                 batchnorm,
                                 True)
             carry=h
             return carry, None
-        
+
 
         print(m_seq_cond[:-1],b_seq_cond[:-1])
         # Split arrays into N chunks along the leading axis
@@ -963,490 +922,77 @@ def generate(
         init_ema=False
     else:
         #If unconditional generation, then the initial token
-        #  and book have one less dimension.   
+        #  and book have one less dimension.
         hidden_state=init_hidden
         init_ema=True
-        # FIXME: Currently wrong and incomplete. 
+        # FIXME: Currently wrong and incomplete.
         # Needs to just be START token and init book state.
         assert (m_seq_cond.ndim==1) & (m_seq_cond.shape[0]==1), "m_seq_cond needs to be a scalar (start tok?)"
         init_token=m_seq_cond
         init_book=b_seq_cond
 
-    # jax.debug.print("hidden_state vs init hidden state {}",hidden_state==init_hidden)
-
     # get current mid price from simulator
     p_mid = _get_safe_mid_price(sim, sim_state, tick_size)
-    # jax.debug.print('generate - p_mid {}', p_mid)
+
+    # Store original n_msg_todo for later use (will be decremented during scan)
+    original_n_msg_todo = n_msg_todo
 
     generate_msg_scannable = _make_generate_msg_scannable(
-        sim, train_state, model, batchnorm, 
+        sim, train_state, model, batchnorm,
         encoder, valid_mask_array, sample_top_n, tick_size, debug_book,
+        insertion_schedule, n_msg_todo,  # NEW: pass schedule and total count
     )
-    gen_state, (msgs_decoded, l2_book_states,msgs_tokens) = jax.lax.scan(
+    gen_state, (msgs_decoded, aggressive_msgs_decoded, l2_book_states_regular, l2_book_states_after_agg, msgs_tokens) = jax.lax.scan(
         generate_msg_scannable,
         (init_token, init_book, n_msg_todo, p_mid, sim_state,rng, hidden_state,init_time),
         length=n_msg_todo,
         xs=b_seq_real,
     )
-    (final_token, final_book,n_msg_todo, p_mid, sim_state, rng, hidden_state,final_time) = gen_state
+    (final_token, final_book, final_n_msg_todo, p_mid, sim_state, rng, hidden_state, final_time) = gen_state
 
-    # all_msg_toks_gen=jnp.concatenate(msgs_tokens)
+    # Merge regular and aggressive messages: [reg0, agg0, reg1, agg1, ...]
+    merged_msgs = jnp.zeros((original_n_msg_todo * 2, msgs_decoded.shape[1]), dtype=msgs_decoded.dtype)
+    merged_msgs = merged_msgs.at[::2].set(msgs_decoded)
+    merged_msgs = merged_msgs.at[1::2].set(aggressive_msgs_decoded)
 
-
+    # Merge book states: regular (for regular msg) and after_agg (for aggressive msg)
+    # l2_book_states_regular[i] = book state AFTER regular message i (BEFORE aggressive)
+    # l2_book_states_after_agg[i] = book state AFTER aggressive order i (or same as regular if no insertion)
+    merged_books = jnp.zeros((original_n_msg_todo * 2, l2_book_states_regular.shape[1]), dtype=l2_book_states_regular.dtype)
+    merged_books = merged_books.at[::2].set(l2_book_states_regular)
+    merged_books = merged_books.at[1::2].set(l2_book_states_after_agg)
 
     # count errors when the message does not change the (visible) book state
-    num_errors = (l2_book_states[1:] == l2_book_states[:-1]).all(axis=1).sum()
+    num_errors = (merged_books[1:] == merged_books[:-1]).all(axis=1).sum()
 
-    return msgs_decoded, l2_book_states, num_errors, msgs_tokens
+    # Return merged messages and book states (caller filters zeros)
+    # Shape: (n_msg_todo * 2, ...) - includes placeholder zeros for positions without aggressive orders
+    return merged_msgs, merged_books, num_errors, msgs_tokens
 
 generate_batched = jax.jit(
     jax.vmap(
         generate,
         in_axes=(
-            None, None, None, None, None,
-            None, None,    0,    0, None,
-            0,       0,    0, None,    0,
-            None,    0,
+            None, None, None, None, None,  # sim, train_state, model, batchnorm, encoder
+            None, None,    0,    0, None,  # sample_top_n, tick_size, m_seq_cond, b_seq_cond, n_msg_todo
+               0,    0,    0, None,    0,  # sim_state, rng, init_hidden, conditional, init_time
+            None,    0,    0,              # debug_book, b_seq_real, insertion_schedule (batched)
         )
     ),
     static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
 )
 
-@partial(jax.jit, static_argnums=(3, 4, 5, 6))
-def calc_sequence_losses(
-        m_seq,
-        b_seq,
-        state,
-        model,
-        batchnorm,
-        n_inp_msgs,  # length of input sequence in messages
-        valid_mask_array
-    ):
-    """ Takes a sequence of messages, and calculates cross-entropy loss for each message,
-        based on the next message in the sequence.
-    """
-    @partial(jax.jit, static_argnums=(1,2))
-    def moving_window(a: jax.Array, size: int, stride: int = 1):
-        starts = jnp.arange(0, len(a) - size + 1, stride)
-        return jax.vmap(
-            lambda start: jax.lax.dynamic_slice(
-                a,
-                (start, *jnp.zeros(a.ndim-1, dtype=jnp.int32)),
-                (size, *a.shape[1:])
-            )
-        )(starts)
-    
-    l = Message_Tokenizer.MSG_LEN
 
-    @jax.jit
-    def prep_single_inp(
-            mask_i,
-            na_mask,
-            m_seq,
-            b_seq,
-        ):
-        m_seq = m_seq.copy().reshape((-1, l))
-        last_msg = jnp.where(
-            na_mask,
-            Vocab.HIDDEN_TOK,#Vocab.NA_TOK,
-            m_seq[-1]
-        )
-        m_seq = m_seq.at[-1, :].set(last_msg).reshape(-1)
-        m_seq, y = valh.mask_last_msg_in_seq(m_seq, mask_i)
-
-        input = (m_seq, b_seq)
-        integration_timesteps = (
-            jnp.ones(len(m_seq), dtype=jnp.float32), 
-            jnp.ones(len(b_seq), dtype=jnp.float32)
-        )
-        return input, integration_timesteps, y.astype(jnp.float32)
-    prep_multi_input = jax.vmap(prep_single_inp, in_axes=(0, 0, None, None))
-
-    @jax.jit
-    def single_msg_losses(carry, inp):
-        @partial(jax.jit, static_argnums=(0,))
-        def na_mask_slice(last_non_masked_i):
-            a = jnp.ones((l,), dtype=jnp.bool_)
-            a = a.at[: last_non_masked_i+1].set(False)
-            return a
-
-        m_seq, b_seq, valid_mask = inp
-        mask_idxs = jnp.concatenate([jnp.arange(0, TIME_START_I), jnp.arange(TIME_END_I, l)])
-        na_masks = jnp.array([na_mask_slice(i) for i in range(TIME_START_I)] \
-            + [na_mask_slice(i) for i in range(TIME_END_I, l)])
-
-        bsz = 10
-        assert 2*bsz >= mask_idxs.shape[0], f'bsz:{bsz}; msg len:{mask_idxs.shape[0]}'
-        # split inference into two batches to avoid OOM
-        input, integration_timesteps, y1 = prep_multi_input(mask_idxs[:bsz], na_masks[:bsz], m_seq, b_seq)
-        logits1 = valh.predict(
-            input,
-            integration_timesteps, state, model, batchnorm)
-        input, integration_timesteps, y2 = prep_multi_input(mask_idxs[-bsz:], na_masks[-bsz:], m_seq, b_seq)
-        logits2 = valh.predict(
-            input,
-            integration_timesteps, state, model, batchnorm)
-        
-        logits = jnp.concatenate([logits1, logits2[2*bsz - mask_idxs.shape[0] : ]], axis=0)
-        y = jnp.concatenate([y1, y2[2*bsz - mask_idxs.shape[0] : ]], axis=0)
-        
-        # filter out (syntactically) invalid tokens for current position
-        if valid_mask is not None:
-            logits = valh.filter_valid_pred(logits, valid_mask)
-
-        losses = train_helpers.cross_entropy_loss(logits, y)
-        return carry, losses
-
-    m_seq = m_seq.reshape((-1, l))
-    inputs = (
-        moving_window(m_seq, n_inp_msgs),
-        moving_window(b_seq, n_inp_msgs),
-        jnp.repeat(
-            jnp.expand_dims(
-                jnp.delete(valid_mask_array, slice(TIME_START_I, TIME_END_I), axis=0),
-                axis=0
-            ),
-            m_seq.shape[0] - n_inp_msgs + 1,
-            axis=0
-        )
-    )
-    last_i, losses = jax.lax.scan(
-        single_msg_losses,
-        init=0,
-        xs=inputs
-    )
-    return losses
-
-# def generate_single_rollout(
-#         m_seq_inp,
-#         b_seq_inp,
-#         n_gen_msgs,
-#         sim,
-#         sim_state,
-#         state,
-#         model,
-#         batchnorm,
-#         encoder,
-#         rng,
-#     ):
-    
-#     rng, rng_ = jax.random.split(rng)
-
-#     # generate predictions
-#     m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = generate(
-#         m_seq_inp,
-#         b_seq_inp,
-#         n_gen_msgs,
-#         sim,
-#         sim_state,
-#         state,
-#         model,
-#         batchnorm,
-#         encoder,
-#         rng_,
-#         sample_top_n=-1,  # sample from entire distribution
-#     )
-
-#     return (
-#         m_seq_gen,
-#         b_seq_gen,
-#         {
-#             'num_errors': num_errors,
-#             'l2_book_states': l2_book_states,
-#         }
-#     )
-
-# # sample from distribution of rollouts with same input an different rng keys
-# generate_repeated_rollouts = jax.vmap(generate_single_rollout, in_axes=((None,)*9 + (0,)))
-# # sample different rollouts with different input sequences (and different rng keys)
-# generate_multiple_rollouts = jax.vmap(generate_single_rollout, in_axes=(0, 0, None, None, 0, None, None, None, None, 0))
-
-def sample_new(
-        n_samples: int,  # draw n random samples from dataset for evaluation
-        batch_size: int,  # how many samples to process in parallel
-        ds: LOBSTER_Dataset,
-        rng: jax.dtypes.prng_key,
-        seq_len_cond: int, #cond: should be 0 if uncond.
-        n_cond_msgs: int, #cond: should be 0 if uncond
-        n_gen_msgs: int, #gen
-        train_state: TrainState,
-        model: nn.Module,
-        batchnorm: bool,
-        encoder: Dict[str, Tuple[jax.Array, jax.Array]],
-        stock_symbol: str,
-        n_vol_series: int = 500,
-        # sim_book_levels: int = 20,
-        # sim_queue_len: int = 100,
-        # data_levels: int = 10,
-        save_folder: str = './data_saved/',
-        tick_size: int = 100,
-        sample_top_n: int = -1,
-        init_hidden: Optional[Tuple] = None,
-        args: Optional[Any] = None,
-        conditional: bool = True,
-        v: Vocab = Vocab(),
-        overfit_debug: bool = False,
-    ):
-    """
-    """
-    assert n_samples % batch_size == 0, 'n_samples must be divisible by batch_size'
-    if conditional is False:
-        assert n_cond_msgs==0, "If conditional flag is false then cannot expect to have any messages for conditioning."
-        assert seq_len_cond==0, "If conditional flag is false, then cannot have any tokens for conditioning."
-
-    rng, rng_ = jax.random.split(rng)
-    if overfit_debug:
-        sample_i = [list(range(batch_size))]
-    else:
-        sample_i = jax.random.choice(
-            rng_,
-            jnp.arange(len(ds), dtype=jnp.int32),
-            shape=(n_samples // batch_size, batch_size),
-            replace=False
-        ).tolist()
-    rng, rng_ = jax.random.split(rng)
-
-    # create folders to save the data if they don't exist yet
-    Path(save_folder + f'/data_cond/').mkdir(exist_ok=True, parents=True)
-    Path(save_folder + f'/data_real/').mkdir(exist_ok=True, parents=True)
-    Path(save_folder + f'/data_gen/').mkdir(exist_ok=True, parents=True)
-
-
-    if (init_hidden == None):
-        init_hidden=model.initialize_carry(1,
-                                        hidden_size=(args.ssm_size_base // pow(2,int(args.conj_sym))),
-                                        n_message_layers=args.n_message_layers,
-                                        n_book_pre_layers=args.n_book_pre_layers ,
-                                        n_book_post_layers=args.n_book_post_layers,
-                                        n_fused_layers=args.n_layers,
-                                        h_size_ema=args.ssm_size_base)
-
-    # jax.debug.print("Init hidden is: \n {}",len(init_hidden))
-    # Assumes only a single hidden state is given and needs to be duplicated. TODO Add a flag. 
-    init_hidden_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_hidden)
-
-
-    #TODO: complete these options to make sure every case works and add some asserts. 
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_hidden ))
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_hidden_batched ))
-    
-
-    # init_time_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_time)
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_time ))
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_time_batched ))
-    sim_init = OrderBook(cfg=JAXLOB_Configuration(cancel_mode=cst.CancelMode.CANCEL_UNIFORM_AND_LARGE.value))
-    # all_metrics = []
-    initial=True
-    for batch_i in tqdm(sample_i):
-        # print('BATCH', batch_i)
-        # TODO: check if we can init the dataset without the raw data 
-        #       if it's not needed 
-        m_seq, _, b_seq_pv, msg_seq_raw, book_l2_init = ds[batch_i]
-        # print("sample_new: M_seq_inputs:", m_seq)
-        # print('m_seq.shape before jnp.array', onp.array(m_seq).shape)
-        m_seq = jnp.array(m_seq)
-        b_seq_pv = jnp.array(b_seq_pv)
-        msg_seq_raw = jnp.array(msg_seq_raw)
-        book_l2_init = jnp.array(book_l2_init)
-
-        # transform book to volume image representation for model
-        b_seq = transform_L2_state_batch(b_seq_pv, n_vol_series, tick_size)
-        init_time_batched=b_seq_pv[:,0,1:3]
-
-
-        #Add the start token
-        #FIXME: Move this to the data loader using the inference mask. 
-            # Done?
-        # m_seq=jnp.concatenate([jnp.ones((batch_size,1),dtype=int)*v.START_TOK,m_seq],axis=1)
-
-        print(m_seq.shape)
-        # encoded data
-        m_seq_inp = m_seq[:, : seq_len_cond+1]
-        m_seq_eval = m_seq[:, (seq_len_cond+1): ]
-        # Debug prints to file
-        # Set print options to show all array elements
-        if overfit_debug:
-            with open(f'debug_m_seq_inp_batch_{batch_i[0]}.txt', 'w') as f:
-                print(f"m_seq_inp shape: {m_seq_inp.shape}", file=f)
-                print(f"m_seq_inp:\n{m_seq_inp}", file=f)
-            
-            with open(f'debug_m_seq_eval_batch_{batch_i[0]}.txt', 'w') as f:
-                print(f"m_seq_eval shape: {m_seq_eval.shape}", file=f)
-                print(f"m_seq_eval:\n{m_seq_eval}", file=f)
-        
-        # Reset print options to default
-        b_seq_inp = b_seq[: , : n_cond_msgs+1]
-        b_seq_eval = b_seq[:, (n_cond_msgs+1):] 
-        # true L2 data: remove price change column
-        # shape: [batch, messages, levels]
-        b_seq_pv_inp = onp.array(b_seq_pv[:, : n_cond_msgs+1, 3:])
-        b_seq_pv_eval = onp.array(b_seq_pv[:, (n_cond_msgs+1):, 3:]) #Drop the midprice and times for logging purposes in lobster.
-
-        # raw LOBSTER data
-        m_seq_raw_inp = msg_seq_raw[:, : n_cond_msgs]
-        m_seq_raw_eval = msg_seq_raw[:, n_cond_msgs: ]
-
-        # initialise simulator
-        sim_states_init = get_sims_vmap(
-            book_l2_init,  # book state before any messages
-            m_seq_raw_inp, # messages to replay to init sim
-            init_time_batched,
-            sim_init,
-            # TODO: consider passing nOrders, nTrades
-        )
-
-        # book state after initialisation (replayed messages)
-        # actually, this is already part of the input data --> only needed for comparison
-        # l2_book_states_init = sim_init.get_L2_states_vmap(sim_states_init, l2_state_n)
-
-        # run actual messages on sim_eval (once) to compare
-        # convert m_seq_raw_eval to sim_msgs
-        # msgs_eval = msgs_to_jnp(m_seq_raw_eval[: n_gen_msgs])
-        # sim_state_eval, l2_book_states_eval, _ = sim_init.process_orders_array_l2(sim_state_init, msgs_eval, l2_state_n)
-
-        if overfit_debug:
-            debug_book=True
-        else:
-            debug_book=False
-        if debug_book:
-            real_book=jnp.concatenate([jnp.expand_dims(b_seq_inp[:,-1],axis=1),b_seq_eval[:,:-1]],axis=1)
-            print(real_book.shape)
-        else:
-            real_book=None
-        # print('m_seq_inp.shape', m_seq_inp.shape)
-        # print('b_seq_inp.shape', b_seq_inp.shape)
-        # print('sim_states_init.asks.shape', sim_states_init.asks.shape)
-        # print('sim_states_init.bids.shape', sim_states_init.bids.shape)
-        # print('sim_states_init.trades.shape', sim_states_init.trades.shape)
-        # init_hidden_batched,init_time_batched,init_token_batched,init_book_batched=roll_batched(
-        #     conditional, #Static             
-        #     train_state,  # None map, static? 
-        #     model, # static
-        #     batchnorm, # static
-        #     encoder,
-        #     init_hidden_batched,
-        #     m_seq_inp[:], # in_axis = 0
-        #     b_seq_inp, # in_axis = 0
-        #     init_time_batched,
-        # )
-
-
-
-        print('Before generation, real book is (should be none):', real_book)
-        if initial:
-            initial=False
-            generate_traced=generate_batched.trace(
-                sim_init, # static
-                train_state,  # None map, static? 
-                model, # static
-                batchnorm, # static
-                encoder, # None map, static?
-                sample_top_n,  # sample from entire distribution # static
-                tick_size, # static
-                m_seq_inp[:], # in_axis = 0
-                b_seq_inp, # in_axis = 0
-                n_gen_msgs, # static
-                sim_states_init, # in_axis = 0 
-                jax.random.split(rng_, batch_size), # in_axis = 0
-                init_hidden_batched,
-                conditional,  # static
-                init_time_batched,
-                # init_token_batched,
-                # init_book_batched,
-                debug_book, # static
-                real_book,
-            )
-            # print("trace complete")
-            # print(generate_traced.jaxpr)
-            generate_lowered=generate_traced.lower()
-            # print("lowering complete")
-            # print(generate_lowered.as_text())
-
-            generate_compiled=generate_lowered.compile()
-            # print("Cost analysis:",generate_compiled.cost_analysis())
-
-        start_time = time.time()
-        msgs_decoded, l2_book_states, num_errors,mgs_tokens = generate_compiled(
-            train_state,  # None map, static? 
-            encoder, # None map, static?
-            m_seq_inp[:], # in_axis = 0
-            b_seq_inp, # in_axis = 0
-            sim_states_init, # in_axis = 0 
-            jax.random.split(rng_, batch_size), # in_axis = 0
-            init_hidden_batched,
-            init_time_batched,
-            real_book,
-        )
-        end_time = time.time()
-        print(f"Generation time for batch of size {batch_size}: {(end_time - start_time):.2f} seconds")
-        rng, rng_ = jax.random.split(rng)
-        # TODO: save as metadata
-        print('num_errors', num_errors)
-
-        # only keep actually newly generated messages
-        # m_seq_raw_gen = m_seq_raw_gen[-n_gen_msgs:]
-
-        # save data for all elements in the batch
-        for i, cond_msg, cond_book, real_msg, real_book, gen_msg, gen_book,msg_tok,msg_tok_eval \
-            in zip(
-                batch_i,
-                m_seq_raw_inp, b_seq_pv_inp,
-                m_seq_raw_eval, b_seq_pv_eval, 
-                msgs_decoded, l2_book_states,
-                mgs_tokens,m_seq_eval,
-            ):
-
-            # get date from filename
-            date = ds.get_date(i)
-            if overfit_debug:
-                jnp.set_printoptions(threshold=sys.maxsize)
-                with open(save_folder+f'/tokens/{stock_symbol}_{date}_real_{i}.txt', 'w') as f:
-                    print( onp.reshape(msg_tok_eval,(-1,Message_Tokenizer.MSG_LEN)), file=f)
-
-                with open(save_folder+f'/tokens/{stock_symbol}_{date}_gen_{i}.txt', 'w') as f:
-                    print( msg_tok, file=f)
-                jnp.set_printoptions()
-            
-            # input / cond data
-            msg_to_lobster_format(cond_msg).to_csv(
-                save_folder + f'/data_cond/{stock_symbol}_{date}_message_real_id_{i}.csv',
-                index=False, header=False
-            )
-            book_to_lobster_format(cond_book).to_csv(
-                save_folder + f'/data_cond/{stock_symbol}_{date}_orderbook_real_id_{i}.csv',
-                index=False, header=False
-            )
-
-            # real data
-            msg_to_lobster_format(real_msg).to_csv(
-                save_folder + f'/data_real/{stock_symbol}_{date}_message_real_id_{i}.csv',
-                index=False, header=False
-            )
-            book_to_lobster_format(real_book).to_csv(
-                save_folder + f'/data_real/{stock_symbol}_{date}_orderbook_real_id_{i}.csv',
-                index=False, header=False
-            )
-            
-            # gen data
-            msg_to_lobster_format(gen_msg).to_csv(
-                save_folder + f'/data_gen/{stock_symbol}_{date}_message_real_id_{i}_gen_id_0.csv',
-                index=False, header=False
-            )
-            book_to_lobster_format(gen_book).to_csv(
-                save_folder + f'/data_gen/{stock_symbol}_{date}_orderbook_real_id_{i}_gen_id_0.csv',
-                index=False, header=False
-            )
-            
 def msg_to_lobster_format(
         m_seq: jax.Array,
 ) -> pd.DataFrame:
-    """ 
+    """
     message format: [time, event_type, order_id, size, price, direction]
     """
     m_seq_ = onp.array(m_seq)[:, [TIMEs_i, TIMEns_i, EVENT_TYPE_i, ORDER_ID_i, SIZE_i, PRICE_ABS_i, DIRECTION_i]]
     m_seq_ = pd.DataFrame(m_seq_, columns=['time_s', 'time_ns', 'event_type', 'order_id', 'size', 'price', 'direction'])
 
-    # combine time field to single field    
+    # combine time field to single field
     m_seq_.insert(
         column = 'time',
         loc = 0,

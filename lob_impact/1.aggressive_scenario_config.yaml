@@ -4,8 +4,9 @@
 # Scenario parameters
 n_gen_msgs: 50          # messages to generate between insertions/coolings
 num_insertions: 5       # number of aggressive order insertions
-num_coolings: 50        # number of cooling periods (generation without insertion)
+num_coolings: 30        # number of cooling periods (generation without insertion)
 n_cond_msgs: 500        # conditioning messages
+n_eval_msgs_dataset: 500  # for dataset loading (match run_inference.py for identical samples)
 
 # Aggressive order parameters
 event_type: 4           # 4 = market order (execution)
@@ -15,7 +16,7 @@ use_relative_volume: false
 order_volume_ratio: 1.0
 
 # Sampling
-n_samples: 240           # total number of samples to generate
+n_samples: 8           # total number of samples to generate
 batch_size: 8           # samples per batch (vmap parallelism on single GPU)
 rng_seed: 42            # fixed seed for reproducibility
 
