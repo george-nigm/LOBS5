@@ -590,6 +590,14 @@ def sample_aggressive_scenario(
         # Split RNG for next iteration (matches sample_new line 1382)
         rng, rng_ = jax.random.split(rng)
 
+        # Save aggressive indices once (same for all samples)
+        if batch_idx == 0:
+            original_indices = onp.arange(all_msgs.shape[1])
+            is_aggressive_original = (original_indices % 2 == 1)
+            is_aggressive = is_aggressive_original[valid_mask[0]]
+            aggressive_indices = onp.where(is_aggressive)[0]
+            onp.savetxt(save_folder / 'aggressive_indices.csv', aggressive_indices, fmt='%d')
+
     print(f"\nResults saved to: {save_folder}")
 
 

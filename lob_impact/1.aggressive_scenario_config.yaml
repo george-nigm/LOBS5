@@ -3,14 +3,14 @@
 
 # Scenario parameters
 n_gen_msgs: 50          # messages to generate between insertions/coolings
-num_insertions: 5       # number of aggressive order insertions
-num_coolings: 30        # number of cooling periods (generation without insertion)
+num_insertions: 20       # number of aggressive order insertions
+num_coolings: 100        # number of cooling periods (generation without insertion)
 n_cond_msgs: 500        # conditioning messages
 n_eval_msgs_dataset: 500  # for dataset loading (match run_inference.py for identical samples)
 
 # Aggressive order parameters
 event_type: 4           # 4 = market order (execution)
-direction: 1            # 0 = buy (hit ask), 1 = sell (hit bid)
+direction: 0            # 0 = buy (hit ask), 1 = sell (hit bid)
 order_volume: 75        # order size (mean market order in data)
 use_relative_volume: false
 order_volume_ratio: 1.0

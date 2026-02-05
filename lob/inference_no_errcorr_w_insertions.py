@@ -760,15 +760,24 @@ def _generate_msg(
         def do_insert(operands):
             sim_state_in, n_msg_todo_in, time_f_in, p_mid_in = operands
 
-            # Get dynamic price from book
-            best_ask = sim.get_best_ask(sim_state_in)
-            best_bid = sim.get_best_bid(sim_state_in)
+            # Get dynamic price and available volume from book
+            best_bid_ask = sim.get_best_bid_and_ask_inclQuants(sim_state_in)
+            # best_bid_ask[0] = (ask_price, ask_qty), best_bid_ask[1] = (bid_price, bid_qty)
             direction = insertion_schedule[current_step, 2]
             price = jax.lax.cond(
                 direction == 0,
-                lambda: best_ask,  # BUY hits ask
-                lambda: best_bid   # SELL hits bid
+                lambda: best_bid_ask[0][0],  # BUY hits ask price
+                lambda: best_bid_ask[1][0]   # SELL hits bid price
             )
+
+            # Get available volume at best level and cap order size
+            avail = jax.lax.cond(
+                direction == 0,
+                lambda: best_bid_ask[0][1],  # ask volume for buy
+                lambda: best_bid_ask[1][1]   # bid volume for sell
+            ).astype(jnp.int32)
+            order_volume = insertion_schedule[current_step, 3]
+            quantity = jnp.minimum(order_volume, avail)
 
             # Aggressive order gets NEXT order_id (same decreasing sequence)
             aggressive_order_id = n_msg_todo_in - 1
@@ -776,7 +785,7 @@ def _generate_msg(
             aggressive_msg = construct_sim_msg(
                 event_type=insertion_schedule[current_step, 1],
                 side=direction,
-                quantity=insertion_schedule[current_step, 3],
+                quantity=quantity,
                 price=price,
                 order_id=aggressive_order_id,
                 time_s=time_f_in[0],
@@ -791,7 +800,7 @@ def _generate_msg(
             agg_msg_decoded = agg_msg_decoded.at[EVENT_TYPE_i].set(insertion_schedule[current_step, 1])
             agg_msg_decoded = agg_msg_decoded.at[DIRECTION_i].set(direction)
             agg_msg_decoded = agg_msg_decoded.at[PRICE_ABS_i].set(price)
-            agg_msg_decoded = agg_msg_decoded.at[SIZE_i].set(insertion_schedule[current_step, 3])
+            agg_msg_decoded = agg_msg_decoded.at[SIZE_i].set(quantity)
             agg_msg_decoded = agg_msg_decoded.at[TIMEs_i].set(time_f_in[0])
             agg_msg_decoded = agg_msg_decoded.at[TIMEns_i].set(time_f_in[1] + 1)
 
