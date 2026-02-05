@@ -349,6 +349,8 @@ def sample_aggressive_scenario(
     direction = cfg['direction']
     n_eval_msgs_dataset = cfg.get('n_eval_msgs_dataset', 500)  # for dataset loading (match run_inference.py)
     order_volume = cfg['order_volume']
+    checkpoint_step = cfg.get('checkpoint_step', None)  # None = latest checkpoint
+    chunk_size = cfg.get('chunk_size', 1)
 
     # Derived parameters
     # Total messages to generate including aggressive orders
@@ -375,7 +377,8 @@ def sample_aggressive_scenario(
         book_seq_len=n_cond_msgs,
     )
 
-    ckpt = load_checkpoint(new_train_state, ckpt_path, step=0, train=False)
+    ckpt = load_checkpoint(new_train_state, ckpt_path, step=checkpoint_step, train=False)
+    print(f"Loaded checkpoint step: {ckpt['step']}")
     train_state = ckpt['model']
     model = model_cls(training=False, step_rescale=1.0)
 
@@ -521,12 +524,14 @@ def sample_aggressive_scenario(
                 init_time_batched,          # non-static, batched
                 False,                      # static (15) - debug_book
                 None,                       # non-static - b_seq_real (for debug)
-                insertion_schedule_batched, # non-static, batched - NEW
+                insertion_schedule_batched, # non-static, batched
+                chunk_size,                 # static (18) - chunk_size for conditioning
             )
             generate_lowered = generate_traced.lower()
             generate_compiled = generate_lowered.compile()
 
         # Generate ALL messages in single call
+        # Note: static args (chunk_size) are baked into compiled function, not passed here
         all_msgs, all_books, num_errors, msgs_tokens = generate_compiled(
             train_state,
             v.ENCODING,
@@ -537,7 +542,7 @@ def sample_aggressive_scenario(
             init_hidden_batched,
             init_time_batched,
             None,  # b_seq_real (debug)
-            insertion_schedule_batched,  # NEW
+            insertion_schedule_batched,
         )
 
         # Filter out zero-filled placeholder rows (aggressive order placeholders where no insertion happened)
@@ -596,6 +601,8 @@ def parse_args():
         default='lob_impact/1.aggressive_scenario_config.yaml',
         help='Path to YAML config file'
     )
+    parser.add_argument('--n_gen_msgs', type=int, default=None, help='Override n_gen_msgs from config')
+    parser.add_argument('--direction', type=int, default=None, choices=[0, 1], help='Override direction (0=buy, 1=sell)')
     return parser.parse_args()
 
 
@@ -610,6 +617,12 @@ def main():
     print(f"Loading config from: {args.config}")
     with open(args.config, 'r') as f:
         cfg = yaml.safe_load(f)
+
+    # Apply CLI overrides
+    if args.n_gen_msgs is not None:
+        cfg['n_gen_msgs'] = args.n_gen_msgs
+    if args.direction is not None:
+        cfg['direction'] = args.direction
 
     print(f"Configuration: {cfg}")
 

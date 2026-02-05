@@ -887,7 +887,7 @@ def _make_generate_msg_scannable(
         return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, book_l2, msg_token)
     return _generate_msg_scannable
 
-@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
+@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15,17),backend='gpu')
 def generate(
         sim: OrderBook,  # static
         train_state: TrainState,
@@ -905,7 +905,8 @@ def generate(
         conditional : bool, # static
         init_time : jax.Array,
         debug_book: bool=False,
-        b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging. 
+        b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging.
+        chunk_size: int=1,  # static - N for chunking conditional sequence 
         # if eval_msgs given, also returns loss of predictions
         # e.g. to calculate perplexity
         # m_seq_eval: Optional[jax.Array] = None,  
@@ -950,7 +951,7 @@ def generate(
 
         print(m_seq_cond[:-1],b_seq_cond[:-1])
         # Split arrays into N chunks along the leading axis
-        N = 1
+        N = chunk_size
         chex.assert_is_divisible(m_seq_cond[:-1].shape[0], N)
         chex.assert_is_divisible(b_seq_cond[:-1].shape[0], N)
         m_seq_cond_split = m_seq_cond[:-1].reshape((N, -1))
@@ -1006,10 +1007,10 @@ generate_batched = jax.jit(
             None, None, None, None, None,
             None, None,    0,    0, None,
             0,       0,    0, None,    0,
-            None,    0,
+            None,    0, None,
         )
     ),
-    static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
+    static_argnums=(0, 2, 3, 5, 6, 9,13,15,17),backend='gpu'
 )
 
 @partial(jax.jit, static_argnums=(3, 4, 5, 6))
@@ -1186,6 +1187,7 @@ def sample_new(
         conditional: bool = True,
         v: Vocab = Vocab(),
         overfit_debug: bool = False,
+        chunk_size: int = 1,  # N for chunking conditional sequence
     ):
     """
     """
@@ -1337,7 +1339,7 @@ def sample_new(
             initial=False
             generate_traced=generate_batched.trace(
                 sim_init, # static
-                train_state,  # None map, static? 
+                train_state,  # None map, static?
                 model, # static
                 batchnorm, # static
                 encoder, # None map, static?
@@ -1346,7 +1348,7 @@ def sample_new(
                 m_seq_inp[:], # in_axis = 0
                 b_seq_inp, # in_axis = 0
                 n_gen_msgs, # static
-                sim_states_init, # in_axis = 0 
+                sim_states_init, # in_axis = 0
                 jax.random.split(rng_, batch_size), # in_axis = 0
                 init_hidden_batched,
                 conditional,  # static
@@ -1355,6 +1357,7 @@ def sample_new(
                 # init_book_batched,
                 debug_book, # static
                 real_book,
+                chunk_size, # static - N for chunking
             )
             # print("trace complete")
             # print(generate_traced.jaxpr)

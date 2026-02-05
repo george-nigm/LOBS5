@@ -860,7 +860,7 @@ def _make_generate_msg_scannable(
         return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, aggressive_msg_decoded, book_l2_regular, book_l2_after_agg, msg_token)
     return _generate_msg_scannable
 
-@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
+@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15,18),backend='gpu')
 def generate(
         sim: OrderBook,  # static
         train_state: TrainState,
@@ -881,6 +881,7 @@ def generate(
         b_seq_real: Optional[jax.Array]=None,
         # NEW: insertion_schedule parameter
         insertion_schedule: Optional[jax.Array] = None,
+        chunk_size: int = 1,  # NEW: N for chunking conditional sequence
     ) -> Tuple[jax.Array, jax.Array, jax.Array]:
 
     print("WARNING: Compiling the generate function, you should only see this once.")
@@ -909,7 +910,7 @@ def generate(
 
         print(m_seq_cond[:-1],b_seq_cond[:-1])
         # Split arrays into N chunks along the leading axis
-        N = 1
+        N = chunk_size
         chex.assert_is_divisible(m_seq_cond[:-1].shape[0], N)
         chex.assert_is_divisible(b_seq_cond[:-1].shape[0], N)
         m_seq_cond_split = m_seq_cond[:-1].reshape((N, -1))
@@ -976,10 +977,10 @@ generate_batched = jax.jit(
             None, None, None, None, None,  # sim, train_state, model, batchnorm, encoder
             None, None,    0,    0, None,  # sample_top_n, tick_size, m_seq_cond, b_seq_cond, n_msg_todo
                0,    0,    0, None,    0,  # sim_state, rng, init_hidden, conditional, init_time
-            None,    0,    0,              # debug_book, b_seq_real, insertion_schedule (batched)
+            None,    0,    0, None,        # debug_book, b_seq_real, insertion_schedule (batched), chunk_size
         )
     ),
-    static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
+    static_argnums=(0, 2, 3, 5, 6, 9,13,15,18),backend='gpu'
 )
 
 

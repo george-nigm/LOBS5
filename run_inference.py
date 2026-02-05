@@ -78,24 +78,27 @@ if __name__ == "__main__":
     parser.add_argument('--test_split', type=float, default=0.1, help='Which test split to use')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for inference')
     parser.add_argument("--n_sequences", type=int, default=1024, help="Number of sequences to generate")
-    parser.add_argument("--n_cond_msgs", type=int, default=500, help="Number of sequences to generate")
+    parser.add_argument("--n_cond_msgs", type=int, default=500, help="Number of conditional messages")
+    parser.add_argument("--chunk_size", type=int, default=1, help="N - chunk size for conditional sequence processing")
 
     run_args = parser.parse_args()
 
     overfit_debug = False
 
+    N = run_args.chunk_size
+
     if run_args.stock == 'AMZN':
         data_dir = '/home/myuser/processed_data/AMZN/2024_Dec'
         ckpt_path='/home/myuser/checkpoints/ruby-aardvark-62_98nov1i7'
-        save_dir='/home/myuser/data/evalsequences/s5v2N5/AMZN/2024'
+        save_dir=f'/home/myuser/data/evalsequences/s5v2N{N}/AMZN/2024'
     if run_args.stock == 'GOOG':
         data_dir = '/home/myuser/data/processed_data/GOOG/2023_Jan'
         ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/twilight-sound-77_s42sujip'
-        save_dir='/home/myuser/data/evalsequences/s5v2N5/GOOG/2023_Jan'
+        save_dir=f'/home/myuser/data/evalsequences/s5v2N{N}/GOOG/2023_Jan'
     elif run_args.stock == 'INTC':
         data_dir = '/home/myuser/data/processed_data/INTC/2023_Jan'
         ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/dazzling-meadow-75_zpp3bf6z'
-        save_dir='/home/myuser/data/evalsequences/s5v2N5/INTC/2023_Jan'
+        save_dir=f'/home/myuser/data/evalsequences/s5v2N{N}/INTC/2023_Jan'
     else:
         raise Warning("Saved Model was trained on GOOGLE data. Generating for TSLA")
         data_dir = '/data1/sascha/data/lobster_proc'
@@ -231,5 +234,6 @@ if __name__ == "__main__":
         args=args,
         conditional= True if n_messages_conditional>0 else False,
         overfit_debug=overfit_debug,
+        chunk_size=N,
     )
     print(f"Generation time for {n_samples} sequences across {batch_size} batch size: {time()-start}")

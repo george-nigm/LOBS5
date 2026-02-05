@@ -81,35 +81,28 @@ RUN git config --global --add safe.directory /home/${MYUSER}
 
 # ===== Commands ===== #
 
-#1. docker build -t georgenigm_25jan --build-arg UID=$(id -u) --build-arg MYUSER=$(whoami) -f Dockerfile_LOBS5 .            # create image
+#1. docker build -t georgenigm_25jan --build-arg UID=$(id -u) --build-arg MYUSER=$(whoami) -f Dockerfile_LOBS5 . 
 
-#2. docker rmi georgenigm_25jan             # delete image
+#2. docker rmi georgenigm_25jan
 
-#3.1. docker run -d -it --gpus '"device=5"' --name georgenigm_lobs5_viz --user $(id -u):$(id -g) --group-add 652 -p 8888:8888 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan /bin/bash           # run viz container - OUTDATED
-
-# docker run --rm --gpus '"device=5"' --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml 2>&1 # run exp container
+#3.1. docker run -d -it --gpus '"device=5"' --name georgenigm_lobs5_viz --user $(id -u):$(id -g) --group-add 652 -p 8888:8888 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan /bin/bash 
 
 
-
-#===== Notes ===== #
-#(old)3.2. docker run --rm --gpus '"device=7"' --name georgenigm_lobs5_exp --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u run_inference.py --stock GOOG --batch_size 256 --n_sequences 2048 --n_cond_msgs 500             # run run_inference exp container
-
-# 3.2. docker run --rm --gpus '"device=6"' --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml 2>&1         # run aggressive_scenario_s5_rnd exp container
+# docker run --rm --gpus '"device=7"' --name georgenigm_lobs5_exp_5 --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u run_inference.py --stock GOOG --batch_size 32 --n_sequences 2048 --n_cond_msgs 500 --test_split 0 --checkpoint_step 23 --chunk_size 5          
 
 
-# for n in 15 50; do
-#   echo "=== Starting experiment with n_gen_msgs=$n ===" && \
-#   sed -e "s/n_gen_msgs:.*/n_gen_msgs: $n/" \
-#       -e "s/num_insertions:.*/num_insertions: 0/" \
-#       -e "s/direction:.*/direction: 1/" \
-#       -e "s/num_coolings:.*/num_coolings: 50/" \
-#       -e "s/n_cond_msgs:.*/n_cond_msgs: 500/" \
-#       /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/1.aggressive_scenario_config.yaml > /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/config_n${n}.yaml && \
-#   docker run --rm --gpus '"device=5"' --user $(id -u):$(id -g) --group-add 652 \
-#     -v /scratch/local/homes/80/georgenigm/LOBS5:/app \
-#     -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade \
-#     -v /homes/groups/finance/data:/home/myuser/data \
-#     -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences \
-#     --shm-size=1g -w /app georgenigm_25jan \
-#     python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/config_n${n}.yaml 2>&1 | tee /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/exp_n${n}.log
-# done
+# docker run --rm --gpus '"device=7"' --name georgenigm_lobs5_exp_10_buy --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml
+
+
+
+
+
+
+
+docker run --rm --gpus '"device=3"' --name georgenigm_lobs5_exp_10_buy_real --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml --n_gen_msgs 10 --direction 0
+
+docker run --rm --gpus '"device=4"' --name georgenigm_lobs5_exp_10_sell --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml --n_gen_msgs 10 --direction 1
+
+docker run --rm --gpus '"device=5"' --name georgenigm_lobs5_exp_25_buy --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml --n_gen_msgs 25 --direction 0
+
+docker run --rm --gpus '"device=6"' --name georgenigm_lobs5_exp_25_sell --user $(id -u):$(id -g) --group-add 652 -v /scratch/local/homes/80/georgenigm/LOBS5:/app -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade -v /homes/groups/finance/data:/home/myuser/data -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences -e WANDB_API_KEY=74075d19681454163130e79756ce47db4dcb571f --shm-size=1g -w /app georgenigm_25jan python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml --n_gen_msgs 25 --direction 1

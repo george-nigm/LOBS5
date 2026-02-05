@@ -144,6 +144,7 @@ def load_checkpoint(
         )
     )
     ckpt = loaded['metadata']
+    ckpt['step'] = step  # store loaded step for logging
     # copy train state back to all devices
     if train:
         ckpt['model'] = jax_utils.replicate(loaded['state'])

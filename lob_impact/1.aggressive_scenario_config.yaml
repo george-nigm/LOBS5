@@ -1,5 +1,5 @@
 # Aggressive Scenario Configuration
-# Run: python lob_impact/2.aggressive_scenario_s5_rnd.py --config lob_impact/aggressive_scenario_config.yaml
+# Run: python lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/1.aggressive_scenario_config.yaml
 
 # Scenario parameters
 n_gen_msgs: 50          # messages to generate between insertions/coolings
@@ -10,14 +10,18 @@ n_eval_msgs_dataset: 500  # for dataset loading (match run_inference.py for iden
 
 # Aggressive order parameters
 event_type: 4           # 4 = market order (execution)
-direction: 0            # 0 = buy (hit ask), 1 = sell (hit bid)
+direction: 1            # 0 = buy (hit ask), 1 = sell (hit bid)
 order_volume: 75        # order size (mean market order in data)
 use_relative_volume: false
 order_volume_ratio: 1.0
 
+# Model checkpoint parameters (for run_inference.py compatibility)
+checkpoint_step: null   # null = latest checkpoint, or specify step number (e.g. 23)
+chunk_size: 5           # N for chunking conditional sequence (like --chunk_size 5)
+
 # Sampling
-n_samples: 8           # total number of samples to generate
-batch_size: 8           # samples per batch (vmap parallelism on single GPU)
+n_samples: 2048           # total number of samples to generate
+batch_size: 64           # samples per batch (vmap parallelism on single GPU)
 rng_seed: 42            # fixed seed for reproducibility
 
 # Model/Data paths
@@ -31,20 +35,5 @@ tick_size: 100
 sample_top_n: -1        # -1 = sample from full distribution
 n_vol_series: 500
 book_dim: 503
-test_split: 0.1
-
-
-# for n in 5 15 25 50; do
-#   echo "=== Starting experiment with n_gen_msgs=$n ===" && \
-#   sed -e "s/n_gen_msgs:.*/n_gen_msgs: $n/" \
-#       -e "s/num_insertions:.*/num_insertions: 5/" \
-#       -e "s/num_coolings:.*/num_coolings: 15/" \
-#       /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/1.aggressive_scenario_config.yaml > /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/config_n${n}.yaml && \
-#   docker run --rm --gpus '"device=3"' --user $(id -u):$(id -g) --group-add 652 \
-#     -v /scratch/local/homes/80/georgenigm/LOBS5:/app \
-#     -v /scratch/local/homes/80/georgenigm/LOBS5/Alphatrade:/AlphaTrade \
-#     -v /homes/groups/finance/data:/home/myuser/data \
-#     -v /scratch/local/homes/80/georgenigm/LOBS5/output/evalsequences:/home/myuser/data/evalsequences \
-#     --shm-size=1g -w /app georgenigm_25jan \
-#     python -u lob_impact/1.aggressive_scenario_s5_rnd.py --config lob_impact/config_n${n}.yaml 2>&1 | tee /scratch/local/homes/80/georgenigm/LOBS5/lob_impact/exp_n${n}.log
-# done
+# test_split: 0.1
+test_split: 0           # 0 = use all data (like --test_split 0 in run_inference.py)
