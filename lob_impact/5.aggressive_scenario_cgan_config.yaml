@@ -1,0 +1,35 @@
+# CGAN (Coletta) Aggressive Scenario Configuration
+# Run: python lob_impact/5.aggressive_scenario_cgan.py --config lob_impact/5.aggressive_scenario_cgan_config.yaml
+
+# Data
+data_dir: "/home/myuser/data/processed_data/GOOG/2023_Jan"
+stock: "GOOG"
+tick_size: 100
+
+# Sequence
+n_cond_msgs: 500
+n_gen_msgs: 50
+n_eval_msgs_dataset: 500
+n_levels: 10
+
+# Insertions
+num_insertions: 3
+num_coolings: 12
+event_type: 4          # 4 = market order
+direction: 0           # 0 = buy (hit ask), 1 = sell (hit bid)
+order_volume: 75       # absolute volume
+
+# Sampling
+n_samples: 2048
+batch_size: 64         # for data loading (samples processed one at a time)
+rng_seed: 42
+test_split: 0
+
+# Output
+save_dir: "/home/myuser/data/evalsequences/aggressive_scenario_cgan"
+
+# CGAN Model
+cgan_checkpoint: "/home/myuser/data/cgan/GOOG/checkpoints/model_39.ckpt"
+cgan_scalers: "/home/myuser/data/cgan/GOOG/data__scalers.pickle"
+cgan_interarrival_times: "/home/myuser/data/cgan/GOOG/interarrival_times"
+lookback_window: 100

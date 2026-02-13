@@ -175,3 +175,163 @@
 - Raw LOBSTER data: 2.17M messages/day для GOOG Dec 2022
 - Конвертация запущена в Docker контейнере `georgenigm_cgan_train` на GPU 7
 - Статус: конвертация LOBSTER → ABIDES pickle идёт (Step 1), затем обучение 40 эпох (Step 2)
+
+## 2026-02-12 — Notebook 120: Cross-Scenario Market Impact Analysis
+- Created `lob_impact/120.market_impact_all_scenarios.ipynb` — 53 cells (20 markdown + 33 code)
+- Generated from `lob_impact/_gen_nb120.py` (generator script)
+- All code cells pass Python syntax validation
+- Structure:
+  - **Section 0**: Setup, imports, scenario registry, auto-discovery, full function library (parameterized from 110)
+  - **Section 1**: Per-scenario processing loop with `process_scenario()` master function + gc.collect()
+  - **Part A** (per-scenario): Decay curves, Beta analysis, Gamma, Quality heatmaps, Volume-time, Stability
+  - **Part B** (cross-scenario): Side-by-side heatmaps, overlay plots, grouped bars, radar chart
+  - **Section 14**: Model ranking — scorecard, radar chart, composite score, per-config winner map, paired bootstrap
+  - **Section 15**: Dashboard & CSV export
+- Key changes from 110:
+  - `scenario` → `direction` rename (scenario now = model type)
+  - All functions parameterized (no globals BUY_PATH/SELL_PATH)
+  - Memory management: one scenario at a time, del+gc.collect()
+  - 6-model registry: S5, Historic, Heuristic, CST, RWKV (placeholder), Coletta (placeholder)
+  - Auto-skip missing scenarios
+- Output: `/homes/80/georgenigm/LOBS5/lob_impact/120.market_impact_all_scenarios.ipynb`
+- NOT YET RUN — needs Jupyter environment with data access
+
+## 2026-02-12 — CGAN Training Pipeline Fixes & Launch
+- Конвертация 3 дней Dec 2022 завершена (43 мин):
+  - 20221228: 2.17M msgs (1.6 GB), 20221229: 1.81M msgs (1.4 GB), 20221230: 1.89M msgs (1.4 GB)
+- Fix 1: `cgan_train.py` — добавлен `__path__` к мокам `scripts` и `scripts.ganworldagent` → Python находит реальный `interrarival_time.py`
+- Fix 2: удалён мок `scripts.ganworldagent.utils` → Python импортирует реальный модуль (нужен `enrich_cancellations_orig`)
+- Fix 3: `run_cgan_train.sh` — `pytorch-lightning>=2.0` → `>=1.9,<2.0` (v2 убрал `validation_epoch_end`)
+- Fix 4: monkey-patch `LOBGAN.__log_results_tb` → WandB histograms вместо TensorBoard `add_histogram`
+- Обучение запущено на GPU 7, контейнер `georgenigm_cgan_train`:
+  - Train: 3,054,692 samples, Val: 763,598 samples
+  - Model: Generator 167K + Discriminator 598K = 765K params
+  - 59660 steps/epoch, ~3.6 it/s, 40 epochs, loss falling (0.73→0.06 за 22 steps)
+  - WandB: https://wandb.ai/george-nigm/cgan-lob/runs/vjt9ezgx
+  - ETA: ~4.6h/epoch → ~7-8 дней на 40 эпох (можно остановить раньше если converged)
+
+## 2026-02-12 — Paper: Align with σ₀ Research Narrative
+- Added 5 BibTeX entries to `sample-base.bib`: frey2023jaxlob, nagy2025lobbench, mohl2025jaxmarlhft, li2025dfm, backhouse2025painting
+- **Abstract**: LOB-Bench positioning sentence, JAX-LOB citation for simulator, "complementing distributional benchmarks" closing
+- **Section 1 (Intro)**: LOB-Bench replaces generic metrics (para 1), world model motivation with JaxMARL-HFT (para 2), LOB-Bench replaces cont2001empirical (para 3), 4th contribution (evaluation hierarchy)
+- **Section 2.2**: Expanded with JAX-LOB pipeline, O(n) complexity, 22-24 token encoding, diffusion alternative (backhouse2025painting), compound error (li2025dfm)
+- **Section 2.3**: Rewritten to position explicitly vs LOB-Bench (L1/Wasserstein, individual-event vs meta-order)
+- **Section 3**: JAX-LOB matching engine replaces lobster2023 cite for simulator
+- **Section 4**: JAX-LOB simulator description added (NASDAQ ITCH, vectorized JAX)
+- **Section 6**: New "From microscopic to macroscopic evaluation" paragraph, JaxMARL-HFT practical implications, compound error decay limitation
+- **Section 7**: Pipeline conclusion sentence (LOB-Bench + JaxMARL-HFT + market impact = evaluation stack)
+- Fixed: "three contributions" → "four contributions"
+- Fixed: redundant "diagonal structured state-space layers" repetition in §2.2
+- Verified: all 23 cite keys exist in bib, zero anonymity violations
+- Total: ~200 words added, 0 deleted — fits within 6-8 page budget
+
+## 2026-02-12 — RWKV Debugging & Price Mismatch Discovery
+
+### Проблемы найдены и исправлены
+1. **ImportError tokenizers**: Docker image `georgenigm_25jan:latest` не содержит tokenizers/transformers (cached layers). Fix: `pip install` at runtime.
+2. **NaN checkpoint**: `bptt_rwkv_7g0.1B/final` → NaN. Сканировал все 8 моделей × все шаги → `rwkv_7g0.1B/final` работает.
+3. **Tiny test пройден**: 8 samples, GOOG 2018 data, `rwkv_7g0.1B/final` — генерация работает.
+
+### БЛОКЕР: Price mismatch
+- **Все GOOG RWKV чекпоинты обучены на GOOG 2017** (~$1040, pre-split)
+- **Тестовые данные GOOG Jan 2023** (~$91, post-split после 20:1 сплита Jul 2022)
+- RWKV использует абсолютные цены как текст → генерирует в диапазоне ~$1040 независимо от кондиционирования
+- S5 не имеет этой проблемы (относительные цены, тики от mid-price)
+- В `lobgen/run_all.py` было задумано обучение на `goog2022.npy` → чекпоинты `goog2022_rwkv_*`, но ни данных, ни чекпоинтов нет
+
+### Что есть
+| Модель | Данные | Цены | Статус |
+|--------|--------|------|--------|
+| rwkv_7g0.1B (final OK) | GOOG 2017 | ~$1040 | ✓ работает, но не совместима с Jan 2023 |
+| rwkv_6g0.1B (все OK) | GOOG 2017 | ~$1040 | то же |
+| bptt_rwkv_7g0.1B (step 10 OK, rest NaN) | GOOG 2017 | ~$1040 | то же |
+| bptt_rwkv_6g0.1B (все OK) | GOOG 2017 | ~$1040 | то же |
+| intc2022_rwkv_* | INTC 2022 | другой тикер | неприменимо |
+
+### Что нужно
+- Чекпоинт RWKV обученный на **GOOG post-split 2022** (авг-дек, ~$88-93)
+- Написано сообщение для Sascha с вопросом есть ли такой чекпоинт / сколько заняло обучение
+- Raw GOOG 2022 данные есть: `/home/myuser/data/rawLOBSTER/GOOG/2022/` (251 день)
+
+### Архитектура RWKV v6 vs v7
+- `6g0.1B` = RWKV-x060 (173M, Pile pretrained May 2024)
+- `7g0.1B` = RWKV-x070 (168M, Pile pretrained Nov 2024)
+- `g` = GptTokenizer, `w` = WorldTokenizer
+- Обучение: `train_shuffle.py`, JAX, 8 GPU, seq_len=16384, ~1B tok/epoch, optimizer=dadapt_adamw
+
+### Evaluate.py контекст
+- Стандартная eval: 500 msgs conditioning → генерация 500 msgs (max 11000 tokens)
+- `parallel_processing=500` samples одновременно
+
+### Файлы
+- Config обновлён на GOOG 2018: `5.aggressive_scenario_rwkv_config_tiny.yaml` (raw_data_dir → 2018)
+- Тест с 2018 данными запущен (в процессе)
+- `run_rwkv_only_c10x_v2.sh` и 60 YAML конфигов всё ещё указывают на `bptt_rwkv_7g0.1B/final` — НЕ обновлены (ждём решения по чекпоинту)
+
+### TODO при возвращении
+1. Дождаться ответа от Sascha про чекпоинт GOOG 2022
+2. Если нет — обучить самим (нужно: preprocess_data.py → goog2022_postsplit.npy → train_shuffle.py)
+3. Обновить все 60 конфигов + launch script с правильным чекпоинтом
+4. Запустить full grid (60 экспериментов)
+
+## 2026-02-13 — Notebook 130 + Paper Rewrite (4-model results)
+
+### Ноутбук 130
+- Создан `lob_impact/_gen_nb130.py` — генератор ноутбука
+- Сгенерирован `lob_impact/130.paper_results.ipynb` (21 ячейка):
+  - Cell 0: Title
+  - Cell 1-2: Imports, config, paths, scenario registry (4 модели)
+  - Cell 3: Data I/O functions (discover, load)
+  - Cell 4: Beta functions (extract_point_cloud, compute_global_beta, bootstrap)
+  - Cell 5: Master curves + relaxation functions
+  - Cell 6: Stability functions (3-method vote)
+  - Cell 7: Main processing loop (load all 4 scenarios, compute all metrics, free memory)
+  - Cells 8-11: Section 1 — Beta: Table 1, Fig 3 (regression), Fig 4 (bootstrap)
+  - Cells 12-15: Section 2 — Master Curves: Fig 1 (2x2), Fig 2 (overlay), Table 2 + Fig 5 (relaxation)
+  - Cells 16-17: Section 3 — Stability: Table 3 + Fig 6 (fraction stable)
+  - Cells 18-19: Section 4 — Gamma: Fig 99
+  - Cell 20: Summary table
+- Все code cells прошли синтаксическую проверку
+- НЕ ЗАПУЩЕН — нужна Jupyter среда с доступом к данным
+
+### Статья (sample-sigplan.tex)
+- **Новый нарратив**: ВСЕ 4 модели дают β≈0.5 (a не только S5). Различие — в динамике.
+- **Abstract**: полностью переписан. Ключевое: β∈[0.545, 0.561] для всех 4 моделей, различие в relaxation
+- **Intro**: contributions #3 → "Universal β, divergent dynamics", #4 → "Hierarchical evaluation"
+- **Section 5 Results**: полностью переписан:
+  - 5.1 Volume-Time Master Curves (Fig 3: 2x2, Fig 4: overlay)
+  - 5.2 Square-Root Law: Universal Across All Models (Table 2: beta, Fig 5: regression, Fig 6: bootstrap)
+  - 5.3 Impact Relaxation: The Key Differentiator (Table 3: relaxation, Fig 7: box plot)
+  - 5.4 Stability Analysis (Table 4: fraction stable, Fig 8: bar chart)
+- **Section 6 Discussion**: полностью переписан:
+  - "Static vs dynamic emergence" (ключевой инсайт)
+  - "Role of hidden state" (обновлён с реальными числами)
+  - "Evaluation hierarchy" (3 уровня: distributional, static β, dynamic relaxation)
+  - "Practical implications" (обновлён)
+  - "Limitations" (обновлён, убран "TBD baseline results")
+- **Section 7 Conclusion**: полностью переписан (separation of concerns, 122,880 sims per model)
+- **Table 2 (beta)**: реальные данные: S5=0.545, Historic=0.549, Heuristic=0.548, CST=0.561
+- **Table 3 (relaxation)**: S5=0.76, Historic=0.07, Heuristic=1.43, CST=0.87
+- **Table 4 (stability)**: S5=90%, Historic=100%, Heuristic=70%, CST=80%
+- Валидация: 24 cite-ключа ✓, все ref/label ✓, все таблицы ✓
+- 7 фигур referenced (нужно скопировать картинки в Figures/ и переименовать)
+- 1 placeholder остаётся (Fig 2: architecture comparison)
+
+### Маппинг картинок для Overleaf
+| Файл в pics_for_transfer_4_methods/ | LaTeX ссылка |
+|------|------|
+| `1. Master Curves.png` | `Figures/master_curves_4panel.png` |
+| `2. Average Master Curve.png` | `Figures/avg_master_curve.png` |
+| `3. Beta Regression Lines.png` | `Figures/beta_regression.png` |
+| `4. Bootstrap Beta Distributions.png` | `Figures/bootstrap_beta.png` |
+| `5. Relaxation Ratio.png` | `Figures/relaxation_ratio.png` |
+| `6. Fraction Stable.png` | `Figures/fraction_stable.png` |
+
+### Ключевые числа из nb120
+| Модель | β | R² | N | CI | Relaxation | Stable |
+|--------|------|------|---------|------|------|------|
+| S5 | 0.545 | 0.948 | 368,481 | [0.543, 0.548] | 0.76 | 90% |
+| Historic | 0.549 | 0.948 | 368,283 | [0.546, 0.551] | 0.07 | 100% |
+| Heuristic | 0.548 | 0.948 | 368,619 | [0.545, 0.550] | 1.43 | 70% |
+| CST | 0.561 | 0.956 | 364,112 | [0.560, 0.563] | 0.87 | 80% |
+| Theory | 0.5 | — | — | — | 0.667 | — |

@@ -1,0 +1,37 @@
+# CST Model Aggressive Scenario Configuration
+# Run: python lob_impact/4.aggressive_scenario_cst.py --config lob_impact/4.aggressive_scenario_cst_config.yaml
+#
+# Pre-requisite: estimate CST params with:
+#   python lob_bench/cst_model/run_param_est.py <raw_lobster_data_dir> \
+#     --save_path <params_file> --tick_size 100 --num_ticks 500
+
+# Data
+data_dir: "/home/myuser/data/processed_data/GOOG/2023_Jan"
+stock: "GOOG"
+tick_size: 100
+
+# CST Model
+params_file: "/home/myuser/scratch/cst_params_goog.pkl"
+num_ticks: 500        # depth levels in CST model
+n_levels: 10          # L2 levels for output
+
+# Sequence
+n_cond_msgs: 500
+n_gen_msgs: 5             # match hist/heur scenarios
+n_eval_msgs_dataset: 500
+
+# Insertions
+num_insertions: 5          # match hist/heur scenarios
+num_coolings: 50           # match hist/heur scenarios
+event_type: 4          # 4 = market order
+direction: 0           # 0 = buy (hit ask), 1 = sell (hit bid)
+order_volume: 75       # absolute volume
+
+# Sampling
+n_samples: 2048
+batch_size: 64         # for data loading (samples processed one at a time)
+rng_seed: 42
+test_split: 0
+
+# Output
+save_dir: "/home/myuser/data/evalsequences/cst_scenario"
