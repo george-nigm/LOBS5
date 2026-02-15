@@ -346,7 +346,25 @@ def init_sim_from_raw(sim: OrderBook, l2_init: onp.ndarray, cond_msgs: List[dict
 # Token ↔ message bridge
 # ============================================================================
 
-def parse_block_tokens(tokenizer, tokens_1d, starting_time_ns: int = 0, debug: bool = False):
+def build_vocab_lookup(tokenizer, vocab_size: int = None) -> dict:
+    """
+    Build a reverse vocab lookup dict: token_id → decoded string.
+
+    Dict lookup is ~50x faster than tokenizer.decode() per token.
+    """
+    if vocab_size is None:
+        vocab_size = tokenizer.vocab_size
+    lookup = {}
+    for i in range(vocab_size):
+        try:
+            lookup[i] = tokenizer.decode(i).strip()
+        except Exception:
+            lookup[i] = ""
+    return lookup
+
+
+def parse_block_tokens(tokenizer, tokens_1d, starting_time_ns: int = 0,
+                       debug: bool = False, vocab_lookup: dict = None):
     """
     Parse a 1D array of RWKV tokens into a list of message dicts.
 
@@ -362,6 +380,7 @@ def parse_block_tokens(tokenizer, tokens_1d, starting_time_ns: int = 0, debug: b
         tokens_1d: 1D int array of tokens
         starting_time_ns: cumulative absolute time in nanoseconds (for delta accumulation)
         debug: if True, print detailed parsing info
+        vocab_lookup: optional pre-built {token_id: str} dict for fast decode
 
     Returns:
         messages: list of parsed message dicts
@@ -455,7 +474,7 @@ def parse_block_tokens(tokenizer, tokens_1d, starting_time_ns: int = 0, debug: b
         if orderbook_active:
             continue
 
-        decoded = tokenizer.decode(t).strip()
+        decoded = vocab_lookup[t] if vocab_lookup is not None else tokenizer.decode(t).strip()
         is_tag = ("<" in decoded)
 
         if is_tag:
@@ -625,11 +644,13 @@ def make_batched_generate_fn(rwkv_forward, simple_sampler_fn, temperature: float
         """
         batch_size = outs.shape[0]
         all_tokens = onp.zeros((batch_size, max_tokens), dtype=onp.int32)
-        msg_counts = onp.zeros(batch_size, dtype=onp.int32)
-        active = onp.ones(batch_size, dtype=bool)
+        # Keep active mask and msg_counts on GPU to avoid per-step GPU↔CPU transfers
+        msg_counts = jnp.zeros(batch_size, dtype=jnp.int32)
+        active = jnp.ones(batch_size, dtype=jnp.bool_)
 
         for t in range(max_tokens):
-            if not onp.any(active):
+            # Early exit check — single GPU→CPU transfer per step (scalar bool)
+            if not jnp.any(active):
                 break
 
             # Split RNG for this step
@@ -638,31 +659,28 @@ def make_batched_generate_fn(rwkv_forward, simple_sampler_fn, temperature: float
 
             # Sample tokens from current output logits
             sampled = v_sampler(step_keys, outs)
-            sampled_np = onp.array(sampled, dtype=onp.int32)
 
-            # Mask inactive samples to PAD
-            tokens_t = onp.where(active, sampled_np, PAD_TOKEN).astype(onp.int32)
-            all_tokens[:, t] = tokens_t
+            # Mask inactive samples to PAD (all on GPU)
+            tokens_t = jnp.where(active, sampled.astype(jnp.int32), PAD_TOKEN)
+            all_tokens[:, t] = onp.array(tokens_t)  # single GPU→CPU transfer for token storage
 
             # Forward pass: feed tokens through RWKV (batched, 1 token each)
-            token_batch = jnp.array(tokens_t[:, None])  # (batch, 1)
+            token_batch = tokens_t[:, None]  # (batch, 1), already on GPU
             outs_new, states_new = v_forward_1(token_batch, states, params)
             # outs_new: (batch, 1, vocab_size), states_new: batched pytree
 
-            # Conditional update: freeze state/output for completed samples
-            active_jax = jnp.array(active)
-
+            # Conditional update: freeze state/output for completed samples (all on GPU)
             def cond_update(old, new):
                 ndim = old.ndim
-                mask_shape = (active_jax.shape[0],) + (1,) * (ndim - 1)
-                return jnp.where(active_jax.reshape(mask_shape), new, old)
+                mask_shape = (active.shape[0],) + (1,) * (ndim - 1)
+                return jnp.where(active.reshape(mask_shape), new, old)
 
             states = jax.tree_util.tree_map(cond_update, states, states_new)
-            outs = jnp.where(active_jax[:, None], outs_new[:, 0], outs)
+            outs = jnp.where(active[:, None], outs_new[:, 0], outs)
 
-            # Count newlines
+            # Count newlines (all on GPU)
             is_newline = (tokens_t == NEWLINE_TOKEN)
-            msg_counts += is_newline.astype(onp.int32) * active.astype(onp.int32)
+            msg_counts = msg_counts + is_newline.astype(jnp.int32) * active.astype(jnp.int32)
             active = msg_counts < target_msgs
 
         return states, outs, rng, jnp.array(all_tokens)
@@ -861,6 +879,11 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
         clean_up_tokenization_spaces=False
     )
 
+    # Build reverse vocab lookup for fast token decoding (~50x faster than tokenizer.decode())
+    print("Building vocab lookup table...")
+    vocab_lookup = build_vocab_lookup(tokenizer)
+    print(f"Vocab lookup built: {len(vocab_lookup)} entries")
+
     # Sanity check: 1-token forward pass to verify checkpoint isn't NaN
     test_state = RWKV.default_state(params)
     test_out, _ = RWKV.forward(jnp.array([1]), test_state, params, 1)
@@ -1019,21 +1042,30 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
             batch_dates.append(date_str)
             batch_first_times_ns.append(first_time_ns)
 
-        # Pad conditioning tokens to max_cond_tokens
+        # Pad conditioning tokens to dynamic length (per-batch, rounded up to padding boundary)
+        # This eliminates ~47% empty conditioning chunks vs fixed max_cond_tokens=15000
         cond_lengths = []
-        padded_cond = []
         for ct in batch_cond_tokens:
             length = min(len(ct), max_cond_tokens)
             cond_lengths.append(length)
-            padded = onp.zeros(max_cond_tokens, dtype=onp.int32)
+
+        # Dynamic padding: round up to next multiple of process_long_seq_padding
+        batch_max_len = max(cond_lengths)
+        dynamic_cond_len = ((batch_max_len + process_long_seq_padding - 1) // process_long_seq_padding) * process_long_seq_padding
+        # Clamp to configured max_cond_tokens
+        dynamic_cond_len = min(dynamic_cond_len, max_cond_tokens)
+
+        padded_cond = []
+        for ct, length in zip(batch_cond_tokens, cond_lengths):
+            padded = onp.zeros(dynamic_cond_len, dtype=onp.int32)
             padded[:length] = ct[:length]
             padded_cond.append(padded)
 
-        cond_batch = jnp.array(onp.stack(padded_cond))  # (batch_size, max_cond_tokens)
+        cond_batch = jnp.array(onp.stack(padded_cond))  # (batch_size, dynamic_cond_len)
         lengths_batch = jnp.array(cond_lengths, dtype=jnp.int32)  # (batch_size,)
 
         print(f"  Conditioning token lengths: min={min(cond_lengths)}, max={max(cond_lengths)}, "
-              f"padded to {max_cond_tokens}")
+              f"padded to {dynamic_cond_len} (config max: {max_cond_tokens})")
 
         # b. RWKV conditioning (vmapped)
         print("  Running RWKV conditioning...")
@@ -1097,6 +1129,9 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
             cumulative_times_ns.append(last_msg['time_s'] * 1_000_000_000 + last_msg['time_ns'])
 
         all_block_data = []  # list of (block_tokens_np, is_insertion_block)
+        # Cache parsed messages per block per sample to avoid double parsing (Bottleneck #4)
+        # parsed_messages_cache[block_idx][sample_idx] = (messages, final_cum_ns)
+        parsed_messages_cache = []
 
         for block in range(total_blocks):
             is_insertion = block < num_insertions
@@ -1115,10 +1150,13 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
             print(f" done in {time.time() - block_t0:.1f}s ({non_pad} non-pad tokens)", flush=True)
 
             # Parse generated messages → update simulators (sequential per sample)
+            block_parsed = []  # per-sample cache for this block
             for i in range(batch_size):
                 messages, new_cum_ns = parse_block_tokens(
-                    tokenizer, block_tokens_np[i], cumulative_times_ns[i]
+                    tokenizer, block_tokens_np[i], cumulative_times_ns[i],
+                    vocab_lookup=vocab_lookup
                 )
+                block_parsed.append((messages, new_cum_ns))
                 cumulative_times_ns[i] = new_cum_ns
 
                 # Apply to simulator
@@ -1136,6 +1174,7 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
                         pass  # skip malformed messages that slip through parser
 
             all_block_data.append((block_tokens_np, is_insertion))
+            parsed_messages_cache.append(block_parsed)
 
             # INJECTION (first num_insertions blocks only)
             if is_insertion:
@@ -1209,15 +1248,12 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
             # Replay all blocks, collecting decoded messages and L2 states
             all_msgs_decoded = []
             all_l2_books = []
-            replay_cum_ns = batch_cond_msgs[i][-1]['time_s'] * 1_000_000_000 + batch_cond_msgs[i][-1]['time_ns']
             replay_last_s = batch_cond_msgs[i][-1]['time_s']
             replay_last_ns = batch_cond_msgs[i][-1]['time_ns']
 
             for block_idx_inner, (block_tokens_np, is_insertion) in enumerate(all_block_data):
-                # Parse messages from this block for sample i
-                messages, replay_cum_ns = parse_block_tokens(
-                    tokenizer, block_tokens_np[i], replay_cum_ns
-                )
+                # Use cached parsed messages instead of re-parsing (Bottleneck #4 fix)
+                messages, _ = parsed_messages_cache[block_idx_inner][i]
 
                 for msg in messages:
                     try:
@@ -1253,7 +1289,6 @@ def run_rwkv_scenario(cfg: Dict[str, Any], save_folder: Path):
 
                     replay_last_s = int(msg_decoded_aggr[TIMEs_i])
                     replay_last_ns = int(msg_decoded_aggr[TIMEns_i])
-                    replay_cum_ns = replay_last_s * 1_000_000_000 + replay_last_ns
 
             if len(all_msgs_decoded) == 0:
                 print(f"  WARNING: Sample {sample_idx} produced 0 valid messages, skipping")
