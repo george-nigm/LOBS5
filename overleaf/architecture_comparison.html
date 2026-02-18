@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture Comparison: 4 LOB Generation Models</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background: #fff;
+    color: #1a1a1a;
+    padding: 30px 40px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.3px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 28px;
+  }
+
+  /* ── Common Pipeline ── */
+  .pipeline-section {
+    margin-bottom: 32px;
+  }
+  .pipeline-section h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+  }
+  .pipeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 14px 10px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border: 1.5px solid #e0e0e0;
+  }
+  .pipe-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: 8px;
+    min-width: 110px;
+    text-align: center;
+  }
+  .pipe-block.context {
+    background: #e8f0fe;
+    border: 2px solid #4285f4;
+  }
+  .pipe-block.inject {
+    background: #fce8e6;
+    border: 2px solid #ea4335;
+  }
+  .pipe-block.generate {
+    background: #e6f4ea;
+    border: 2px solid #34a853;
+  }
+  .pipe-block.measure {
+    background: #fef7e0;
+    border: 2px solid #f9ab00;
+  }
+  .pipe-block .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+  }
+  .pipe-block.context .label { color: #1967d2; }
+  .pipe-block.inject .label { color: #c5221f; }
+  .pipe-block.generate .label { color: #1e8e3e; }
+  .pipe-block.measure .label { color: #e37400; }
+  .pipe-block .desc {
+    font-size: 11px;
+    color: #444;
+    line-height: 1.3;
+  }
+  .arrow {
+    font-size: 20px;
+    color: #999;
+    margin: 0 4px;
+    flex-shrink: 0;
+  }
+  .repeat-bracket {
+    display: flex;
+    align-items: center;
+    position: relative;
+    padding: 4px 6px;
+    margin: 0 2px;
+  }
+  .repeat-bracket .brace {
+    font-size: 60px;
+    color: #999;
+    line-height: 1;
+    font-weight: 200;
+  }
+  .repeat-label {
+    font-size: 10px;
+    color: #777;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    letter-spacing: 0.5px;
+    font-style: italic;
+  }
+
+  /* ── 4 Model Cards ── */
+  .models-section h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+  }
+  .models-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .model-card {
+    border-radius: 10px;
+    border: 2px solid;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .model-card.historic  { border-color: #8ab4f8; }
+  .model-card.heuristic { border-color: #81c995; }
+  .model-card.cst       { border-color: #f6aea9; }
+  .model-card.s5        { border-color: #c58af9; }
+
+  .card-header {
+    padding: 10px 14px;
+    font-weight: 700;
+    font-size: 15px;
+    color: #fff;
+    text-align: center;
+    letter-spacing: 0.3px;
+  }
+  .historic  .card-header { background: #4285f4; }
+  .heuristic .card-header { background: #34a853; }
+  .cst       .card-header { background: #ea4335; }
+  .s5        .card-header { background: #9334e6; }
+
+  .card-body {
+    padding: 14px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #fff;
+  }
+
+  /* Internal flow diagram inside each card */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .flow-step {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    text-align: center;
+    line-height: 1.35;
+    border: 1.5px solid;
+  }
+  .flow-step.input {
+    background: #f0f4ff;
+    border-color: #c2d4f8;
+    color: #2c5282;
+  }
+  .flow-step.process {
+    border-color: #d0d0d0;
+    background: #fafafa;
+    color: #333;
+  }
+  .flow-step.key-process {
+    font-weight: 600;
+  }
+  .historic  .flow-step.key-process { background: #e8f0fe; border-color: #8ab4f8; color: #1a56c4; }
+  .heuristic .flow-step.key-process { background: #e6f4ea; border-color: #81c995; color: #137333; }
+  .cst       .flow-step.key-process { background: #fce8e6; border-color: #f6aea9; color: #b31412; }
+  .s5        .flow-step.key-process { background: #f3e8ff; border-color: #c58af9; color: #6b21a8; }
+
+  .flow-step.output {
+    background: #fef7e0;
+    border-color: #f9d071;
+    color: #7c4a03;
+  }
+  .flow-arrow {
+    color: #bbb;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  /* Properties badge row */
+  .props {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+  }
+  .prop-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+  }
+  .prop-label {
+    color: #777;
+    font-weight: 500;
+  }
+  .prop-value {
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+  }
+  .prop-value.none    { background: #f1f3f4; color: #666; }
+  .prop-value.partial { background: #fef7e0; color: #a06800; }
+  .prop-value.yes     { background: #e6f4ea; color: #137333; }
+  .prop-value.no      { background: #fce8e6; color: #b31412; }
+
+  /* ── Results summary bar ── */
+  .results-bar {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .result-cell {
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+    border: 1.5px solid #e0e0e0;
+    background: #fafafa;
+  }
+  .result-cell .model-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .result-cell .metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .metric .k { color: #777; }
+  .metric .v { font-weight: 600; color: #333; }
+
+  /* ── Hidden state visualization ── */
+  .hidden-state-box {
+    border: 1.5px dashed;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 10px;
+    text-align: center;
+    font-style: italic;
+  }
+  .historic  .hidden-state-box { border-color: #8ab4f8; color: #4285f4; background: #f5f8ff; }
+  .heuristic .hidden-state-box { border-color: #81c995; color: #34a853; background: #f5fff8; }
+  .cst       .hidden-state-box { border-color: #f6aea9; color: #ea4335; background: #fff5f5; }
+  .s5        .hidden-state-box { border-color: #c58af9; color: #9334e6; background: #faf5ff; }
+
+  .section-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    margin-top: 24px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Counterfactual Impact Injection: Four Model Architectures</h1>
+<p class="subtitle">Common experimental protocol with model-specific message generation during cooling phases</p>
+
+<!-- ═══ COMMON PIPELINE ═══ -->
+<div class="pipeline-section">
+  <h2>Experimental Protocol (common to all models)</h2>
+  <div class="pipeline">
+    <div class="pipe-block context">
+      <div class="label">Context</div>
+      <div class="desc">500 historical<br>LOBSTER msgs</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipe-block inject">
+      <div class="label">Inject</div>
+      <div class="desc">Aggressive<br>Market Order</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipe-block generate" style="border-style: dashed; border-width: 2.5px;">
+      <div class="label">Generate</div>
+      <div class="desc"><em>n</em> cooling msgs<br><strong>← model-specific</strong></div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipe-block inject">
+      <div class="label">Inject</div>
+      <div class="desc">Aggressive<br>Market Order</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipe-block generate" style="border-style: dashed; border-width: 2.5px;">
+      <div class="label">Generate</div>
+      <div class="desc"><em>n</em> cooling msgs<br><strong>← model-specific</strong></div>
+    </div>
+    <div class="arrow">→</div>
+    <div style="display:flex; align-items: center; color: #888; font-size: 22px; letter-spacing: 3px;">⋯</div>
+    <div class="arrow">→</div>
+    <div class="pipe-block measure">
+      <div class="label">Measure</div>
+      <div class="desc">Price impact<br><em>I(Q)</em></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 4 MODEL CARDS ═══ -->
+<div class="models-section">
+  <h2>How each model generates cooling messages</h2>
+  <div class="models-grid">
+
+    <!-- ── HISTORIC ── -->
+    <div class="model-card historic">
+      <div class="card-header">Historic Replay</div>
+      <div class="card-body">
+        <div class="flow">
+          <div class="flow-step input">Historical msg sequence<br>(LOBSTER file)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step key-process">Copy next <em>n</em> messages<br><strong>verbatim</strong> from history</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step process">Apply to LOB simulator<br>(JAX-LOB)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step output">Updated book state +<br>mid-price trajectory</div>
+        </div>
+        <div class="hidden-state-box">
+          No hidden state — messages are<br>independent of injected orders
+        </div>
+        <div class="props">
+          <div class="prop-row">
+            <span class="prop-label">Model type</span>
+            <span class="prop-value none">None (replay)</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Hidden state</span>
+            <span class="prop-value no">✗ None</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Reacts to injection</span>
+            <span class="prop-value no">✗ No</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Checkpoint</span>
+            <span class="prop-value none">N/A</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HEURISTIC ── -->
+    <div class="model-card heuristic">
+      <div class="card-header">Heuristic</div>
+      <div class="card-body">
+        <div class="flow">
+          <div class="flow-step input">Historical msg sequence<br>+ current mid-price Δ<em>p</em></div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step key-process">Copy next <em>n</em> messages,<br><strong>shift all prices by Δ<em>p</em></strong></div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step process">Apply to LOB simulator<br>(JAX-LOB)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step output">Updated book state +<br>mid-price trajectory</div>
+        </div>
+        <div class="hidden-state-box">
+          No hidden state — price shift is<br>a deterministic rule, not learned
+        </div>
+        <div class="props">
+          <div class="prop-row">
+            <span class="prop-label">Model type</span>
+            <span class="prop-value partial">Rule-based</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Hidden state</span>
+            <span class="prop-value no">✗ None</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Reacts to injection</span>
+            <span class="prop-value partial">~ Price only</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Checkpoint</span>
+            <span class="prop-value none">N/A</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CST ── -->
+    <div class="model-card cst">
+      <div class="card-header">CST (Cont–Stoikov–Talreja)</div>
+      <div class="card-body">
+        <div class="flow">
+          <div class="flow-step input">Fitted parameters<br>(λ, μ, κ from historical data)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step key-process">Sample new messages from<br><strong>parametric distributions</strong><br>(Poisson arrivals, Exp sizes)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step process">Apply to LOB simulator<br>(JAX-LOB)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step output">Updated book state +<br>mid-price trajectory</div>
+        </div>
+        <div class="hidden-state-box">
+          No hidden state — each message<br>sampled i.i.d. from fixed params
+        </div>
+        <div class="props">
+          <div class="prop-row">
+            <span class="prop-label">Model type</span>
+            <span class="prop-value partial">Parametric</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Hidden state</span>
+            <span class="prop-value no">✗ None</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Reacts to injection</span>
+            <span class="prop-value no">✗ No</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Checkpoint</span>
+            <span class="prop-value none">params_file</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── S5 / LOBS5 ── -->
+    <div class="model-card s5">
+      <div class="card-header">S5 / LOBS5 (ours)</div>
+      <div class="card-body">
+        <div class="flow">
+          <div class="flow-step input">Context encoded in<br>continuous hidden state <strong><em>h</em></strong></div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step key-process">Autoregressive generation:<br><strong><em>h</em> ← f(<em>h</em>, msg)</strong><br>token-by-token sampling</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step process">Validate & apply via<br>LOB simulator (JAX-LOB)</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-step output">Updated book state +<br>mid-price trajectory</div>
+        </div>
+        <div class="hidden-state-box">
+          <strong>Continuous hidden state <em>h</em></strong> —<br>carries memory of injected orders
+        </div>
+        <div class="props">
+          <div class="prop-row">
+            <span class="prop-label">Model type</span>
+            <span class="prop-value yes">Neural (S5 SSM)</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Hidden state</span>
+            <span class="prop-value yes">✓ Continuous</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Reacts to injection</span>
+            <span class="prop-value yes">✓ Full adaptation</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Checkpoint</span>
+            <span class="prop-value yes">Trained model</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ KEY RESULTS BAR ═══ -->
+<div class="section-label">Key Results</div>
+<div class="results-bar">
+  <div class="result-cell">
+    <div class="model-name" style="color: #4285f4;">Historic</div>
+    <div class="metrics">
+      <div class="metric"><span class="k">β</span><span class="v">0.549</span></div>
+      <div class="metric"><span class="k">Relaxation</span><span class="v" style="color:#ea4335;">0.07</span></div>
+      <div class="metric"><span class="k">Stable</span><span class="v">100%</span></div>
+    </div>
+  </div>
+  <div class="result-cell">
+    <div class="model-name" style="color: #34a853;">Heuristic</div>
+    <div class="metrics">
+      <div class="metric"><span class="k">β</span><span class="v">0.548</span></div>
+      <div class="metric"><span class="k">Relaxation</span><span class="v" style="color:#ea4335;">1.43</span></div>
+      <div class="metric"><span class="k">Stable</span><span class="v">70%</span></div>
+    </div>
+  </div>
+  <div class="result-cell">
+    <div class="model-name" style="color: #ea4335;">CST</div>
+    <div class="metrics">
+      <div class="metric"><span class="k">β</span><span class="v">0.561</span></div>
+      <div class="metric"><span class="k">Relaxation</span><span class="v" style="color:#e37400;">0.87</span></div>
+      <div class="metric"><span class="k">Stable</span><span class="v">80%</span></div>
+    </div>
+  </div>
+  <div class="result-cell" style="border-color: #c58af9; background: #faf5ff;">
+    <div class="model-name" style="color: #9334e6;">S5 / LOBS5</div>
+    <div class="metrics">
+      <div class="metric"><span class="k">β</span><span class="v">0.545</span></div>
+      <div class="metric"><span class="k">Relaxation</span><span class="v" style="color:#137333;">0.76 ≈ ⅔</span></div>
+      <div class="metric"><span class="k">Stable</span><span class="v">90%</span></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

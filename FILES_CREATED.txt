@@ -1,0 +1,140 @@
+EXTRACTION COMPLETE - Transfer of Status Report Details
+========================================================
+
+Date: 2026-02-13
+Source: /homes/80/georgenigm/.claude/projects/-scratch-local-homes-80-georgenigm-LOBS5/42cf888d-a81f-449a-adaf-7b9a78c54bba.jsonl
+
+Three comprehensive reference documents have been created:
+
+1. EXTRACTION_INDEX.md (11 KB)
+   - Quick navigation guide
+   - Key findings summary
+   - File paths table
+   - Critical issues and resolutions
+   - Verification checklist
+   - Next steps
+
+2. EXTRACTION_SUMMARY.md (12 KB)
+   - Complete overview of all modifications
+   - Exact LaTeX file paths
+   - Specific content changes by chapter
+   - Bibliography details
+   - File status information
+   - Resolution questions list
+
+3. DETAILED_FILE_REFERENCE.md (15 KB)
+   - Complete directory structure diagram
+   - File-by-file breakdown with all content details
+   - Section outlines and descriptions
+   - Git commands and workflow
+   - LaTeX commands reference
+   - Outstanding issues with detailed troubleshooting
+   - Quick reference table
+
+TOTAL SIZE: ~38 KB of documentation
+
+KEY INFORMATION EXTRACTED:
+==========================
+
+LaTeX File Paths (7 main files):
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/transfer_template.tex
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/parts/Introduction.tex
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/parts/Literature_Review.tex
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/parts/Research_Paper.tex
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/parts/Research_Proposal.tex
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/ref.bib (37 entries)
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/parts/JaxMARL_HFT.pdf
+
+Supporting PDFs:
+  ✓ /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status/article_temp_Market_Impact_GenAI.pdf (STALE)
+
+Content Sections Identified:
+
+Chapter 1 - Introduction (~1 page)
+Chapter 2 - Literature Review (~3.5 pages, 4 sections):
+  - 2.1 Limit Order Books and Market Microstructure
+  - 2.2 Generative AI for Financial Markets
+  - 2.3 Market Impact Theory
+  - 2.4 Reinforcement Learning for Trading
+
+Chapter 3 - Research Paper (~8 pages):
+  - Market impact paper (full PDF)
+  - JaxMARL-HFT paper (page 1)
+
+Chapter 4 - Future Research and Timeline (~2-3 pages):
+  - 4.1 Extending Generative LOB Models
+  - 4.2 Reinforcement Learning on Generative Markets
+  - 4.3 Deeper Market Impact Analysis
+  - 4.4 Timeline with Gantt Chart
+
+Line Number References:
+  Key message at line 128: Complete file modification summary
+  Key message at line 212: Final status report with PDF issues
+  Total lines in source: 283
+  Messages analyzed: 15+ assistant messages with file/content details
+
+Critical Issue Identified:
+  ⚠️ article_temp_Market_Impact_GenAI.pdf is STALE (old figures)
+  Action required: Download latest from Overleaf project (ID: 68670f80e7978b22b28dc1ff)
+  Instructions provided in all reference documents
+
+Verification Results:
+  ✅ All 35 \cite{} keys resolve correctly
+  ✅ All file paths verified
+  ✅ 2 unused bib entries (harmless)
+  ✅ pgfgantt package added for Gantt chart
+
+Git Commands Extracted:
+  Initial push (already done):
+    cd /homes/80/georgenigm/LOBS5/overleaf/overleaf_transfer_status && \
+    git add -A && \
+    git commit -m "Rewrite for George Nigmatulin transfer of status" && \
+    git push
+
+  Pending push (after PDF update):
+    git add article_temp_Market_Impact_GenAI.pdf && \
+    git commit -m "Update market impact paper PDF with latest figures" && \
+    git push
+
+DOCUMENT METRICS:
+=================
+
+Main Document: transfer_template.tex
+- Title: "Generative AI for Limit Order Book Modelling: Market Impact Analysis and Beyond"
+- Author: George Nigmatulin
+- College: Linacre College
+- Department: Department of Engineering Science, University of Oxford
+- Supervisors: Prof Stefan Zohren; Prof Jakob Foerster
+- Abstract: ~150 words on market impact validation
+
+Bibliography: ref.bib
+- Total entries: 37
+- Used citations: 35
+- Categories: Market impact, Generative LOB, SSMs, RL, Agent-based
+
+Timeline (DPhil started Oct 2024):
+- Oct 2024 – Dec 2024: Background reading
+- Nov 2024 – Feb 2025: Market impact analysis
+- Dec 2024 – Feb 2025: JaxMARL-HFT collaboration
+- Feb 2025 – Apr 2025: Market impact paper finalization
+- Apr 2025 – Oct 2025: Extending models
+- Oct 2025 – Apr 2026: RL on generative markets
+- Apr 2026 – Oct 2026: Extended market impact
+- Oct 2026 – Jun 2027: Thesis writing
+
+Total Estimated Pages: 14-15 pages (double-spaced)
+
+HOW TO USE:
+===========
+
+1. Start with EXTRACTION_INDEX.md for quick overview
+2. Use EXTRACTION_SUMMARY.md for details on what changed
+3. Reference DETAILED_FILE_REFERENCE.md for specific content and LaTeX
+4. All documents in: /scratch/local/homes/80/georgenigm/LOBS5/
+
+For file operations:
+  - Full paths use /homes/80/georgenigm/ prefix (not /scratch/local/)
+  - Git commands assume current working directory inside overleaf_transfer_status/
+  - PDF paths relative to transfer_template.tex location
+
+END OF EXTRACTION SUMMARY
