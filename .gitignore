@@ -1,3 +1,6 @@
+# Large model cache files
+cache/*.model
+
 # Nested git repos (not submodules)
 lobgen/
 abides_worldmodel_offline/
