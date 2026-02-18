@@ -1,9 +1,7 @@
 # Nested git repos (not submodules)
 lobgen/
 abides_worldmodel_offline/
-overleaf/overleaf_project_article/
-overleaf/overleaf_transfer_status/
-overleaf/overleaf_transfer_status copy/
+overleaf/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
