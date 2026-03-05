@@ -149,67 +149,24 @@ def load_checkpoint(
     except (ValueError, TypeError, FileNotFoundError) as e:
         if not train:
             # opt_state tree structure may differ between Orbax/optax versions.
-            # For inference we only need params — bypass CheckpointManager and
-            # restore the state directory directly via TensorStore.
+            # For inference we only need params — restore without target structure
+            # and extract params from the raw dict.
+            from jax.sharding import SingleDeviceSharding
             print(f"[load_checkpoint] StandardRestore failed ({e}), "
-                  "falling back to direct TensorStore restore for inference")
-
-            import numpy as onp
-            import tensorstore as ts
-            from orbax.checkpoint import type_handlers as _th
-            from etils import epath as _epath
-
-            # Restore metadata (config dict) via manager — this always works
-            meta_loaded = mngr.restore(
+                  "falling back to unstructured restore for inference")
+            sharding = SingleDeviceSharding(jax.devices()[0])
+            raw_loaded = mngr.restore(
                 step,
                 args=ocp.args.Composite(
+                    state=ocp.args.StandardRestore(None, fallback_sharding=sharding),
                     metadata=ocp.args.JsonRestore()
                 )
             )
-
-            state_dir = os.path.join(os.path.abspath(path), str(step), 'state')
-            state_dir_ep = _epath.Path(state_dir)
-            is_ocdbt = _th.is_ocdbt_checkpoint(state_dir_ep)
-
-            # Read tree metadata from _METADATA JSON
-            import ast
-            _meta_json = json.loads((state_dir_ep / '_METADATA').read_text())
-            _use_zarr3 = _meta_json.get('use_zarr3', False)
-            _tree_md = _meta_json['tree_metadata']
-            flat_abstract = {}
-            for key_str, entry in _tree_md.items():
-                keypath = tuple(ast.literal_eval(key_str))
-                flat_abstract[keypath] = entry
-
-            # Only read 'params' subtree (skip opt_state for inference)
-            print(f"[load_checkpoint] Reading {sum(1 for k in flat_abstract if k[0] == 'params')} "
-                  f"param arrays via TensorStore (OCDBT={is_ocdbt})")
-            raw_params = {}
-            _ts_ctx = _th.get_ts_context(is_ocdbt)
-            for keypath, meta in flat_abstract.items():
-                if keypath[0] != 'params':
-                    continue
-                param_name = '.'.join(keypath)
-                tspec = _th.get_tensorstore_spec(
-                    str(state_dir), name=param_name,
-                    use_ocdbt=is_ocdbt, use_zarr3=_use_zarr3,
-                )
-                t = ts.open(
-                    ts.Spec(tspec), open=True, context=_ts_ctx
-                ).result()
-                raw_params[keypath[1:]] = onp.asarray(t.read().result())
-
-            # Rebuild nested params dict from flat
-            params = {}
-            for keypath, arr in raw_params.items():
-                d = params
-                for key in keypath[:-1]:
-                    d = d.setdefault(key, {})
-                d[keypath[-1]] = arr
-
-            print(f"[load_checkpoint] Loaded {len(raw_params)} param arrays")
-            restored_state = restore_target.replace(params=params)
-            loaded = {'state': restored_state, 'metadata': meta_loaded['metadata']}
+            print(f"[load_checkpoint] Loaded params, rebuilding TrainState")
+            restored_state = restore_target.replace(
+                params=raw_loaded['state']['params'],
+            )
+            loaded = {'state': restored_state, 'metadata': raw_loaded['metadata']}
         else:
             raise
 
