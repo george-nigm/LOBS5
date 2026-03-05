@@ -145,12 +145,14 @@ def load_checkpoint(
         )
     except ValueError as e:
         if 'opt_state' in str(e) and not train:
+            from jax.sharding import SingleDeviceSharding
             print(f"[load_checkpoint] opt_state tree mismatch (likely different optax version). "
-                  f"Restoring params only (inference-only mode).")
+                  f"Restoring without target structure (inference-only mode).")
+            sharding = SingleDeviceSharding(jax.devices()[0])
             raw_loaded = mngr.restore(
                 step,
                 args=ocp.args.Composite(
-                    state=ocp.args.PyTreeRestore(),
+                    state=ocp.args.StandardRestore(None, fallback_sharding=sharding),
                     metadata=ocp.args.JsonRestore()
                 )
             )
