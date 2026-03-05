@@ -133,16 +133,37 @@ def load_checkpoint(
     if step is None:
         step = mngr.latest_step()
 
-    loaded = mngr.restore(
-        step,
-        args=ocp.args.Composite(
-            state=ocp.args.StandardRestore(
-                # only stored trainstate from a single device (as they are all the same)
-                deduplicate_trainstate(state)
-            ),
-            metadata=ocp.args.JsonRestore()
+    restore_target = deduplicate_trainstate(state)
+
+    try:
+        loaded = mngr.restore(
+            step,
+            args=ocp.args.Composite(
+                state=ocp.args.StandardRestore(restore_target),
+                metadata=ocp.args.JsonRestore()
+            )
         )
-    )
+    except ValueError as e:
+        if 'opt_state' in str(e) and not train:
+            print(f"[load_checkpoint] opt_state tree mismatch (likely different optax version). "
+                  f"Restoring params only (inference-only mode).")
+            raw_loaded = mngr.restore(
+                step,
+                args=ocp.args.Composite(
+                    state=ocp.args.PyTreeRestore(),
+                    metadata=ocp.args.JsonRestore()
+                )
+            )
+            restored_state = restore_target.replace(
+                params=raw_loaded['state']['params'],
+            )
+            loaded = {
+                'state': restored_state,
+                'metadata': raw_loaded['metadata']
+            }
+        else:
+            raise
+
     ckpt = loaded['metadata']
     ckpt['step'] = step  # store loaded step for logging
     # copy train state back to all devices
