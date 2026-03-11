@@ -4,6 +4,7 @@ config.update("jax_disable_jit", False)
 
 from datetime import datetime
 import functools
+import os
 from glob import glob
 from pathlib import Path
 import jax
@@ -1298,7 +1299,11 @@ def sample_new(
         assert seq_len_cond==0, "If conditional flag is false, then cannot have any tokens for conditioning."
 
     rng, rng_ = jax.random.split(rng)
-    if overfit_debug:
+    if sample_indices is not None:
+        # Pre-determined indices (from multi-GPU rank splitting or HF-matched mode)
+        flat = list(sample_indices)
+        sample_i = [flat[i:i+batch_size] for i in range(0, len(flat), batch_size)]
+    elif overfit_debug:
         sample_i = [list(range(batch_size))]
     else:
         sample_i = jax.random.choice(
@@ -1316,28 +1321,81 @@ def sample_new(
 
 
     if (init_hidden == None):
-        init_hidden=model.initialize_carry(1,
-                                        hidden_size=(args.ssm_size_base // pow(2,int(args.conj_sym))),
-                                        n_message_layers=args.n_message_layers,
-                                        n_book_pre_layers=args.n_book_pre_layers ,
-                                        n_book_post_layers=args.n_book_post_layers,
-                                        n_fused_layers=args.n_layers,
-                                        h_size_ema=args.ssm_size_base)
+        ssm_type = getattr(args, 'ssm_type', 's5')
+        if ssm_type in ('gdn', 'kda'):
+            gdn_hd = getattr(args, 'gdn_head_dim', 128)
+            gdn_nh = getattr(args, 'gdn_num_heads', None) or max(1, args.d_model // gdn_hd)
+            gdn_hvd = gdn_hd * getattr(args, 'gdn_expand_v', 2)
+            init_hidden = model.initialize_carry(1,
+                                            hidden_size=0,
+                                            n_message_layers=args.n_message_layers,
+                                            n_book_pre_layers=args.n_book_pre_layers,
+                                            n_book_post_layers=args.n_book_post_layers,
+                                            n_fused_layers=args.n_layers,
+                                            h_size_ema=args.d_model,
+                                            ssm_type=ssm_type,
+                                            num_heads=gdn_nh, head_dim=gdn_hd, head_v_dim=gdn_hvd,
+                                            d_book=getattr(args, 'd_book', 503))
+        elif getattr(args, 'model_type', 's5') == 'transformer':
+            n_heads = getattr(args, 'n_heads', 16)
+            d_model = args.d_model
+            msg_len = Message_Tokenizer.MSG_LEN
+            max_cache_len = seq_len_cond + n_gen_msgs * msg_len + msg_len
+            nh = n_heads
+            while nh > 1 and d_model % nh != 0:
+                nh -= 1
+            head_dim = d_model // nh
+            transformer_config = {
+                'n_heads': nh, 'head_dim': head_dim,
+                'max_cache_len': max_cache_len, 'dtype': jnp.float32,
+            }
+            d_book = getattr(args, 'd_book', 503)
+            nh_book = n_heads
+            while nh_book > 1 and d_book % nh_book != 0:
+                nh_book -= 1
+            transformer_config_book = {
+                'n_heads': nh_book, 'head_dim': d_book // nh_book,
+                'max_cache_len': max_cache_len, 'dtype': jnp.float32,
+            }
+            init_hidden = model.initialize_carry(1,
+                                            hidden_size=0,
+                                            n_message_layers=args.n_message_layers,
+                                            n_book_pre_layers=args.n_book_pre_layers,
+                                            n_book_post_layers=args.n_book_post_layers,
+                                            n_fused_layers=args.n_layers,
+                                            h_size_ema=args.ssm_size_base,
+                                            is_transformer=True,
+                                            transformer_config=transformer_config,
+                                            transformer_config_book=transformer_config_book)
+        else:
+            init_hidden=model.initialize_carry(1,
+                                            hidden_size=(args.ssm_size_base // pow(2,int(args.conj_sym))),
+                                            n_message_layers=args.n_message_layers,
+                                            n_book_pre_layers=args.n_book_pre_layers ,
+                                            n_book_post_layers=args.n_book_post_layers,
+                                            n_fused_layers=args.n_layers,
+                                            h_size_ema=args.ssm_size_base)
 
     # jax.debug.print("Init hidden is: \n {}",len(init_hidden))
-    # Assumes only a single hidden state is given and needs to be duplicated. TODO Add a flag. 
+    # Assumes only a single hidden state is given and needs to be duplicated. TODO Add a flag.
     init_hidden_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_hidden)
 
 
-    #TODO: complete these options to make sure every case works and add some asserts. 
+    #TODO: complete these options to make sure every case works and add some asserts.
     # print(jax.tree_util.tree_map(lambda x : x.shape, init_hidden ))
     # print(jax.tree_util.tree_map(lambda x : x.shape, init_hidden_batched ))
-    
 
-    # init_time_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_time)
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_time ))
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_time_batched ))
-    sim_init = OrderBook(cfg=JAXLOB_Configuration(cancel_mode=cst.CancelMode.CANCEL_UNIFORM_AND_LARGE.value))
+    # nOrders must fit all init orders (2 * wide_levels) plus headroom for
+    # generated orders during the sequence. book_depth controls the init_id
+    # range so get_init_volume_at_price recognises init orders correctly.
+    sim_nOrders = max(100, wide_levels * 2 + 50)
+    sim_init = OrderBook(cfg=JAXLOB_Configuration(
+        nOrders=sim_nOrders,
+        book_depth=wide_levels,
+        cancel_mode=cst.CancelMode.CANCEL_UNIFORM_AND_LARGE.value,
+    ))
+    if wide_levels > 10:
+        print(f"[sample_new] Wide init: {wide_levels} levels, nOrders={sim_nOrders}")
     # all_metrics = []
     initial=True
     for batch_i in tqdm(sample_i):
