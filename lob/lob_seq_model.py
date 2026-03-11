@@ -223,10 +223,35 @@ class LobBookModel(nn.Module):
 
         return (new_hiddens_pre,new_hiddens_post),x
     @staticmethod
-    def initialize_carry(batch_size, hidden_size,n_layers_pre,n_layers_post,):
+    def initialize_carry(batch_size, hidden_size, n_layers_pre, n_layers_post,
+                         is_transformer=False, transformer_config=None,
+                         transformer_config_book=None,
+                         ssm_type='s5', **gdn_kwargs):
         # Use a dummy key since the default state init fn is just zeros.
-        init_hidden=([SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_pre)],
-                      [SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers_post)])
+        pre_cfg = transformer_config_book if transformer_config_book else transformer_config
+        # GDN book pre-layers use H=d_book which auto-adjusts head count
+        pre_gdn_kwargs = gdn_kwargs
+        if ssm_type in ('gdn', 'kda') and 'd_book' in gdn_kwargs:
+            d_book = gdn_kwargs['d_book']
+            hd = gdn_kwargs['head_dim']
+            nh = gdn_kwargs['num_heads']
+            eff_nh = min(nh, max(1, d_book // hd))
+            eff_hd = min(hd, d_book)
+            eff_hvd = eff_hd * (gdn_kwargs['head_v_dim'] // hd)
+            pre_gdn_kwargs = dict(gdn_kwargs, num_heads=eff_nh,
+                                  head_dim=eff_hd, head_v_dim=eff_hvd)
+        init_hidden = (
+            [SequenceLayer.initialize_carry(
+                batch_size, hidden_size,
+                is_transformer=is_transformer, transformer_config=pre_cfg,
+                ssm_type=ssm_type, **pre_gdn_kwargs)
+             for _ in range(n_layers_pre)],
+            [SequenceLayer.initialize_carry(
+                batch_size, hidden_size,
+                is_transformer=is_transformer, transformer_config=transformer_config,
+                ssm_type=ssm_type, **gdn_kwargs)
+             for _ in range(n_layers_post)],
+        )
         return init_hidden
     
     
@@ -575,14 +600,32 @@ class PaddedLobPredModel(nn.Module):
                          n_book_pre_layers,
                          n_book_post_layers,
                          n_fused_layers,
-                         h_size_ema):
+                         h_size_ema,
+                         is_transformer=False,
+                         transformer_config=None,
+                         transformer_config_book=None,
+                         ssm_type='s5', **gdn_kwargs):
         # Use a dummy key since the default state init fn is just zeros.
-
-
-        h_tuple_init=(StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_message_layers),
-                      LobBookModel.initialize_carry(batch_size,hidden_size,n_book_pre_layers,n_book_post_layers),
-                      StackedEncoderModel.initialize_carry(batch_size,hidden_size,n_fused_layers),
-                      (jnp.zeros((batch_size,1,h_size_ema)),jnp.ones((batch_size,1,1))))
+        h_tuple_init = (
+            StackedEncoderModel.initialize_carry(
+                batch_size, hidden_size, n_message_layers,
+                is_transformer=is_transformer,
+                transformer_config=transformer_config,
+                ssm_type=ssm_type, **gdn_kwargs),
+            LobBookModel.initialize_carry(
+                batch_size, hidden_size, n_book_pre_layers, n_book_post_layers,
+                is_transformer=is_transformer,
+                transformer_config=transformer_config,
+                transformer_config_book=transformer_config_book,
+                ssm_type=ssm_type, **gdn_kwargs),
+            StackedEncoderModel.initialize_carry(
+                batch_size, hidden_size, n_fused_layers,
+                is_transformer=is_transformer,
+                transformer_config=transformer_config,
+                ssm_type=ssm_type, **gdn_kwargs),
+            (jnp.zeros((batch_size, 1, h_size_ema)),
+             jnp.ones((batch_size, 1, 1))),
+        )
         return h_tuple_init
 
 split_rngs_args={"params": False, "dropout": True}
