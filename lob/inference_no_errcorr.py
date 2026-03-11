@@ -262,6 +262,45 @@ def switch(
         raise ValueError(f'Invalid number of conditions and functions, got {len(condlist)} and {len(funclist)}')
             
 
+@jax.jit
+def find_order_at_price_closest_time(
+        side_array: jax.Array,    # (nOrders, 6)
+        price: int,
+        time_s: int,
+        time_ns: int,
+    ) -> jax.Array:
+    """Find the active order at `price` whose timestamp is closest to
+    (time_s, time_ns).  Returns the 6-element order row, or a
+    NEGATIVE_RETURN_ID dummy if no active orders exist at that price.
+
+    Column layout: 0=Price, 1=Qty, 2=OID, 3=TID, 4=Time_s, 5=Time_ns.
+    Empty slots have all columns set to -1.
+
+    Uses millisecond-precision time distance (int32-safe: max intraday
+    diff ~23.4M ms, well within int32 range of ~2.1B).
+    """
+    # Mask: active orders at the target price (qty > 0 implies non-empty)
+    price_match = (side_array[:, 0] == price) & (side_array[:, 1] > 0)
+
+    # Time distance in milliseconds (int32-safe, no x64 dependency).
+    diff_ms = (
+        (side_array[:, 4] - time_s) * jnp.int32(1000)
+        + (side_array[:, 5] - time_ns) // jnp.int32(1_000_000)
+    )
+    abs_diff = jnp.abs(diff_ms)
+
+    # Non-matching rows get max distance so argmin ignores them
+    masked_diff = jnp.where(price_match, abs_diff, jnp.iinfo(jnp.int32).max)
+    best_idx = jnp.argmin(masked_diff)
+
+    return jax.lax.cond(
+        price_match.any(),
+        lambda idx: side_array[idx],
+        lambda idx: cst.NEGATIVE_RETURN_ID * jnp.ones((6,), dtype=jnp.int32),
+        best_idx,
+    )
+
+
 def get_sim_msg(
         pred_msg_enc: jax.Array,
         sim: OrderBook,
@@ -305,13 +344,29 @@ def get_sim_msg(
     #             new_order_id, sim, sim_state,
     #     )
     # )
-    orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
-    # jax.debug.print('orig_order: \n {}', orig_order)
+    # --- Progressive order-ID resolution for cancellations ---
+    # Level 1: exact timestamp match (original behavior)
+    orig_order_L1 = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
+    order_id_L1 = orig_order_L1[2]  # col 2 = OID
 
-    # jax.debug.print('ref time is \n {} {}',time_s_ref,time_ns_ref)
+    # Level 2: price-based closest-time match (fallback)
+    side_array = jax.lax.cond(
+        side == 1,
+        lambda a, b: b,   # side 1 = bids
+        lambda a, b: a,   # side 0 = asks
+        sim_state.asks, sim_state.bids,
+    )
+    orig_order_L2 = find_order_at_price_closest_time(
+        side_array, p_abs, time_s_ref, time_ns_ref,
+    )
+    order_id_L2 = orig_order_L2[2]
 
-    # jax.debug.print('orig_order \n {}', orig_order)
-    order_id_ref = orig_order[2]
+    # Use L1 if it succeeded, otherwise fall back to L2
+    order_id_ref = jnp.where(
+        order_id_L1 != cst.NEGATIVE_RETURN_ID,
+        order_id_L1,
+        order_id_L2,
+    )
 
     order_id = jax.lax.cond(
         (event_type == 2) | (event_type == 3),
