@@ -196,7 +196,7 @@ def load_checkpoint(
                         'driver': _zarr_driver,
                         'kvstore': {
                             'driver': 'ocdbt',
-                            'base': str(state_dir),
+                            'base': 'file://' + str(state_dir),
                             'path': param_name,
                         },
                     }
@@ -236,7 +236,7 @@ def load_checkpoint(
                             'driver': _zarr_driver,
                             'kvstore': {
                                 'driver': 'ocdbt',
-                                'base': str(state_dir),
+                                'base': 'file://' + str(state_dir),
                                 'path': param_name,
                             },
                         }

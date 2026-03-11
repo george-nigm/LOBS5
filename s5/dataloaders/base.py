@@ -5,8 +5,14 @@ import numpy as np
 import jax.numpy as jnp
 from jax.experimental import sparse
 import torch
-import torchaudio.functional as TF
-import torchvision
+try:
+    import torchaudio.functional as TF
+except ImportError:
+    TF = None
+try:
+    import torchvision
+except ImportError:
+    torchvision = None
 from einops import rearrange
 
 from ..utils.util import is_list

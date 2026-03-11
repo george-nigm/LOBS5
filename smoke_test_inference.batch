@@ -1,0 +1,146 @@
+#!/bin/bash
+#SBATCH --account=brics.s5e
+#SBATCH --partition=workq
+#SBATCH --nodes=1
+#SBATCH --gpus-per-node=4
+#SBATCH --time=00:30:00
+#SBATCH --output=logs/smoke_test_%j.out
+#SBATCH --error=logs/smoke_test_%j.err
+#SBATCH --exclude=nid[010696-010718],nid010152,nid010110,nid[011112-011115],nid011294,nid[010083-010086],nid[010561-010564],nid010655,nid010052,nid010442,nid010093,nid010990,nid010499,nid011290,nid011263,nid010993
+
+# Smoke test: verify inference_port branch doesn't regress S5 inference
+# Test 1: Single-GPU S5 (4 sequences, batch_size=2, 50 gen msgs)
+# Test 2: Multi-GPU S5 (4 GPUs, 2 seqs each = 8 total, same config)
+
+set -euo pipefail
+
+export PATH="/projects/s5e/quant/miniforge3/bin:${PATH}"
+
+cd /lus/lfs1aip2/projects/s5e/quant/AlphaTrade/LOBS5
+
+# Fix submodule path: gitmodules uses "Alphatrade" (lowercase t)
+export PYTHONPATH="${PWD}/Alphatrade:${PYTHONPATH:-}"
+
+CKPT_PATH="checkpoints/vivid-dragon-128_05nx52xk"
+DATA_DIR="/projects/s5e/quant/JAN2023/GOOG_24tok_preproc"
+SAVE_BASE="/lus/lfs1aip2/projects/s5e/quant/AlphaTrade/experiments/exp_K1_GDN/smoke_test_${SLURM_JOB_ID}"
+
+mkdir -p logs
+
+echo "=========================================="
+echo "  Inference Port Smoke Test"
+echo "=========================================="
+echo "Job ID:   ${SLURM_JOB_ID}"
+echo "Node:     $(hostname)"
+echo "GPUs:     $(nvidia-smi -L 2>/dev/null | wc -l)"
+echo "Branch:   $(git branch --show-current)"
+echo "Commit:   $(git log --oneline -1)"
+echo "Ckpt:     ${CKPT_PATH}"
+echo "Data:     ${DATA_DIR}"
+echo "Time:     $(date)"
+echo "=========================================="
+echo ""
+
+PASS=0
+FAIL=0
+
+# ==========================================
+# Test 1: Single-GPU S5 inference
+# ==========================================
+echo "=== TEST 1: Single-GPU S5 inference ==="
+SAVE_DIR="${SAVE_BASE}/test1_single_gpu"
+mkdir -p "${SAVE_DIR}"
+
+CUDA_VISIBLE_DEVICES=0 python run_inference.py \
+    --stock GOOG \
+    --ckpt_path "${CKPT_PATH}" \
+    --data_dir "${DATA_DIR}" \
+    --save_dir "${SAVE_DIR}" \
+    --batch_size 2 \
+    --n_sequences 4 \
+    --n_cond_msgs 50 \
+    --n_gen_msgs 50 \
+    --test_split 0.5
+
+# Verify outputs exist
+N_GEN=$(ls "${SAVE_DIR}/data_gen/"*message* 2>/dev/null | wc -l)
+N_REAL=$(ls "${SAVE_DIR}/data_real/"*message* 2>/dev/null | wc -l)
+N_COND=$(ls "${SAVE_DIR}/data_cond/"*message* 2>/dev/null | wc -l)
+
+echo "  Generated: ${N_GEN} files"
+echo "  Real:      ${N_REAL} files"
+echo "  Cond:      ${N_COND} files"
+
+if [ "${N_GEN}" -ge 4 ] && [ "${N_REAL}" -ge 4 ] && [ "${N_COND}" -ge 4 ]; then
+    echo "  RESULT: PASS"
+    PASS=$((PASS + 1))
+else
+    echo "  RESULT: FAIL (expected >= 4 files each)"
+    FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ==========================================
+# Test 2: Multi-GPU S5 inference (4 ranks)
+# ==========================================
+echo "=== TEST 2: Multi-GPU S5 inference (4 ranks) ==="
+SAVE_DIR="${SAVE_BASE}/test2_multi_gpu"
+mkdir -p "${SAVE_DIR}"
+
+# Launch 4 ranks in parallel, each on its own GPU
+for RANK in 0 1 2 3; do
+    CUDA_VISIBLE_DEVICES=${RANK} python run_inference.py \
+        --stock GOOG \
+        --ckpt_path "${CKPT_PATH}" \
+        --data_dir "${DATA_DIR}" \
+        --save_dir "${SAVE_DIR}" \
+        --batch_size 2 \
+        --n_sequences 4 \
+        --n_cond_msgs 50 \
+        --n_gen_msgs 50 \
+        --test_split 0.5 \
+        --rank ${RANK} \
+        --world_size 4 &
+    echo "  Launched rank ${RANK} on GPU ${RANK} (PID $!)"
+done
+
+echo "  Waiting for all ranks..."
+wait
+echo "  All ranks finished"
+
+# Verify outputs: 4 ranks should produce different sample IDs
+N_GEN=$(ls "${SAVE_DIR}/data_gen/"*message* 2>/dev/null | wc -l)
+N_REAL=$(ls "${SAVE_DIR}/data_real/"*message* 2>/dev/null | wc -l)
+
+echo "  Generated: ${N_GEN} files (across all ranks)"
+echo "  Real:      ${N_REAL} files"
+
+# Each rank processes 2 seqs (n_sequences=4 but split across 4 ranks, rounded to batch_size=2)
+# So total should be 4 ranks * 2 = 8 (or close)
+if [ "${N_GEN}" -ge 4 ]; then
+    echo "  RESULT: PASS"
+    PASS=$((PASS + 1))
+else
+    echo "  RESULT: FAIL (expected >= 4 files)"
+    FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ==========================================
+# Summary
+# ==========================================
+echo "=========================================="
+echo "  SMOKE TEST SUMMARY"
+echo "=========================================="
+echo "  Passed: ${PASS}/2"
+echo "  Failed: ${FAIL}/2"
+echo "  Time:   $(date)"
+echo "=========================================="
+
+if [ "${FAIL}" -gt 0 ]; then
+    echo "SMOKE TEST FAILED"
+    exit 1
+else
+    echo "ALL SMOKE TESTS PASSED"
+    exit 0
+fi

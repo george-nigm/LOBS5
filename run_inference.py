@@ -210,7 +210,9 @@ if __name__ == "__main__":
 
     import logging
     # logging.basicConfig(filename='ar_debug.log', level=logging.DEBUG)
-    fhandler = logging.FileHandler(filename='generation_debug.log', mode='w')
+    _log_path = os.path.join(save_dir, 'generation_debug.log') if save_dir else 'generation_debug.log'
+    os.makedirs(os.path.dirname(_log_path) if os.path.dirname(_log_path) else '.', exist_ok=True)
+    fhandler = logging.FileHandler(filename=_log_path, mode='w')
     logger = logging.getLogger()
     if (logger.hasHandlers()):
         logger.handlers.clear()
