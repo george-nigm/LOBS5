@@ -143,6 +143,18 @@ class SequenceLayer(nn.Module):
 
             return hidden, x
     @staticmethod
-    def initialize_carry(batch_size, hidden_size):
-        # Use a dummy key since the default state init fn is just zeros.
+    def initialize_carry(batch_size, hidden_size,
+                         is_transformer=False, transformer_config=None,
+                         ssm_type='s5', **gdn_kwargs):
+        if ssm_type in ('gdn', 'kda'):
+            nh = gdn_kwargs['num_heads']
+            hd = gdn_kwargs['head_dim']
+            hvd = gdn_kwargs['head_v_dim']
+            return jax.numpy.zeros((batch_size, 1, nh, hvd, hd), dtype=jax.numpy.float32)
+        if is_transformer and transformer_config is not None:
+            from s5.transformer import TransformerBlock
+            cfg = transformer_config
+            return TransformerBlock.initialize_cache(
+                batch_size, cfg['n_heads'], cfg['head_dim'],
+                cfg['max_cache_len'], cfg.get('dtype', jax.numpy.float32))
         return jax.numpy.zeros((batch_size,1, hidden_size), dtype=jax.numpy.complex64)

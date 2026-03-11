@@ -4,6 +4,7 @@ config.update("jax_disable_jit", False)
 
 from datetime import datetime
 import functools
+import os
 from glob import glob
 from pathlib import Path
 import jax
@@ -202,18 +203,57 @@ def get_dataset(
         day_indeces: Optional[List[int]] = None,
         limit_seq: int = math.inf,
         test_split: float = 0.1,
+        wide_book_dir: Optional[str] = None,
     ):
     msg_files = sorted(glob(str(data_dir) + '/*message*.npy'))
     book_files = sorted(glob(str(data_dir) + '/*book*.npy'))
-    
+
     if day_indeces is not None:
-        #restricts the data to only include certain days. 
+        #restricts the data to only include certain days.
         msg_files=[msg_files[i] for i in day_indeces]
         book_files=[book_files[i] for i in day_indeces]
     if test_split>0:
         n_test_files = max(1, int(len(msg_files) * test_split))
         msg_files = msg_files[-n_test_files:]
         book_files = book_files[-n_test_files:]
+
+    # Filter out truncated .npy files (try mmap load, skip on failure)
+    valid_pairs = []
+    for mf, bf in zip(msg_files, book_files):
+        ok = True
+        for f in (mf, bf):
+            try:
+                a = onp.load(f, mmap_mode='r')
+                _ = a.shape  # force header parse
+                del a
+            except Exception as e:
+                print(f"[get_dataset] Skipping bad file {os.path.basename(f)}: {e}")
+                ok = False
+                break
+        if ok:
+            valid_pairs.append((mf, bf))
+    if len(valid_pairs) < len(msg_files):
+        print(f"[get_dataset] Kept {len(valid_pairs)}/{len(msg_files)} file pairs after validation")
+    msg_files, book_files = zip(*valid_pairs) if valid_pairs else ([], [])
+
+    # Build wide_book_files list by matching dates from book_files
+    wide_book_files = None
+    if wide_book_dir is not None:
+        import re
+        wide_book_files = []
+        for bf in book_files:
+            basename = os.path.basename(bf)
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', basename)
+            if date_match is None:
+                raise ValueError(f"Cannot extract date from book file: {basename}")
+            date_str = date_match.group(1)
+            wide_candidates = sorted(glob(
+                os.path.join(wide_book_dir, f'*{date_str}*orderbook*proc.npy')))
+            if len(wide_candidates) == 0:
+                raise FileNotFoundError(
+                    f"No wide book file found for date {date_str} in {wide_book_dir}")
+            wide_book_files.append(wide_candidates[0])
+        print(f"[get_dataset] Wide book files: {len(wide_book_files)} matched from {wide_book_dir}")
 
     ds = LOBSTER_Dataset(
         msg_files,
@@ -227,8 +267,9 @@ def get_dataset(
         book_transform=False,
         book_depth=book_depth,
         return_raw_msgs=True,
-        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message. 
+        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message.
         limit_seq_per_file=limit_seq,
+        wide_book_files=wide_book_files,
     )
     return ds
 
@@ -261,6 +302,45 @@ def switch(
     else:
         raise ValueError(f'Invalid number of conditions and functions, got {len(condlist)} and {len(funclist)}')
             
+
+@jax.jit
+def find_order_at_price_closest_time(
+        side_array: jax.Array,    # (nOrders, 6)
+        price: int,
+        time_s: int,
+        time_ns: int,
+    ) -> jax.Array:
+    """Find the active order at `price` whose timestamp is closest to
+    (time_s, time_ns).  Returns the 6-element order row, or a
+    NEGATIVE_RETURN_ID dummy if no active orders exist at that price.
+
+    Column layout: 0=Price, 1=Qty, 2=OID, 3=TID, 4=Time_s, 5=Time_ns.
+    Empty slots have all columns set to -1.
+
+    Uses millisecond-precision time distance (int32-safe: max intraday
+    diff ~23.4M ms, well within int32 range of ~2.1B).
+    """
+    # Mask: active orders at the target price (qty > 0 implies non-empty)
+    price_match = (side_array[:, 0] == price) & (side_array[:, 1] > 0)
+
+    # Time distance in milliseconds (int32-safe, no x64 dependency).
+    diff_ms = (
+        (side_array[:, 4] - time_s) * jnp.int32(1000)
+        + (side_array[:, 5] - time_ns) // jnp.int32(1_000_000)
+    )
+    abs_diff = jnp.abs(diff_ms)
+
+    # Non-matching rows get max distance so argmin ignores them
+    masked_diff = jnp.where(price_match, abs_diff, jnp.iinfo(jnp.int32).max)
+    best_idx = jnp.argmin(masked_diff)
+
+    return jax.lax.cond(
+        price_match.any(),
+        lambda idx: side_array[idx],
+        lambda idx: cst.NEGATIVE_RETURN_ID * jnp.ones((6,), dtype=jnp.int32),
+        best_idx,
+    )
+
 
 def get_sim_msg(
         pred_msg_enc: jax.Array,
@@ -305,13 +385,29 @@ def get_sim_msg(
     #             new_order_id, sim, sim_state,
     #     )
     # )
-    orig_order = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
-    # jax.debug.print('orig_order: \n {}', orig_order)
+    # --- Progressive order-ID resolution for cancellations ---
+    # Level 1: exact timestamp match (original behavior)
+    orig_order_L1 = sim.get_order_at_time(sim_state, side, time_s_ref, time_ns_ref)
+    order_id_L1 = orig_order_L1[2]  # col 2 = OID
 
-    # jax.debug.print('ref time is \n {} {}',time_s_ref,time_ns_ref)
+    # Level 2: price-based closest-time match (fallback)
+    side_array = jax.lax.cond(
+        side == 1,
+        lambda a, b: b,   # side 1 = bids
+        lambda a, b: a,   # side 0 = asks
+        sim_state.asks, sim_state.bids,
+    )
+    orig_order_L2 = find_order_at_price_closest_time(
+        side_array, p_abs, time_s_ref, time_ns_ref,
+    )
+    order_id_L2 = orig_order_L2[2]
 
-    # jax.debug.print('orig_order \n {}', orig_order)
-    order_id_ref = orig_order[2]
+    # Use L1 if it succeeded, otherwise fall back to L2
+    order_id_ref = jnp.where(
+        order_id_L1 != cst.NEGATIVE_RETURN_ID,
+        order_id_L1,
+        order_id_L2,
+    )
 
     order_id = jax.lax.cond(
         (event_type == 2) | (event_type == 3),
@@ -887,7 +983,7 @@ def _make_generate_msg_scannable(
         return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, book_l2, msg_token)
     return _generate_msg_scannable
 
-@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15,17),backend='gpu')
+@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
 def generate(
         sim: OrderBook,  # static
         train_state: TrainState,
@@ -906,10 +1002,10 @@ def generate(
         init_time : jax.Array,
         debug_book: bool=False,
         b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging.
-        chunk_size: int=1,  # static - N for chunking conditional sequence 
+        valid_mask_array: Optional[jax.Array]=None,  # pre-computed syntax mask
         # if eval_msgs given, also returns loss of predictions
         # e.g. to calculate perplexity
-        # m_seq_eval: Optional[jax.Array] = None,  
+        # m_seq_eval: Optional[jax.Array] = None,
     ) -> Tuple[jax.Array, jax.Array, jax.Array]:
 
     # id_gen = OrderIdGenerator()
@@ -924,8 +1020,9 @@ def generate(
     # m_seq_cond=m_seq_cond.copy()
     # b_seq_cond=b_seq_cond.copy()
 
-    with jax.ensure_compile_time_eval():
-        valid_mask_array = valh.syntax_validation_matrix()
+    if valid_mask_array is None:
+        with jax.ensure_compile_time_eval():
+            valid_mask_array = valh.syntax_validation_matrix()
 
     # valid_mask_array=None 
     # jax.debug.print("Note: Valid mask turned off in generate_token")
@@ -950,9 +1047,13 @@ def generate(
         
 
         print(m_seq_cond[:-1],b_seq_cond[:-1])
-        # Split arrays into N chunks along the leading axis
-        N = chunk_size
-        chex.assert_is_divisible(m_seq_cond[:-1].shape[0], N)
+        # Split conditioning into N chunks for the scan.
+        # N=n_cond_msgs (1 message per step) keeps attention matrices small,
+        # avoiding O(L^2) OOM for transformers while being harmless for S5.
+        l = Message_Tokenizer.MSG_LEN
+        total_cond_tokens = m_seq_cond[:-1].shape[0]
+        N = total_cond_tokens // l   # 1 message per chunk
+        chex.assert_is_divisible(total_cond_tokens, N)
         chex.assert_is_divisible(b_seq_cond[:-1].shape[0], N)
         m_seq_cond_split = m_seq_cond[:-1].reshape((N, -1))
         b_seq_cond_split = b_seq_cond[:-1].reshape((N, -1) + b_seq_cond[:-1].shape[1:])
@@ -1010,7 +1111,7 @@ generate_batched = jax.jit(
             None,    0, None,
         )
     ),
-    static_argnums=(0, 2, 3, 5, 6, 9,13,15,17),backend='gpu'
+    static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
 )
 
 @partial(jax.jit, static_argnums=(3, 4, 5, 6))
@@ -1187,7 +1288,8 @@ def sample_new(
         conditional: bool = True,
         v: Vocab = Vocab(),
         overfit_debug: bool = False,
-        chunk_size: int = 1,  # N for chunking conditional sequence
+        sample_indices: Optional[List[int]] = None,
+        wide_levels: int = 10,
     ):
     """
     """
@@ -1197,7 +1299,11 @@ def sample_new(
         assert seq_len_cond==0, "If conditional flag is false, then cannot have any tokens for conditioning."
 
     rng, rng_ = jax.random.split(rng)
-    if overfit_debug:
+    if sample_indices is not None:
+        # Pre-determined indices (from multi-GPU rank splitting or HF-matched mode)
+        flat = list(sample_indices)
+        sample_i = [flat[i:i+batch_size] for i in range(0, len(flat), batch_size)]
+    elif overfit_debug:
         sample_i = [list(range(batch_size))]
     else:
         sample_i = jax.random.choice(
@@ -1215,28 +1321,81 @@ def sample_new(
 
 
     if (init_hidden == None):
-        init_hidden=model.initialize_carry(1,
-                                        hidden_size=(args.ssm_size_base // pow(2,int(args.conj_sym))),
-                                        n_message_layers=args.n_message_layers,
-                                        n_book_pre_layers=args.n_book_pre_layers ,
-                                        n_book_post_layers=args.n_book_post_layers,
-                                        n_fused_layers=args.n_layers,
-                                        h_size_ema=args.ssm_size_base)
+        ssm_type = getattr(args, 'ssm_type', 's5')
+        if ssm_type in ('gdn', 'kda'):
+            gdn_hd = getattr(args, 'gdn_head_dim', 128)
+            gdn_nh = getattr(args, 'gdn_num_heads', None) or max(1, args.d_model // gdn_hd)
+            gdn_hvd = gdn_hd * getattr(args, 'gdn_expand_v', 2)
+            init_hidden = model.initialize_carry(1,
+                                            hidden_size=0,
+                                            n_message_layers=args.n_message_layers,
+                                            n_book_pre_layers=args.n_book_pre_layers,
+                                            n_book_post_layers=args.n_book_post_layers,
+                                            n_fused_layers=args.n_layers,
+                                            h_size_ema=args.d_model,
+                                            ssm_type=ssm_type,
+                                            num_heads=gdn_nh, head_dim=gdn_hd, head_v_dim=gdn_hvd,
+                                            d_book=getattr(args, 'd_book', 503))
+        elif getattr(args, 'model_type', 's5') == 'transformer':
+            n_heads = getattr(args, 'n_heads', 16)
+            d_model = args.d_model
+            msg_len = Message_Tokenizer.MSG_LEN
+            max_cache_len = seq_len_cond + n_gen_msgs * msg_len + msg_len
+            nh = n_heads
+            while nh > 1 and d_model % nh != 0:
+                nh -= 1
+            head_dim = d_model // nh
+            transformer_config = {
+                'n_heads': nh, 'head_dim': head_dim,
+                'max_cache_len': max_cache_len, 'dtype': jnp.float32,
+            }
+            d_book = getattr(args, 'd_book', 503)
+            nh_book = n_heads
+            while nh_book > 1 and d_book % nh_book != 0:
+                nh_book -= 1
+            transformer_config_book = {
+                'n_heads': nh_book, 'head_dim': d_book // nh_book,
+                'max_cache_len': max_cache_len, 'dtype': jnp.float32,
+            }
+            init_hidden = model.initialize_carry(1,
+                                            hidden_size=0,
+                                            n_message_layers=args.n_message_layers,
+                                            n_book_pre_layers=args.n_book_pre_layers,
+                                            n_book_post_layers=args.n_book_post_layers,
+                                            n_fused_layers=args.n_layers,
+                                            h_size_ema=args.ssm_size_base,
+                                            is_transformer=True,
+                                            transformer_config=transformer_config,
+                                            transformer_config_book=transformer_config_book)
+        else:
+            init_hidden=model.initialize_carry(1,
+                                            hidden_size=(args.ssm_size_base // pow(2,int(args.conj_sym))),
+                                            n_message_layers=args.n_message_layers,
+                                            n_book_pre_layers=args.n_book_pre_layers ,
+                                            n_book_post_layers=args.n_book_post_layers,
+                                            n_fused_layers=args.n_layers,
+                                            h_size_ema=args.ssm_size_base)
 
     # jax.debug.print("Init hidden is: \n {}",len(init_hidden))
-    # Assumes only a single hidden state is given and needs to be duplicated. TODO Add a flag. 
+    # Assumes only a single hidden state is given and needs to be duplicated. TODO Add a flag.
     init_hidden_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_hidden)
 
 
-    #TODO: complete these options to make sure every case works and add some asserts. 
+    #TODO: complete these options to make sure every case works and add some asserts.
     # print(jax.tree_util.tree_map(lambda x : x.shape, init_hidden ))
     # print(jax.tree_util.tree_map(lambda x : x.shape, init_hidden_batched ))
-    
 
-    # init_time_batched=jax.tree_util.tree_map(lambda x : jnp.resize(x,(batch_size,)+x.shape),init_time)
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_time ))
-    # print(jax.tree_util.tree_map(lambda x : x.shape, init_time_batched ))
-    sim_init = OrderBook(cfg=JAXLOB_Configuration(cancel_mode=cst.CancelMode.CANCEL_UNIFORM_AND_LARGE.value))
+    # nOrders must fit all init orders (2 * wide_levels) plus headroom for
+    # generated orders during the sequence. book_depth controls the init_id
+    # range so get_init_volume_at_price recognises init orders correctly.
+    sim_nOrders = max(100, wide_levels * 2 + 50)
+    sim_init = OrderBook(cfg=JAXLOB_Configuration(
+        nOrders=sim_nOrders,
+        book_depth=wide_levels,
+        cancel_mode=cst.CancelMode.CANCEL_UNIFORM_AND_LARGE.value,
+    ))
+    if wide_levels > 10:
+        print(f"[sample_new] Wide init: {wide_levels} levels, nOrders={sim_nOrders}")
     # all_metrics = []
     initial=True
     for batch_i in tqdm(sample_i):
@@ -1336,6 +1495,9 @@ def sample_new(
 
         print('Before generation, real book is (should be none):', real_book)
         if initial:
+            is_transformer = getattr(args, 'model_type', 's5') == 'transformer'
+            valid_mask_array = valh.syntax_validation_matrix(
+                block_start_tok=is_transformer)
             initial=False
             generate_traced=generate_batched.trace(
                 sim_init, # static
@@ -1357,7 +1519,7 @@ def sample_new(
                 # init_book_batched,
                 debug_book, # static
                 real_book,
-                chunk_size, # static - N for chunking
+                valid_mask_array,  # pre-computed syntax mask
             )
             # print("trace complete")
             # print(generate_traced.jaxpr)
@@ -1370,15 +1532,16 @@ def sample_new(
 
         start_time = time.time()
         msgs_decoded, l2_book_states, num_errors,mgs_tokens = generate_compiled(
-            train_state,  # None map, static? 
+            train_state,  # None map, static?
             encoder, # None map, static?
             m_seq_inp[:], # in_axis = 0
             b_seq_inp, # in_axis = 0
-            sim_states_init, # in_axis = 0 
+            sim_states_init, # in_axis = 0
             jax.random.split(rng_, batch_size), # in_axis = 0
             init_hidden_batched,
             init_time_batched,
             real_book,
+            valid_mask_array,  # pre-computed syntax mask
         )
         end_time = time.time()
         print(f"Generation time for batch of size {batch_size}: {(end_time - start_time):.2f} seconds")

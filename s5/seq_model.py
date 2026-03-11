@@ -112,9 +112,16 @@ class StackedEncoderModel(nn.Module):
         return new_hiddens,x
 
     @staticmethod
-    def initialize_carry(batch_size, hidden_size, n_layers):
+    def initialize_carry(batch_size, hidden_size, n_layers,
+                         is_transformer=False, transformer_config=None,
+                         ssm_type='s5', **gdn_kwargs):
         # Use a dummy key since the default state init fn is just zeros.
-        return [SequenceLayer.initialize_carry(batch_size,hidden_size) for _ in range(n_layers)]
+        return [SequenceLayer.initialize_carry(
+                    batch_size, hidden_size,
+                    is_transformer=is_transformer,
+                    transformer_config=transformer_config,
+                    ssm_type=ssm_type, **gdn_kwargs)
+                for _ in range(n_layers)]
 
 def masked_meanpool(x, lengths):
     """

@@ -79,34 +79,45 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for inference')
     parser.add_argument("--n_sequences", type=int, default=1024, help="Number of sequences to generate")
     parser.add_argument("--n_cond_msgs", type=int, default=500, help="Number of conditional messages")
-    parser.add_argument("--chunk_size", type=int, default=1, help="N - chunk size for conditional sequence processing")
+    parser.add_argument("--n_gen_msgs", type=int, default=500, help="Number of messages to generate")
+    parser.add_argument("--data_dir", type=str, default=None, help="Override data directory")
+    parser.add_argument("--ckpt_path", type=str, default=None, help="Override checkpoint path")
+    parser.add_argument("--save_dir", type=str, default=None, help="Override save directory")
+    parser.add_argument("--sample_indices_file", type=str, default=None, help="File with pre-determined sample indices")
+    parser.add_argument("--wide_book_dir", type=str, default=None, help="Directory for wider L2 book files")
+    parser.add_argument("--wide_levels", type=int, default=10, help="Number of book levels for simulator init")
+    parser.add_argument("--rank", type=int, default=0, help="GPU rank for multi-GPU inference")
+    parser.add_argument("--world_size", type=int, default=1, help="Total number of GPUs for inference")
 
     run_args = parser.parse_args()
 
     overfit_debug = False
 
-    N = run_args.chunk_size
-
-    if run_args.stock == 'AMZN':
+    # CLI overrides take priority; fall back to hardcoded stock paths
+    if run_args.ckpt_path is not None:
+        data_dir = run_args.data_dir
+        ckpt_path = run_args.ckpt_path
+        save_dir = run_args.save_dir or f'./inference_results/{run_args.stock}'
+    elif run_args.stock == 'AMZN':
         data_dir = '/home/myuser/processed_data/AMZN/2024_Dec'
         ckpt_path='/home/myuser/checkpoints/ruby-aardvark-62_98nov1i7'
-        save_dir=f'/home/myuser/data/evalsequences/s5v2N{N}/AMZN/2024'
-    if run_args.stock == 'GOOG':
+        save_dir=f'/home/myuser/data/evalsequences/s5v2/AMZN/2024'
+    elif run_args.stock == 'GOOG':
         data_dir = '/home/myuser/data/processed_data/GOOG/2023_Jan'
         ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/twilight-sound-77_s42sujip'
-        save_dir=f'/home/myuser/data/evalsequences/s5v2N{N}/GOOG/2023_Jan'
+        save_dir=f'/home/myuser/data/evalsequences/s5v2/GOOG/2023_Jan'
     elif run_args.stock == 'INTC':
         data_dir = '/home/myuser/data/processed_data/INTC/2023_Jan'
         ckpt_path='/home/myuser/data/checkpoints/lobs5_v2/dazzling-meadow-75_zpp3bf6z'
-        save_dir=f'/home/myuser/data/evalsequences/s5v2N{N}/INTC/2023_Jan'
+        save_dir=f'/home/myuser/data/evalsequences/s5v2/INTC/2023_Jan'
     else:
         raise Warning("Saved Model was trained on GOOGLE data. Generating for TSLA")
         data_dir = '/data1/sascha/data/lobster_proc'
-        ckpt_path = '/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5' # Dummy model trained on just 5 days... for debugging. 
+        ckpt_path = '/data1/sascha/data/checkpoints/honest-oath-159_3kn3xbd5' # Dummy model trained on just 5 days... for debugging.
 
     ##################################################
 
-    n_gen_msgs = 500  #500 # how many messages to generate into the future
+    n_gen_msgs = run_args.n_gen_msgs  # how many messages to generate into the future
     n_messages_conditional = run_args.n_cond_msgs
     n_eval_messages = n_gen_msgs  # how many to load from dataset 
     eval_seq_len = (n_eval_messages-1) * Message_Tokenizer.MSG_LEN
@@ -175,8 +186,9 @@ if __name__ == "__main__":
                                n_messages_conditional,
                                n_eval_messages,
                                test_split= run_args.test_split,
+                               wide_book_dir=run_args.wide_book_dir,
                             #    day_indeces= [0],
-                            #    limit_seq=4 
+                            #    limit_seq=4
                                )
 
     print("Dataset length: ", len(ds))
@@ -198,7 +210,9 @@ if __name__ == "__main__":
 
     import logging
     # logging.basicConfig(filename='ar_debug.log', level=logging.DEBUG)
-    fhandler = logging.FileHandler(filename='generation_debug.log', mode='w')
+    _log_path = os.path.join(save_dir, 'generation_debug.log') if save_dir else 'generation_debug.log'
+    os.makedirs(os.path.dirname(_log_path) if os.path.dirname(_log_path) else '.', exist_ok=True)
+    fhandler = logging.FileHandler(filename=_log_path, mode='w')
     logger = logging.getLogger()
     if (logger.hasHandlers()):
         logger.handlers.clear()
@@ -212,6 +226,20 @@ if __name__ == "__main__":
 
     n_samples = run_args.n_sequences
     batch_size = run_args.batch_size
+
+    # Multi-GPU rank splitting: interleaved index assignment
+    sample_indices = None
+    if run_args.world_size > 1:
+        all_indices = list(range(len(ds)))
+        rank_indices = all_indices[run_args.rank::run_args.world_size]
+        n_samples = min(n_samples, len(rank_indices))
+        # Round down to batch_size multiple
+        n_samples = (n_samples // batch_size) * batch_size
+        sample_indices = rank_indices[:n_samples]
+        print(f"[Rank {run_args.rank}/{run_args.world_size}] "
+              f"Processing {n_samples} samples (indices {sample_indices[0]}..{sample_indices[-1]})")
+    elif run_args.sample_indices_file is not None:
+        sample_indices = list(onp.load(run_args.sample_indices_file).astype(int))
 
     # m_seq_gen, b_seq_gen, msgs_decoded, l2_book_states, num_errors = inference.sample_new(
     # saves data to disk
@@ -234,6 +262,7 @@ if __name__ == "__main__":
         args=args,
         conditional= True if n_messages_conditional>0 else False,
         overfit_debug=overfit_debug,
-        chunk_size=N,
+        sample_indices=sample_indices,
+        wide_levels=run_args.wide_levels,
     )
     print(f"Generation time for {n_samples} sequences across {batch_size} batch size: {time()-start}")
