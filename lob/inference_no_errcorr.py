@@ -942,7 +942,7 @@ def _make_generate_msg_scannable(
         return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, book_l2, msg_token)
     return _generate_msg_scannable
 
-@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15,17),backend='gpu')
+@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
 def generate(
         sim: OrderBook,  # static
         train_state: TrainState,
@@ -961,10 +961,10 @@ def generate(
         init_time : jax.Array,
         debug_book: bool=False,
         b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging.
-        chunk_size: int=1,  # static - N for chunking conditional sequence 
+        valid_mask_array: Optional[jax.Array]=None,  # pre-computed syntax mask
         # if eval_msgs given, also returns loss of predictions
         # e.g. to calculate perplexity
-        # m_seq_eval: Optional[jax.Array] = None,  
+        # m_seq_eval: Optional[jax.Array] = None,
     ) -> Tuple[jax.Array, jax.Array, jax.Array]:
 
     # id_gen = OrderIdGenerator()
@@ -979,8 +979,9 @@ def generate(
     # m_seq_cond=m_seq_cond.copy()
     # b_seq_cond=b_seq_cond.copy()
 
-    with jax.ensure_compile_time_eval():
-        valid_mask_array = valh.syntax_validation_matrix()
+    if valid_mask_array is None:
+        with jax.ensure_compile_time_eval():
+            valid_mask_array = valh.syntax_validation_matrix()
 
     # valid_mask_array=None 
     # jax.debug.print("Note: Valid mask turned off in generate_token")
@@ -1005,9 +1006,13 @@ def generate(
         
 
         print(m_seq_cond[:-1],b_seq_cond[:-1])
-        # Split arrays into N chunks along the leading axis
-        N = chunk_size
-        chex.assert_is_divisible(m_seq_cond[:-1].shape[0], N)
+        # Split conditioning into N chunks for the scan.
+        # N=n_cond_msgs (1 message per step) keeps attention matrices small,
+        # avoiding O(L^2) OOM for transformers while being harmless for S5.
+        l = Message_Tokenizer.MSG_LEN
+        total_cond_tokens = m_seq_cond[:-1].shape[0]
+        N = total_cond_tokens // l   # 1 message per chunk
+        chex.assert_is_divisible(total_cond_tokens, N)
         chex.assert_is_divisible(b_seq_cond[:-1].shape[0], N)
         m_seq_cond_split = m_seq_cond[:-1].reshape((N, -1))
         b_seq_cond_split = b_seq_cond[:-1].reshape((N, -1) + b_seq_cond[:-1].shape[1:])
@@ -1065,7 +1070,7 @@ generate_batched = jax.jit(
             None,    0, None,
         )
     ),
-    static_argnums=(0, 2, 3, 5, 6, 9,13,15,17),backend='gpu'
+    static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
 )
 
 @partial(jax.jit, static_argnums=(3, 4, 5, 6))
@@ -1242,7 +1247,8 @@ def sample_new(
         conditional: bool = True,
         v: Vocab = Vocab(),
         overfit_debug: bool = False,
-        chunk_size: int = 1,  # N for chunking conditional sequence
+        sample_indices: Optional[List[int]] = None,
+        wide_levels: int = 10,
     ):
     """
     """
@@ -1391,6 +1397,9 @@ def sample_new(
 
         print('Before generation, real book is (should be none):', real_book)
         if initial:
+            is_transformer = getattr(args, 'model_type', 's5') == 'transformer'
+            valid_mask_array = valh.syntax_validation_matrix(
+                block_start_tok=is_transformer)
             initial=False
             generate_traced=generate_batched.trace(
                 sim_init, # static
@@ -1412,7 +1421,7 @@ def sample_new(
                 # init_book_batched,
                 debug_book, # static
                 real_book,
-                chunk_size, # static - N for chunking
+                valid_mask_array,  # pre-computed syntax mask
             )
             # print("trace complete")
             # print(generate_traced.jaxpr)
@@ -1425,15 +1434,16 @@ def sample_new(
 
         start_time = time.time()
         msgs_decoded, l2_book_states, num_errors,mgs_tokens = generate_compiled(
-            train_state,  # None map, static? 
+            train_state,  # None map, static?
             encoder, # None map, static?
             m_seq_inp[:], # in_axis = 0
             b_seq_inp, # in_axis = 0
-            sim_states_init, # in_axis = 0 
+            sim_states_init, # in_axis = 0
             jax.random.split(rng_, batch_size), # in_axis = 0
             init_hidden_batched,
             init_time_batched,
             real_book,
+            valid_mask_array,  # pre-computed syntax mask
         )
         end_time = time.time()
         print(f"Generation time for batch of size {batch_size}: {(end_time - start_time):.2f} seconds")
