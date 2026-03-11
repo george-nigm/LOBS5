@@ -202,18 +202,57 @@ def get_dataset(
         day_indeces: Optional[List[int]] = None,
         limit_seq: int = math.inf,
         test_split: float = 0.1,
+        wide_book_dir: Optional[str] = None,
     ):
     msg_files = sorted(glob(str(data_dir) + '/*message*.npy'))
     book_files = sorted(glob(str(data_dir) + '/*book*.npy'))
-    
+
     if day_indeces is not None:
-        #restricts the data to only include certain days. 
+        #restricts the data to only include certain days.
         msg_files=[msg_files[i] for i in day_indeces]
         book_files=[book_files[i] for i in day_indeces]
     if test_split>0:
         n_test_files = max(1, int(len(msg_files) * test_split))
         msg_files = msg_files[-n_test_files:]
         book_files = book_files[-n_test_files:]
+
+    # Filter out truncated .npy files (try mmap load, skip on failure)
+    valid_pairs = []
+    for mf, bf in zip(msg_files, book_files):
+        ok = True
+        for f in (mf, bf):
+            try:
+                a = onp.load(f, mmap_mode='r')
+                _ = a.shape  # force header parse
+                del a
+            except Exception as e:
+                print(f"[get_dataset] Skipping bad file {os.path.basename(f)}: {e}")
+                ok = False
+                break
+        if ok:
+            valid_pairs.append((mf, bf))
+    if len(valid_pairs) < len(msg_files):
+        print(f"[get_dataset] Kept {len(valid_pairs)}/{len(msg_files)} file pairs after validation")
+    msg_files, book_files = zip(*valid_pairs) if valid_pairs else ([], [])
+
+    # Build wide_book_files list by matching dates from book_files
+    wide_book_files = None
+    if wide_book_dir is not None:
+        import re
+        wide_book_files = []
+        for bf in book_files:
+            basename = os.path.basename(bf)
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', basename)
+            if date_match is None:
+                raise ValueError(f"Cannot extract date from book file: {basename}")
+            date_str = date_match.group(1)
+            wide_candidates = sorted(glob(
+                os.path.join(wide_book_dir, f'*{date_str}*orderbook*proc.npy')))
+            if len(wide_candidates) == 0:
+                raise FileNotFoundError(
+                    f"No wide book file found for date {date_str} in {wide_book_dir}")
+            wide_book_files.append(wide_candidates[0])
+        print(f"[get_dataset] Wide book files: {len(wide_book_files)} matched from {wide_book_dir}")
 
     ds = LOBSTER_Dataset(
         msg_files,
@@ -227,8 +266,9 @@ def get_dataset(
         book_transform=False,
         book_depth=book_depth,
         return_raw_msgs=True,
-        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message. 
+        inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message.
         limit_seq_per_file=limit_seq,
+        wide_book_files=wide_book_files,
     )
     return ds
 
