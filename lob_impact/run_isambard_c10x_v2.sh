@@ -22,13 +22,13 @@
 set -euo pipefail
 
 # ── Isambard paths ──
-PROJECT_DIR="/lus/lfs1aip2/home/s5e/LOBS5"
-DATA_BASE="/lus/lfs1aip2/home/s5e/data"
-CKPT_BASE="/lus/lfs1aip2/home/s5e/data/checkpoints"
-SAVE_BASE="/lus/lfs1aip2/home/s5e/data/evalsequences/aggressive_scenario_v3"
+PROJECT_DIR="/home/s5e/georgenigm.s5e/LOBS5_11_march"
+DATA_BASE="/home/s5e/georgenigm.s5e/LOBS5_11_march/data"
+CKPT_BASE="/home/s5e/georgenigm.s5e/LOBS5_11_march/data/checkpoints"
+SAVE_BASE="/home/s5e/georgenigm.s5e/LOBS5_11_march/data/evalsequences/aggressive_scenario_v3"
 
 # ── Conda ──
-source /lus/lfs1aip2/home/s5e/miniforge3/etc/profile.d/conda.sh
+source /home/s5e/georgenigm.s5e/miniforge3/etc/profile.d/conda.sh
 conda activate lobs5
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
@@ -46,7 +46,7 @@ declare -A MODELS=(
     [historic]="Historic|lob_impact/2.historic_scenario.py|||503"
     [heuristic]="Heuristic|lob_impact/3.heuristic_scenario.py|||503"
     [cst]="CST|lob_impact/4.aggressive_scenario_cst.py|||503"
-    [cgan]="CGAN|lob_impact/1.aggressive_scenario_cgan.py|${CKPT_BASE}/cgan/cgan_checkpoint|null|503"
+    [cgan]="CGAN|lob_impact/5v2.aggressive_scenario_cgan.py|${CKPT_BASE}/cgan|null|503"
 )
 
 # ── Stock definitions ──
