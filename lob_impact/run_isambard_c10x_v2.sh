@@ -1,65 +1,73 @@
 #!/bin/bash
 # =============================================================================
-# Isambard SLURM launch script for market impact experiments
-# Replaces Docker-based run_context_500_c10x_v2.sh
+# Isambard SLURM array launch script for market impact experiments
+#
+# Each model runs as a separate SLURM array job (--array=0-119).
+# Each array task = 1 (stock × grid_point × volume × direction) combination.
+# Each task uses 1 GPU.
 #
 # Usage:
-#   # Run all models for both stocks:
-#   sbatch lob_impact/run_isambard_c10x_v2.sh
+#   # Submit all 8 models (8 array jobs × 120 tasks each):
+#   bash lob_impact/run_isambard_c10x_v2.sh submit
 #
-#   # Run specific model and stock:
-#   MODEL=s5_120m STOCK=GOOG sbatch lob_impact/run_isambard_c10x_v2.sh
+#   # Submit specific model:
+#   bash lob_impact/run_isambard_c10x_v2.sh submit s5_150m
+#
+#   # Direct single-task run (called by SLURM):
+#   MODEL=s5_150m sbatch --array=0-119 lob_impact/run_isambard_c10x_v2.sh
 # =============================================================================
-#SBATCH --job-name=lob_impact
-#SBATCH --partition=gh
+#SBATCH --job-name=impact
+#SBATCH --partition=workq
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4
-#SBATCH --time=48:00:00
-#SBATCH --output=logs/impact_%j_%a.out
-#SBATCH --error=logs/impact_%j_%a.err
+#SBATCH --ntasks=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=12:00:00
+#SBATCH --output=logs/impact_%x_%A_%a.out
+#SBATCH --error=logs/impact_%x_%A_%a.err
 
 set -euo pipefail
 
 # ── Isambard paths ──
 PROJECT_DIR="/home/s5e/georgenigm.s5e/LOBS5_11_march"
-DATA_BASE="/home/s5e/georgenigm.s5e/LOBS5_11_march/data"
-CKPT_BASE="/home/s5e/georgenigm.s5e/LOBS5_11_march/data/checkpoints"
-SAVE_BASE="/home/s5e/georgenigm.s5e/LOBS5_11_march/data/evalsequences/aggressive_scenario_v3"
-
-# ── Conda ──
-source /home/s5e/georgenigm.s5e/miniforge3/etc/profile.d/conda.sh
-conda activate lobs5
-export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
-
-# ── Env ──
-export XLA_PYTHON_CLIENT_PREALLOCATE=true
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.90
-export TF_FORCE_GPU_ALLOW_GROWTH=true
+LUS="/lus/lfs1aip2/projects/s5e"
+SAVE_BASE="${PROJECT_DIR}/data/evalsequences/aggressive_scenario_v3"
+CST_PARAMS_DIR="${PROJECT_DIR}/data/checkpoints/cst_params"
 
 # ── Model definitions ──
-# Format: "label|script|ckpt_path|checkpoint_step|book_dim"
+# Format: "label|script|ckpt_path|checkpoint_step|book_dim|data_variant"
 declare -A MODELS=(
-    [lobs5]="LobS5|lob_impact/1.aggressive_scenario_s5.py|${CKPT_BASE}/lobs5_v2/twilight-sound-77_s42sujip|null|503"
-    [s5_120m]="S5-120M|lob_impact/1.aggressive_scenario_s5_v3.py|${CKPT_BASE}/lobs5_v3/j2514440_bkotgtm5_2514440|135458|503"
-    [s5_4k]="S5-4K|lob_impact/1.aggressive_scenario_s5_v3.py|${CKPT_BASE}/lobs5_v3/j2504167_y0c4j6l3_2504167|100378|503"
-    [historic]="Historic|lob_impact/2.historic_scenario.py|||503"
-    [heuristic]="Heuristic|lob_impact/3.heuristic_scenario.py|||503"
-    [cst]="CST|lob_impact/4.aggressive_scenario_cst.py|||503"
-    [cgan]="CGAN|lob_impact/5v2.aggressive_scenario_cgan.py|${CKPT_BASE}/cgan|null|503"
+    [lobs5]="LobS5|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J1-sparse-book-anchoring/checkpoints/j2633975_gao5ok51_2633975|61037|503|v3"
+    [s5_150m]="S5-150M|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H1-scaling-law/checkpoints/j2514440_bkotgtm5_2514440|135458|503|v3"
+    [s5_4k]="S5-4K|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|100378|503|v3"
+    [s5_360m]="S5-360M|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J2_muon_optimizer/checkpoints/j2731367_u5xps1po_2731367|34158|503|v3"
+    [zero]="ZeroInsertions|lob_impact/2.historic_scenario.py|||503|base"
+    [historic]="Historic|lob_impact/2.historic_scenario.py|||503|base"
+    [heuristic]="Heuristic|lob_impact/3.heuristic_scenario.py|||503|base"
+    [cst]="CST|lob_impact/4.aggressive_scenario_cst.py|||503|base"
+    [cgan]="CGAN|lob_impact/5v2.aggressive_scenario_cgan.py|${PROJECT_DIR}/data/checkpoints/cgan|null|503|base"
 )
 
-# ── Stock definitions ──
-declare -A STOCK_DATA=(
-    [GOOG]="${DATA_BASE}/processed_data/GOOG/2026_Jan"
-    [INTC]="${DATA_BASE}/processed_data/INTC/2026_Jan"
-)
+ALL_MODEL_KEYS=(lobs5 s5_150m s5_4k s5_360m zero historic heuristic cst cgan)
+
+# Models that need GPU vs CPU-only
+GPU_MODELS="lobs5 s5_150m s5_4k s5_360m cgan"
+needs_gpu() { [[ " ${GPU_MODELS} " == *" $1 "* ]]; }
+
+# ── Stock data paths by variant ──
+get_data_dir() {
+    local stock=$1 variant=$2
+    case "${stock}_${variant}" in
+        GOOG_v2)   echo "${LUS}/lob_pipeline/data/GOOG_jan2026" ;;
+        GOOG_v3)   echo "${LUS}/lob_pipeline/data/GOOG_jan2026" ;;
+        GOOG_base) echo "${LUS}/lob_pipeline/data/GOOG_jan2026" ;;
+    esac
+}
+
 declare -A STOCK_TICK=(
     [GOOG]=100
-    [INTC]=100
 )
 
-# ── Grid (same as c10x_v2) ──
+# ── Grid (c10x_v2) ──
 GRID=(
     "3 5"
     "5 5"
@@ -72,13 +80,18 @@ GRID=(
     "1 20"
     "2 20"
 )
+STOCKS=(GOOG)
 VOLUMES=(75 300 485)
 N_COND=500
+
+# Total tasks: 1 stock × 10 grid × 3 vol × 2 dir = 60
+N_TASKS=60
 
 # ── Config writer ──
 write_config() {
     local file=$1 n_ins=$2 n_cool=$3 save_dir=$4 vol=$5
     local stock=$6 data_dir=$7 tick=$8 ckpt=$9 ckpt_step=${10} book_dim=${11}
+    mkdir -p "$(dirname "$file")"
     cat > "$file" << EOF
 n_gen_msgs: 50
 num_insertions: ${n_ins}
@@ -107,82 +120,142 @@ test_split: 0
 EOF
 }
 
-# ── Select model and stock ──
-MODEL_KEY="${MODEL:-all}"
-STOCK_KEY="${STOCK:-all}"
+# ── Decode SLURM_ARRAY_TASK_ID → (stock, grid, vol, dir) ──
+decode_task_id() {
+    local tid=$1
+    local stock_idx=0
+    local grid_idx=$((tid / 6))
+    local rem2=$((tid % 6))
+    local vol_idx=$((rem2 / 2))
+    local dir_idx=$((rem2 % 2))
 
-if [ "$MODEL_KEY" = "all" ]; then
-    MODEL_KEYS=("${!MODELS[@]}")
-else
-    MODEL_KEYS=("$MODEL_KEY")
-fi
+    TASK_STOCK="${STOCKS[$stock_idx]}"
+    TASK_GRID="${GRID[$grid_idx]}"
+    TASK_VOL="${VOLUMES[$vol_idx]}"
+    TASK_DIR="$dir_idx"
+}
 
-if [ "$STOCK_KEY" = "all" ]; then
-    STOCK_KEYS=("${!STOCK_DATA[@]}")
-else
-    STOCK_KEYS=("$STOCK_KEY")
-fi
+# =============================================================================
+# MODE 1: Submit array jobs (called from login node)
+# =============================================================================
+if [ "${1:-}" = "submit" ]; then
+    mkdir -p "${PROJECT_DIR}/logs"
+    shift
+    if [ $# -gt 0 ]; then
+        SUBMIT_KEYS=("$@")
+    else
+        SUBMIT_KEYS=("${ALL_MODEL_KEYS[@]}")
+    fi
 
-# ── Generate configs and run ──
-GPU_IDX=0
-N_GPUS=4  # GH200 has 4 GPUs per node
-
-for model_key in "${MODEL_KEYS[@]}"; do
-    IFS='|' read -r label script ckpt ckpt_step book_dim <<< "${MODELS[$model_key]}"
-
-    for stock in "${STOCK_KEYS[@]}"; do
-        data_dir="${STOCK_DATA[$stock]}"
-        tick="${STOCK_TICK[$stock]}"
-
-        CONFIGS_DIR="${PROJECT_DIR}/lob_impact/configs_isambard_${stock,,}_2026"
-        mkdir -p "$CONFIGS_DIR"
-
-        declare -a JOBS=()
-
-        for pair in "${GRID[@]}"; do
-            read -r i mb <<< "$pair"
-            c=$((i * 10))
-            total=$((11 * i * mb))
-            cntxt=$((total * 100 / N_COND))
-
-            for vol in "${VOLUMES[@]}"; do
-                for dir in 0 1; do
-                    dir_name=$( [ "$dir" = "0" ] && echo "buy" || echo "sell" )
-                    folder_name="i${i}_c${c}_mb${mb}_v${vol}_cntxt${cntxt}%"
-                    save_dir="${SAVE_BASE}/${label}/context_${N_COND}_${dir_name}/${folder_name}"
-
-                    cfg_file="${CONFIGS_DIR}/cfg_${model_key}_i${i}_c${c}_mb${mb}_v${vol}_${dir_name}.yaml"
-                    write_config "$cfg_file" "$i" "$c" "$save_dir" "$vol" \
-                        "$stock" "$data_dir" "$tick" "$ckpt" "$ckpt_step" "$book_dim"
-
-                    JOBS+=("${cfg_file}|${mb}|${dir}|${folder_name}_${dir_name}")
-                done
-            done
-        done
-
-        echo "=== ${label} / ${stock}: ${#JOBS[@]} jobs ==="
-
-        # Run jobs round-robin across GPUs
-        for job_str in "${JOBS[@]}"; do
-            IFS='|' read -r cfg mb dir name <<< "$job_str"
-            gpu=$((GPU_IDX % N_GPUS))
-            GPU_IDX=$((GPU_IDX + 1))
-
-            echo "[GPU ${gpu}] ${name}"
-            CUDA_VISIBLE_DEVICES=$gpu python -u "${PROJECT_DIR}/${script}" \
-                --config "$cfg" \
-                --n_gen_msgs "$mb" \
-                --direction "$dir" &
-
-            # Wait if all GPUs are busy
-            if (( GPU_IDX % N_GPUS == 0 )); then
-                wait
-            fi
-        done
-        wait
-
-        unset JOBS
+    echo "Submitting ${#SUBMIT_KEYS[@]} array jobs (${N_TASKS} tasks each)..."
+    for model_key in "${SUBMIT_KEYS[@]}"; do
+        IFS='|' read -r label _ _ _ _ _ <<< "${MODELS[$model_key]}"
+        if needs_gpu "$model_key"; then
+            gres_flag="--gres=gpu:1"
+            time_flag="--time=12:00:00"
+            tag="GPU"
+        else
+            gres_flag="--gres=gpu:0"
+            time_flag="--time=04:00:00"
+            tag="CPU"
+        fi
+        job_id=$(MODEL="$model_key" sbatch \
+            --array=0-$((N_TASKS - 1)) \
+            --job-name="impact_${model_key}" \
+            ${gres_flag} ${time_flag} \
+            --parsable \
+            "${PROJECT_DIR}/lob_impact/run_isambard_c10x_v2.sh")
+        echo "  ${label} (${model_key}): job ${job_id}, ${N_TASKS} tasks [${tag}]"
     done
-done
+    echo "Done. Monitor with: squeue -u \$USER"
+    exit 0
+fi
 
-echo "=== All experiments finished! $(date) ==="
+# =============================================================================
+# MODE 2: Run single task (called by SLURM)
+# =============================================================================
+
+# ── Conda (set +u around activate to avoid unbound variable errors in conda scripts) ──
+set +u
+source /home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh
+conda activate lobs5
+set -u
+export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
+
+# ── Env ──
+model_key="${MODEL:?MODEL env var required}"
+if needs_gpu "$model_key"; then
+    export CUDA_DEVICE_ORDER=PCI_BUS_ID
+    export XLA_PYTHON_CLIENT_PREALLOCATE=true
+    export XLA_PYTHON_CLIENT_MEM_FRACTION=0.90
+    export TF_FORCE_GPU_ALLOW_GROWTH=true
+else
+    export JAX_PLATFORMS=cpu
+fi
+task_id="${SLURM_ARRAY_TASK_ID:?Must run as SLURM array task}"
+
+IFS='|' read -r label script ckpt ckpt_step book_dim data_variant <<< "${MODELS[$model_key]}"
+decode_task_id "$task_id"
+
+read -r i mb <<< "$TASK_GRID"
+c=$((i * 10))
+total=$((11 * i * mb))
+cntxt=$((total * 100 / N_COND))
+
+stock="$TASK_STOCK"
+vol="$TASK_VOL"
+dir="$TASK_DIR"
+dir_name=$( [ "$dir" = "0" ] && echo "buy" || echo "sell" )
+
+data_dir="$(get_data_dir "$stock" "$data_variant")"
+tick="${STOCK_TICK[$stock]}"
+
+folder_name="i${i}_c${c}_mb${mb}_v${vol}_cntxt${cntxt}%"
+save_dir="${SAVE_BASE}/${label}/context_${N_COND}_${dir_name}/${folder_name}"
+
+# ZeroInsertions: same total messages, zero injections
+if [ "$model_key" = "zero" ]; then
+    n_ins=0
+    n_cool=$((i + c))
+else
+    n_ins=$i
+    n_cool=$c
+fi
+
+CONFIGS_DIR="${PROJECT_DIR}/lob_impact/configs_isambard/${model_key}"
+cfg_file="${CONFIGS_DIR}/cfg_${stock,,}_i${i}_c${c}_mb${mb}_v${vol}_${dir_name}.yaml"
+write_config "$cfg_file" "$n_ins" "$n_cool" "$save_dir" "$vol" \
+    "$stock" "$data_dir" "$tick" "$ckpt" "$ckpt_step" "$book_dim"
+
+# CST model needs extra fields: params_file, n_levels, num_ticks
+if [ "$model_key" = "cst" ]; then
+    cat >> "$cfg_file" << EOF
+params_file: "${CST_PARAMS_DIR}/cst_params_${stock}_dec2025.pkl"
+num_ticks: 500
+n_levels: 10
+EOF
+fi
+
+# CGAN model needs checkpoint, scalers, interarrival paths
+if [ "$model_key" = "cgan" ]; then
+    cgan_dir="/scratch/s5e/aramis.s5e/cgan_runs/GOOG/models/GOOG/NEW_SET_lb100_['20251224', '20251226', '20251230']_v2_41"
+    cat >> "$cfg_file" << EOF
+cgan_checkpoint: "${cgan_dir}/checkpoints/model_39.ckpt"
+cgan_scalers: "${cgan_dir}/data__scalers.pickle"
+cgan_interarrival_times: "${cgan_dir}/interarrival_times"
+n_levels: 10
+EOF
+fi
+
+echo "=== [${SLURM_ARRAY_JOB_ID}_${task_id}] ${label} / ${stock} / i${i}_c${c}_mb${mb}_v${vol}_${dir_name} ==="
+echo "Config: ${cfg_file}"
+echo "Data:   ${data_dir}"
+echo "Save:   ${save_dir}"
+
+python -u "${PROJECT_DIR}/${script}" \
+    --config "$cfg_file" \
+    --n_gen_msgs "$mb" \
+    --direction "$dir"
+
+echo "=== Task ${task_id} finished: $(date) ==="
