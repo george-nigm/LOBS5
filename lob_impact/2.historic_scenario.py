@@ -235,13 +235,18 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
     process_msg_vmap = jax.jit(jax.vmap(sim.process_order_array, in_axes=(0, 0)))
     get_L2_vmap = jax.jit(jax.vmap(sim.get_L2_state, in_axes=(0, None)), static_argnums=(1,))
 
+    # Per-day mode: restrict to specific day
+    day_index = cfg.get('day_index', None)
+    day_indeces = [day_index] if day_index is not None else None
+
     # Load dataset
-    print(f"Loading dataset from {data_dir}")
+    print(f"Loading dataset from {data_dir} (day_indeces={day_indeces})")
     ds = get_dataset(
         data_dir,
         n_cond_msgs,
         n_eval_msgs_dataset,
         test_split=test_split,
+        day_indeces=day_indeces,
     )
     print(f"Dataset length: {len(ds)}")
 
@@ -427,7 +432,36 @@ def main():
         yaml.dump(cfg, f)
 
     try:
-        run_historic_scenario(cfg, save_folder)
+        # Per-day mode: loop over days from per_day_params CSV
+        if cfg.get('per_day_params'):
+            import pandas as pd
+            per_day_csv = cfg['per_day_params']
+            print(f"\nPer-day mode: loading {per_day_csv}")
+            pd_df = pd.read_csv(per_day_csv)
+            # Use mult=1.0 rows only (or order_volume_mult)
+            mult_target = cfg.get('order_volume_mult', 1.0)
+            pd_df = pd_df[pd_df['mult'] == mult_target].reset_index(drop=True)
+            print(f"  {len(pd_df)} days to process (mult={mult_target})")
+
+            n_samples_per_day = cfg.get('n_samples_per_day', max(cfg['batch_size'], cfg['n_samples'] // len(pd_df)))
+            # snap to multiple of batch_size
+            bsz = cfg['batch_size']
+            n_samples_per_day = (n_samples_per_day // bsz) * bsz
+            if n_samples_per_day < bsz:
+                n_samples_per_day = bsz
+            print(f"  n_samples_per_day = {n_samples_per_day} (batch_size={bsz})")
+
+            for day_idx, row in pd_df.iterrows():
+                cfg_d = dict(cfg)
+                cfg_d['order_volume'] = int(row['child'])
+                cfg_d['n_gen_msgs'] = int(row['mb'])
+                cfg_d['day_index'] = int(day_idx)
+                cfg_d['n_samples'] = n_samples_per_day
+                cfg_d.pop('per_day_params', None)  # avoid recursion
+                print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
+                run_historic_scenario(cfg_d, save_folder)
+        else:
+            run_historic_scenario(cfg, save_folder)
 
         print(f"\n{'='*60}")
         print(f"Experiment completed!")

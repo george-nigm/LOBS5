@@ -1,0 +1,181 @@
+#!/bin/bash
+#SBATCH --job-name=lobs5_intc_2025
+#SBATCH --output=logs_intc/lobs5_%j.out
+#SBATCH --error=logs_intc/lobs5_%j.err
+# === 8-node config (production training) ===
+#SBATCH --nodes=8
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:4
+#SBATCH --mem=0
+#SBATCH --time=23:59:59
+#SBATCH --contiguous
+#SBATCH --exclude=nid[010696-010718],nid010152,nid010110,nid[011112-011115],nid011294,nid[010083-010086],nid[010561-010564],nid011108
+
+# ============================================
+# 75M Model Training Script — INTC 2025
+# ============================================
+# Based on: Lustre train_full_autoreg.batch + node_wrapper.sh (production)
+# Data: INTC 2025 (249 trading days), test on INTC Jan 2026
+# Uses shared node_wrapper.sh from WORKDIR (conda, NCCL, XLA setup)
+#
+# Usage:
+#   # Full training (8 nodes, 32 GPUs):
+#   sbatch bin/train_intc_2025.batch
+#
+#   # Custom batch size:
+#   PER_GPU_BSZ=4 sbatch bin/train_intc_2025.batch
+#
+#   # Quick smoke test (10 steps per epoch):
+#   CURTAIL_EPOCHS=10 sbatch bin/train_intc_2025.batch
+#
+#   # Fewer nodes:
+#   sbatch --nodes=2 bin/train_intc_2025.batch
+# ============================================
+
+# Multi-node: default to hierarchical shard_map (2D mesh)
+if [ "${SLURM_NNODES:-1}" -ge 2 ]; then
+  export HIERARCHICAL=${HIERARCHICAL:-True}
+fi
+
+echo "============================================"
+echo "Job started at: $(date)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Running on nodes: $SLURM_JOB_NODELIST"
+echo "Number of nodes: $SLURM_NNODES"
+echo "GPUs per node: 4"
+echo "Total GPUs: $((SLURM_NNODES * 4))"
+echo "============================================"
+
+# ============================================
+# 75M Model Configuration (24tok, padded_large)
+# ============================================
+export D_MODEL=${D_MODEL:-1024}
+export N_LAYERS=${N_LAYERS:-12}
+export BLOCKS=${BLOCKS:-16}
+export SSM_SIZE_BASE=${SSM_SIZE_BASE:-1024}
+export PER_GPU_BSZ=${PER_GPU_BSZ:-8}
+export SSM_LR_BASE=${SSM_LR_BASE:-5e-4}
+export LR_FACTOR=${LR_FACTOR:-1}
+export WARMUP_END=${WARMUP_END:-1}
+export EPOCHS=${EPOCHS:-40}
+
+echo "[*] Model config: 75M (24tok, padded_large)"
+echo "    d_model=$D_MODEL, n_layers=$N_LAYERS, blocks=$BLOCKS"
+echo "    ssm_size_base=$SSM_SIZE_BASE, ssm_lr_base=$SSM_LR_BASE"
+echo "    per_gpu_bsz=$PER_GPU_BSZ"
+
+# CURTAIL_EPOCHS: Optional - end each epoch early after N steps (for quick testing)
+if [ -n "$CURTAIL_EPOCHS" ]; then
+    echo "[*] Curtail epochs: $CURTAIL_EPOCHS steps (quick test mode)"
+    export CURTAIL_EPOCHS
+fi
+
+# Mini-epochs: split each data epoch into K sub-epochs for frequent eval
+MINI_EPOCHS=${MINI_EPOCHS:-1}
+export MINI_EPOCHS
+if [ "$MINI_EPOCHS" -gt 1 ]; then
+    echo "[*] Mini-epochs: $MINI_EPOCHS per data epoch"
+fi
+
+# Local Steps: sync params across nodes every K steps
+LOCAL_STEPS_K=${LOCAL_STEPS_K:-10}
+export LOCAL_STEPS_K
+
+# Gradient Accumulation
+GRAD_ACCUM_STEPS=${GRAD_ACCUM_STEPS:-1}
+export GRAD_ACCUM_STEPS
+
+# Context length
+MSG_SEQ_LEN=${MSG_SEQ_LEN:-500}
+export MSG_SEQ_LEN
+echo "[*] msg_seq_len: $MSG_SEQ_LEN orders"
+
+# Mid-epoch checkpoint
+CHECKPOINT_EVERY=${CHECKPOINT_EVERY:-"auto"}
+MAX_JOB_HOURS=${MAX_JOB_HOURS:-"23"}
+export CHECKPOINT_EVERY MAX_JOB_HOURS
+echo "[*] Mid-epoch checkpoint: every=$CHECKPOINT_EVERY, max_job_hours=$MAX_JOB_HOURS"
+
+# Restore from checkpoint
+if [ -n "$RESTORE_PATH" ]; then
+    echo "[*] Restore from: $RESTORE_PATH (step=${RESTORE_STEP:-latest})"
+fi
+
+# Create logs directory
+mkdir -p logs_intc
+
+# Change to working directory (shared code on Lustre)
+WORKDIR="${WORKDIR:-/lus/lfs1aip2/projects/s5e/quant/AlphaTrade/LOBS5}"
+export WORKDIR
+cd "$WORKDIR"
+
+# Configuration
+export GPUS_PER_NODE=${GPUS_PER_NODE:-4}
+NNODES=$SLURM_NNODES
+export NNODES
+TOTAL_GPUS=$((GPUS_PER_NODE * NNODES))
+
+# Calculate batch sizes
+GLOBAL_BSZ=$((PER_GPU_BSZ * TOTAL_GPUS))
+
+echo "[*] Per GPU batch size: $PER_GPU_BSZ"
+echo "[*] Total GPUs: $TOTAL_GPUS ($NNODES nodes × $GPUS_PER_NODE GPUs/node)"
+echo "[*] Global batch size: $GLOBAL_BSZ"
+
+# Multi-Node Distributed Training
+MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n1)
+MASTER_PORT=29500
+export JAX_COORDINATOR_ADDRESS="$MASTER_ADDR:$MASTER_PORT"
+export JAX_COORDINATOR_TIMEOUT_MS=600000
+echo "[*] Multi-node DDP: $NNODES nodes, coordinator=$JAX_COORDINATOR_ADDRESS"
+
+# Data paths: single-ticker INTC 2025, test on INTC January 2026
+export TICKERS=""
+export DATA_DIR="/lus/lfs1aip2/projects/s5e/lob_preproc_intc_2025"
+export TEST_DIR="/lus/lfs1aip2/projects/s5e/lob_pipeline/data/INTC_jan2026"
+echo "[*] Single-ticker mode: INTC 2025 train + Jan 2026 test"
+echo "[*] Train data: $DATA_DIR"
+echo "[*] Test data: $TEST_DIR"
+
+# WandB config
+export WANDB_PROJECT=${WANDB_PROJECT:-lobs5-75M-INTC-2025}
+export IGNORE_TIMES=${IGNORE_TIMES:-False}
+
+# Launch with srun using shared node_wrapper.sh
+export SCRIPT_DIR="${SLURM_SUBMIT_DIR}"
+srun --nodes=$NNODES \
+     --ntasks=$NNODES \
+     --ntasks-per-node=1 \
+     --gres=gpu:$GPUS_PER_NODE \
+     --gpu-bind=map_gpu:0,1,2,3 \
+     --kill-on-bad-exit=1 \
+     --export=ALL \
+     bash "$WORKDIR/node_wrapper.sh"
+
+SRUN_EXIT=$?
+echo "============================================"
+echo "Training finished at: $(date)"
+echo "srun exit code: $SRUN_EXIT"
+echo "============================================"
+
+# Auto-resume on failure
+if [ "$SRUN_EXIT" -ne 0 ] && [ -z "${CURTAIL_EPOCHS:-}" ] && [ -z "${NO_AUTO_RESUME:-}" ]; then
+  CKPT_BASE="$WORKDIR/checkpoints"
+  if [ -d "$CKPT_BASE" ]; then
+    JOB_CKPT_DIR=$(ls -1d "$CKPT_BASE"/j${SLURM_JOB_ID}_* 2>/dev/null | head -1)
+    if [ -z "$JOB_CKPT_DIR" ]; then
+      JOB_CKPT_DIR=$(ls -1td "$CKPT_BASE"/j* 2>/dev/null | head -1)
+    fi
+    if [ -n "$JOB_CKPT_DIR" ] && [ -d "$JOB_CKPT_DIR" ]; then
+      LATEST_STEP=$(ls -1 "$JOB_CKPT_DIR" | grep -E '^[0-9]+$' | sort -n | tail -1)
+      if [ -n "$LATEST_STEP" ]; then
+        echo "[Auto-Resume] srun failed (exit=$SRUN_EXIT). Latest checkpoint: $JOB_CKPT_DIR step $LATEST_STEP"
+        echo "[Auto-Resume] Resubmitting with RESTORE_PATH=$JOB_CKPT_DIR"
+        RESTORE_PATH="$JOB_CKPT_DIR" \
+        RESTORE_STEP="$LATEST_STEP" \
+        NO_AUTO_RESUME=1 \
+          sbatch --nodes=$NNODES --time=23:59:59 "$SLURM_SUBMIT_DIR/bin/train_intc_2025.batch"
+      fi
+    fi
+  fi
+fi
