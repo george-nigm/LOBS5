@@ -1,0 +1,40 @@
+# Shape I — "bet composition": many insertions, no cooling. Feeds 5_analysis/beta.
+# Run manually:  python -u 3_scenarios/1.aggressive_scenario_s5.py --config 3_scenarios/config_bet_composition.yaml
+# Via launcher:  run_experiments.sh overrides the keys marked OVERRIDDEN below.
+# The user varies only: stock, mb (--n_gen_msgs), model.
+
+# --- Scenario shape (Shape I) ---
+n_gen_msgs: 5             # OVERRIDDEN per run by --n_gen_msgs (mb); placeholder default
+num_insertions: 100       # OVERRIDDEN by launcher (shape) = 100
+num_coolings: 0           # OVERRIDDEN by launcher (shape) = 0
+n_cond_msgs: 500          # conditioning window
+n_eval_msgs_dataset: 500  # dataset eval window (match run_inference for identical splits)
+
+# --- Aggressive order ---
+event_type: 4             # 4 = market order (execution)
+direction: 0              # OVERRIDDEN per run by --direction (0=buy, 1=sell)
+order_volume: 75          # shares per child order
+use_relative_volume: false
+order_volume_ratio: 1.0
+
+# --- Model checkpoint ---
+checkpoint_step: null     # OVERRIDDEN by launcher (per model); null = latest
+chunk_size: 5
+
+# --- Sampling ---
+n_samples: 2048           # OVERRIDDEN to a small value in smoke mode
+batch_size: 64
+rng_seed: 42
+
+# --- Paths (all OVERRIDDEN by launcher) ---
+stock: "EA"               # OVERRIDDEN
+data_dir: "/PLACEHOLDER"  # OVERRIDDEN -> ${DATA_MOUNT}/${stock}
+ckpt_path: "/PLACEHOLDER" # OVERRIDDEN (per model)
+save_dir: "/PLACEHOLDER"  # OVERRIDDEN
+
+# --- Model / book ---
+tick_size: 100            # per-stock; launcher may override via STOCK_TICK
+sample_top_n: -1          # -1 = full distribution
+n_vol_series: 500
+book_dim: 503             # OVERRIDDEN (per model); L500 wide book
+test_split: 0
