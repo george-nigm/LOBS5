@@ -28,7 +28,7 @@
 set -euo pipefail
 
 # ── Isambard paths ──
-PROJECT_DIR="/home/s5e/georgenigm.s5e/LOBS5_11_march"
+PROJECT_DIR="${PROJECT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5}"
 LUS="/lus/lfs1aip2/projects/s5e"
 SAVE_BASE="${PROJECT_DIR}/data/evalsequences/aggressive_scenario_v3"
 CST_PARAMS_DIR="${PROJECT_DIR}/data/checkpoints/cst_params"
