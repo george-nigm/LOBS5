@@ -25,9 +25,11 @@ CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/s5e/quant_team/quant/Alpha
 SAVE_BASE="${SAVE_BASE:-${HERE}/results/run_${RUN_TS}}"
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
-# --- Python env (jax, lob, model deps) ---
+# --- Python env (jax, lob, model deps) ---  (conda activate scripts aren't set -u safe)
+set +u
 source "${CONDA_SH:-/home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh}"
 conda activate "${CONDA_ENV:-lobs5}"
+set -u
 
 # --- Data: self-mount a month shard unless DATA_MOUNT is already provided ---
 SRC="${SRC:-/lus/lfs1aip2/projects/public/s5e/quant_team/lob_preproc_sp500_squashfs}"
