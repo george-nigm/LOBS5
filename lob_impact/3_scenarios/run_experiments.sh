@@ -25,6 +25,10 @@ CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/s5e/quant_team/quant/Alpha
 SAVE_BASE="${SAVE_BASE:-${HERE}/results/run_${RUN_TS}}"
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
+# --- Python env (jax, lob, model deps) ---
+source "${CONDA_SH:-/home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh}"
+conda activate "${CONDA_ENV:-lobs5}"
+
 # --- Data: self-mount a month shard unless DATA_MOUNT is already provided ---
 SRC="${SRC:-/lus/lfs1aip2/projects/public/s5e/quant_team/lob_preproc_sp500_squashfs}"
 SHARD="${SHARD:-shard_2026-01.squashfs}"
@@ -119,7 +123,7 @@ for model_key in "${MODEL_KEYS[@]}"; do
           mkdir -p "$cfg_dir" "$SAVE_DIR"
           render_config "$tmpl_path" "$cfg_file"
           echo "=== ${run_id} ===  cfg=${cfg_file}  save=${SAVE_DIR}"
-          python3 -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
+          python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
         done
       done
     done
