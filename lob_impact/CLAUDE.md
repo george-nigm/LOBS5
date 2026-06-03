@@ -53,9 +53,27 @@ agent reasoning, TODOs, and conventions HERE.
 - `config_beta_decay.yaml` = Shape II `(num_insertions=10, num_coolings=100)` → Decay.
 - User varies only **stock, mb (`--n_gen_msgs`), model**. Scripts CLI-override ONLY
   `--n_gen_msgs` and `--direction`; everything else comes from the rendered YAML.
-- `run_experiments.sh`: env-anchored, placeholder `MODELS` array, `STOCKS=(EA NVDA AMD)`, both
-  shapes × buy/sell × `MB_VALUES`, `smoke`(n_samples=64, 1 combo)/`full`. Per-run config rendered
-  by an inline `python3` yaml-merge (NOT heredoc — avoids the old CST/CGAN duplicate-key bug).
+- `run_experiments.sh`: env-anchored, self-mounts the shard (squashfuse_ll), `STOCKS=(EA NVDA AMD)`,
+  both shapes × buy/sell × `MB_VALUES`, `smoke`(n_samples=64, 1 combo, num_insertions=3)/`full`. Per-run
+  config rendered by an inline `python3` yaml-merge. Folder naming: `<stock>-<model>-<beta|relaxation>`.
+  Activates conda `lobs5` (jax). CPU models (no ckpt) → `JAX_PLATFORMS=cpu`; neural → GPU.
+
+## Mamba3 integration (DONE, validated on GPU)
+The new data is L10/26-tok; OLD S5 (L500/24-tok) is incompatible, so we run the NEW leaderboard models.
+- **New codebase** (same project, newer): `/lus/.../quant_team/quant/AlphaTrade/experiments/exp_R1_Mamba3`
+  — has `s5/mamba3*.py`, `s5/gdn*.py`, `lob/encoding_26tok.py`, new `init_train`/`inference_no_errcorr`.
+  We DON'T copy it; the mamba3 scenario `sys.path.insert(0, EXP)` so `lob.*`/`s5.*` resolve there
+  (our old scenarios keep using our repo-root lob/s5).
+- `3_scenarios/1.aggressive_scenario_mamba3.py`: loads Mamba3 via new `init_train` (ssm_type from
+  metadata), **`MAMBA3_LEGACY_NORM=1` (REQUIRED for j3417629 — else garbage)**, `TOKEN_MODE=26tok`,
+  `sys.modules['lob.encoding']=encoding_26tok`, mamba3 hidden carry recipe (from `sample_new`).
+- `core/inference_w_insertions_mamba3.py`: NEW `inference_no_errcorr.py` + the insertion graft
+  (12-tuple `_generate_msg`, `insertion_schedule`+`chunk_size` through scannable/generate/generate_batched).
+- Checkpoint `exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629 @46050` (Mamba3-78M, 26-tok, book_dim 503,
+  merging=padded). `load_checkpoint(partial_restore=True)` falls back past the muon optimizer-state mismatch.
+- Run: `sbatch --gres=gpu:1 lob_impact/3_scenarios/run_experiments.sh smoke mamba3`. Validated: generates
+  a sane evolving L10 book with real EA prices showing buy-side price impact (~72s for the smoke).
+- GDN is similarly available (`s5/gdn.py`) — same pattern, different `ssm_type`, when wanted.
 
 ## Known gaps / TODO (carry forward)
 - **Models = placeholders** in `run_experiments.sh`. Verified-resolving checkpoints (new LUS base
