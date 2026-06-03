@@ -954,7 +954,7 @@ def parse_args():
     )
     parser.add_argument(
         '--config', '-c', type=str,
-        default='lob_impact/scenarios/5.aggressive_scenario_cgan_config.yaml',
+        default='lob_impact/3_scenarios/5.aggressive_scenario_cgan_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None,

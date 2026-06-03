@@ -365,7 +365,7 @@ def parse_args():
     parser.add_argument(
         '--config', '-c',
         type=str,
-        default='lob_impact/scenarios/0.null_baseline_config.yaml',
+        default='lob_impact/3_scenarios/0.null_baseline_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None, help='Override n_gen_msgs from config')

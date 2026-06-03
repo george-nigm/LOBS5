@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """
-Historic Scenario: Historical Message Replay with Aggressive Order Injection
+Heuristic Scenario: Historical Replay with Aggressive Insertions and Price Shifting
 
-Replays historical LOBSTER messages through JAX-LOB simulator and injects
-aggressive orders at regular intervals. No model loading — pure historical replay.
-Historical messages are applied as-is (no price correction).
+Same as historic scenario (2.historic_scenario.py), but when an aggressive order
+fully consumes the best level (SIZE == available_volume), a shift_ticks counter
+increments and subsequent historical limit/execution messages have their prices
+shifted by tick_size * shift_ticks to compensate for consumed liquidity.
 
 Output: LOBSTER CSV files in data_cond/ and data_gen/ folders.
 """
@@ -129,14 +130,12 @@ def create_aggressive_order(
         msg_decoded: Decoded message for storage (14 fields)
         level_consumed: Boolean — whether SIZE == available volume at best level
     """
-    # Get best price on the side we will aggress
     price = jax.lax.cond(
         direction == 0,
         lambda: sim.get_best_ask(sim_state),
         lambda: sim.get_best_bid(sim_state)
     )
 
-    # Get available volume at best level
     # Returns (best_ask=[price,vol], best_bid=[price,vol])
     best_ask_pv, best_bid_pv = sim.get_best_bid_and_ask_inclQuants(sim_state)
     avail = jax.lax.cond(
@@ -145,40 +144,36 @@ def create_aggressive_order(
         lambda: best_bid_pv[1],  # bid volume for sell
     ).astype(jnp.int32)
 
-    # Cap order size at available volume
     quantity = jnp.minimum(jnp.int32(order_volume), avail)
     level_consumed = (quantity == avail) & (avail > 0)
 
-    # Use time from last message + small increment
     time_s = last_msg_decoded[TIMEs_i].astype(jnp.int32)
     time_ns = (last_msg_decoded[TIMEns_i] + 1).astype(jnp.int32)
 
-    # Build simulator message (8 fields)
     sim_msg = construct_sim_msg(
         event_type, direction, quantity, price,
         order_id, time_s, time_ns,
     )
 
-    # Build decoded message for storage (14 fields)
     mid_price = (sim.get_best_ask(sim_state) + sim.get_best_bid(sim_state)) // 2
     mid_price = (mid_price // tick_size) * tick_size
     rel_price = (price - mid_price) // tick_size
 
     msg_decoded = jnp.array([
         order_id,             # order_id (descending counter)
-        event_type,           # event_type
-        direction,            # direction
-        price,                # price_abs
-        rel_price,            # price (relative)
-        quantity,             # size
-        0,                    # delta_t_s
-        1,                    # delta_t_ns
-        time_s,               # time_s
-        time_ns,              # time_ns
-        0,                    # price_ref
-        0,                    # size_ref
-        0,                    # time_s_ref
-        0,                    # time_ns_ref
+        event_type,
+        direction,
+        price,
+        rel_price,
+        quantity,
+        0,
+        1,
+        time_s,
+        time_ns,
+        0,
+        0,
+        0,
+        0,
     ], dtype=jnp.int32)
 
     return sim_msg, msg_decoded, level_consumed
@@ -196,12 +191,54 @@ create_aggressive_order_batched = jax.jit(
 msg_to_jnp_vmap = jax.jit(jax.vmap(msg_to_jnp))
 
 
-def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
+def shift_prices(
+    msg: jnp.ndarray,
+    shift_amount: jnp.ndarray,
+    direction: int,
+) -> jnp.ndarray:
     """
-    Main function for historic scenario.
+    Shift prices of limit/execution historical messages to compensate for
+    consumed liquidity.
 
-    Replays historical messages through simulator, injecting aggressive
-    orders at regular intervals. No model — pure historical replay.
+    The sign of the shift follows (1 - 2*direction) from the heuristic file:
+    - direction=0 (buying, hitting ask): shift UP (+tick_size per consumed level)
+    - direction=1 (selling, hitting bid): shift DOWN (-tick_size per consumed level)
+
+    Args:
+        msg: Historical messages, shape (batch, 14)
+        shift_amount: tick_size * shift_ticks per batch item, shape (batch,)
+        direction: 0=buy, 1=sell
+    """
+    sign = 1 - 2 * direction  # +1 for buy, -1 for sell
+
+    # Shift sell (ask-side) limit/execution orders
+    is_sell_relevant = (
+        ((msg[:, EVENT_TYPE_i] == 1) | (msg[:, EVENT_TYPE_i] == 4))
+        & (msg[:, DIRECTION_i] == 0)
+    )
+    msg = msg.at[:, PRICE_ABS_i].set(
+        jnp.where(is_sell_relevant, msg[:, PRICE_ABS_i] + sign * shift_amount, msg[:, PRICE_ABS_i])
+    )
+
+    # Shift buy (bid-side) limit/execution orders
+    is_buy_relevant = (
+        ((msg[:, EVENT_TYPE_i] == 1) | (msg[:, EVENT_TYPE_i] == 4))
+        & (msg[:, DIRECTION_i] == 1)
+    )
+    msg = msg.at[:, PRICE_ABS_i].set(
+        jnp.where(is_buy_relevant, msg[:, PRICE_ABS_i] + sign * shift_amount, msg[:, PRICE_ABS_i])
+    )
+
+    return msg
+
+
+def run_heuristic_scenario(cfg: Dict[str, Any], save_folder: Path):
+    """
+    Main function for heuristic scenario.
+
+    Same as historic scenario but with price shifting: when an aggressive order
+    fully consumes the best level, shift_ticks increments and subsequent historical
+    messages have their prices adjusted.
     """
     # Unpack config
     n_gen_msgs = cfg['n_gen_msgs']
@@ -222,7 +259,6 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
     n_eval_msgs_dataset = cfg.get('n_eval_msgs_dataset', 500)
     order_volume = cfg['order_volume']
 
-    # Total steps: (num_insertions + num_coolings) * n_gen_msgs historical msgs + num_insertions aggressive orders
     total_eval_msgs_needed = (num_insertions + num_coolings) * n_gen_msgs
 
     # Initialize
@@ -266,7 +302,7 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         replace=False
     ).tolist()
 
-    # Build insertion schedule (positions in eval-message space)
+    # Build insertion schedule
     insertion_steps = set()
     offset = 0
     for i in range(num_insertions):
@@ -277,7 +313,6 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
     print(f"Insertion steps: {sorted(insertion_steps)}")
     print(f"Total steps per batch: {total_steps}")
 
-    # Book levels for L2 extraction
     book_levels = book_dim // 4 if book_dim > 4 else 10
 
     # Process batches
@@ -298,7 +333,7 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         init_time = b_seq_pv[:, 0, 1:3]
         init_time = jax.device_put(jnp.array(init_time), device)
 
-        # Initialize simulators (replay conditioning messages)
+        # Initialize simulators
         sim_states = get_sims_vmap(
             book_l2_init, m_seq_raw_cond, init_time, sim,
         )
@@ -307,11 +342,11 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         all_msgs = []
         all_books = []
         eval_idx = 0
+        shift_ticks = jnp.zeros(batch_size, dtype=jnp.int32)
         n_msg_todo = jnp.full(batch_size, total_steps, dtype=jnp.int32)
 
         for step in range(total_steps):
             if step in insertion_steps:
-                # Get last message for time reference
                 last_msg = all_msgs[-1] if all_msgs else m_seq_raw_cond[:, -1, :]
 
                 # Aggressive order gets n_msg_todo - 1 (descending counter)
@@ -327,9 +362,17 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
                 all_msgs.append(msg_decoded)
                 n_msg_todo = n_msg_todo - 1
 
+                # Update shift_ticks where level was fully consumed
+                shift_ticks = shift_ticks + level_consumed.astype(jnp.int32)
+
             else:
-                # Process historical message as-is (keeps original order_id)
+                # Process historical message WITH price shifting
                 msg = m_seq_raw_eval[:, eval_idx, :]
+
+                # Apply price shift to compensate for consumed liquidity
+                shift_amount = tick_size * shift_ticks
+                msg = shift_prices(msg, shift_amount, direction)
+
                 sim_msg = msg_to_jnp_vmap(msg)
                 sim_states = process_msg_vmap(sim_states, sim_msg)
                 all_msgs.append(msg)
@@ -341,10 +384,11 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
             all_books.append(l2_state[:, :book_l2_init.shape[1]])
 
         print(f"  Processed {len(all_msgs)} steps ({eval_idx} historical + {num_insertions} aggressive)")
+        print(f"  Final shift_ticks: {shift_ticks}")
 
         # Stack results
-        all_msgs_arr = jnp.stack(all_msgs, axis=1)    # (batch, steps, 14)
-        all_books_arr = jnp.stack(all_books, axis=1)   # (batch, steps, book_dim)
+        all_msgs_arr = jnp.stack(all_msgs, axis=1)
+        all_books_arr = jnp.stack(all_books, axis=1)
 
         # Save for each sample in batch
         for i, sample_idx in enumerate(batch_i):
@@ -360,7 +404,7 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
                 index=False, header=False
             )
 
-            # Generated data (historical + aggressive)
+            # Generated data (historical shifted + aggressive)
             msg_to_lobster_format(all_msgs_arr[i]).to_csv(
                 save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_0.csv',
                 index=False, header=False
@@ -381,11 +425,11 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Historic Scenario: Historical Replay with Aggressive Insertions")
+    parser = argparse.ArgumentParser(description="Heuristic Scenario: Historical Replay with Price Shifting")
     parser.add_argument(
         '--config', '-c',
         type=str,
-        default='lob_impact/scenarios/2.historic_scenario_config.yaml',
+        default='lob_impact/3_scenarios/3.heuristic_scenario_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None, help='Override n_gen_msgs from config')
@@ -419,7 +463,7 @@ def main():
     # Set up logging
     logger = setup_logging(save_folder)
     print(f"\n{'='*60}")
-    print(f"Historic Scenario Experiment")
+    print(f"Heuristic Scenario Experiment")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
     print(f"JAX backend: {jax.lib.xla_bridge.get_backend().platform}")
@@ -432,24 +476,19 @@ def main():
         yaml.dump(cfg, f)
 
     try:
-        # Per-day mode: loop over days from per_day_params CSV
         if cfg.get('per_day_params'):
             import pandas as pd
             per_day_csv = cfg['per_day_params']
             print(f"\nPer-day mode: loading {per_day_csv}")
             pd_df = pd.read_csv(per_day_csv)
-            # Use mult=1.0 rows only (or order_volume_mult)
             mult_target = cfg.get('order_volume_mult', 1.0)
             pd_df = pd_df[pd_df['mult'] == mult_target].reset_index(drop=True)
-            print(f"  {len(pd_df)} days to process (mult={mult_target})")
+            print(f"  {len(pd_df)} days (mult={mult_target})")
 
-            n_samples_per_day = cfg.get('n_samples_per_day', max(cfg['batch_size'], cfg['n_samples'] // len(pd_df)))
-            # snap to multiple of batch_size
             bsz = cfg['batch_size']
-            n_samples_per_day = (n_samples_per_day // bsz) * bsz
-            if n_samples_per_day < bsz:
-                n_samples_per_day = bsz
-            print(f"  n_samples_per_day = {n_samples_per_day} (batch_size={bsz})")
+            n_samples_per_day = cfg.get('n_samples_per_day', max(bsz, cfg['n_samples'] // len(pd_df)))
+            n_samples_per_day = max((n_samples_per_day // bsz) * bsz, bsz)
+            print(f"  n_samples_per_day = {n_samples_per_day}")
 
             for day_idx, row in pd_df.iterrows():
                 cfg_d = dict(cfg)
@@ -457,11 +496,11 @@ def main():
                 cfg_d['n_gen_msgs'] = int(row['mb'])
                 cfg_d['day_index'] = int(day_idx)
                 cfg_d['n_samples'] = n_samples_per_day
-                cfg_d.pop('per_day_params', None)  # avoid recursion
+                cfg_d.pop('per_day_params', None)
                 print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
-                run_historic_scenario(cfg_d, save_folder)
+                run_heuristic_scenario(cfg_d, save_folder)
         else:
-            run_historic_scenario(cfg, save_folder)
+            run_heuristic_scenario(cfg, save_folder)
 
         print(f"\n{'='*60}")
         print(f"Experiment completed!")
