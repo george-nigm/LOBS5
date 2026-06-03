@@ -22,7 +22,8 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 
 PROJECT_DIR="${PROJECT_DIR:-$REPO_ROOT}"
 CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/s5e/quant_team/quant/AlphaTrade/experiments}"
-SAVE_BASE="${SAVE_BASE:-${HERE}/results/run_${RUN_TS}}"
+SAVE_BASE="${SAVE_BASE:-${HERE}/results/grid}"   # STABLE consolidated root: all jobs/slices merge here
+                                                  # -> analysis points at ONE path (results/grid), not per-run dirs
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
 # --- Python env (jax, lob, model deps) ---  (conda activate scripts aren't set -u safe)
@@ -51,27 +52,30 @@ declare -A MODELS=(
 )
 MODEL_KEYS=(historic mamba3)
 read -ra STOCKS <<< "${STOCKS:-EA NVDA AMD}"        # env-overridable: STOCKS="EA" for per-stock jobs
+# mb (messages-between) is FIXED per stock = its msgs_btw (eta=10% participation), from 1_data_prep.
+# NOT a sweep — one mb per stock so participation rate stays at the target.
+declare -A STOCK_MB=([EA]=122 [NVDA]=250 [AMD]=401)
 # shape: "name|num_insertions|num_coolings|template|tag"   (tag = folder suffix: beta | relaxation)
 SHAPES=(
   "bet_composition|100|0|config_bet_composition.yaml|beta"        # Shape I  -> beta
   "beta_decay|10|100|config_beta_decay.yaml|relaxation"          # Shape II -> decay/relaxation
 )
-read -ra MB_VALUES <<< "${MB_VALUES:-5 10 15 20}"   # env-overridable
 DIRECTIONS=(buy sell)
 declare -A STOCK_TICK=()        # e.g. ([EA]=100 [NVDA]=100 [AMD]=100)
 
 MODE="${1:-smoke}"; shift || true
 [ "$#" -gt 0 ] && MODEL_KEYS=("$@")
 
-SMOKE_N_INS=""
+SMOKE_N_INS=""; SMOKE_MB=""
 if [ "$MODE" = "smoke" ]; then
   MODEL_KEYS=("${MODEL_KEYS[0]}"); STOCKS=(EA)
-  SHAPES=("${SHAPES[0]}"); DIRECTIONS=(buy); MB_VALUES=(5)
-  N_SAMPLES_OVERRIDE=64; SMOKE_N_INS=3      # user: 3 insertions, not 100 — just to check
+  SHAPES=("${SHAPES[0]}"); DIRECTIONS=(buy)
+  N_SAMPLES_OVERRIDE=64; SMOKE_N_INS=3; SMOKE_MB=5   # tiny: 3 insertions, mb=5 — just to check
+  SAVE_BASE="${HERE}/results/smoke_${RUN_TS}"        # throwaway, not the consolidated grid root
   echo ">>> SMOKE: ${MODEL_KEYS[0]} x EA x bet_composition x buy x mb=5, n_samples=64, num_insertions=3"
 elif [ "$MODE" = "full" ]; then
   N_SAMPLES_OVERRIDE="${N_SAMPLES:-}"        # env-overridable; empty => use the config's n_samples
-  echo ">>> FULL: ${#MODEL_KEYS[@]} models x ${#STOCKS[@]} stocks x ${#SHAPES[@]} shapes x 2 dir x ${#MB_VALUES[@]} mb${N_SAMPLES_OVERRIDE:+ | n_samples=$N_SAMPLES_OVERRIDE}"
+  echo ">>> FULL: ${#MODEL_KEYS[@]} models x ${#STOCKS[@]} stocks x ${#SHAPES[@]} shapes x 2 dir x per-stock mb${N_SAMPLES_OVERRIDE:+ | n_samples=$N_SAMPLES_OVERRIDE}"
 else
   echo "usage: $0 {smoke|full} [model_key ...]" >&2; exit 2
 fi
@@ -118,17 +122,19 @@ for model_key in "${MODEL_KEYS[@]}"; do
       tmpl_path="${HERE}/${TEMPLATE}"
       for dir in "${DIRECTIONS[@]}"; do
         dir_int="$(dir_to_int "$dir")"
-        for mb in "${MB_VALUES[@]}"; do
-          scen="${STOCK}-${LABEL}-${TAG}"            # folder name: stock-model-(beta|relaxation)
-          run_id="${scen}_${dir}_mb${mb}"
-          SAVE_DIR="${SAVE_BASE}/${scen}/${dir}/mb${mb}"
-          cfg_dir="${SAVE_BASE}/_configs/${scen}"
-          cfg_file="${cfg_dir}/cfg_${run_id}.yaml"
-          mkdir -p "$cfg_dir" "$SAVE_DIR"
-          render_config "$tmpl_path" "$cfg_file"
-          echo "=== ${run_id} ===  cfg=${cfg_file}  save=${SAVE_DIR}"
-          python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
-        done
+        mb="${SMOKE_MB:-${STOCK_MB[$STOCK]:-50}}"   # FIXED per-stock msgs_btw (eta=10%), not swept
+        scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
+        SAVE_DIR="${SAVE_BASE}/${scen}/${dir}"
+        cfg_dir="${SAVE_BASE}/_configs/${scen}"
+        cfg_file="${cfg_dir}/cfg_${scen}_${dir}.yaml"
+        mkdir -p "$cfg_dir"
+        # Consolidation: one experiment per path. On a fresh (non-slice) run, clear it so reruns
+        # don't pile up exp_* and so the analysis sees a single clean experiment per (stock,model,shape,dir).
+        [ -z "${SAMPLE_SLICE:-}" ] && rm -rf "$SAVE_DIR"
+        mkdir -p "$SAVE_DIR"
+        render_config "$tmpl_path" "$cfg_file"
+        echo "=== ${scen}/${dir} (mb=${mb}) ===  save=${SAVE_DIR}"
+        python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
       done
     done
   done

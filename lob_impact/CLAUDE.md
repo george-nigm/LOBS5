@@ -19,6 +19,18 @@ agent reasoning, TODOs, and conventions HERE.
   the full run log → `<action>/logs/<name>_<ts>.log`.
 - Each action's **launcher `run_*.sh` lives in its own action folder**. Pattern: compute `RUN_TS`,
   make `results/<name>_$RUN_TS` + `logs/`, run python, `tee` everything to the log.
+- **CONSOLIDATION (Action 3 grid):** every parallel job/slice of the SAME logical experiment must
+  write to ONE path so the analysis points at a single root — user must not chase per-batch dirs.
+  Scheme: `3_scenarios/results/grid/<stock>-<model>-<beta|relaxation>/<dir>/` (STABLE, no run-ts, no
+  mb level). Per-stock jobs all merge under `results/grid/`; analysis = `diagnostics.py --run_dir results/grid`.
+- **mb is FIXED per stock** = its `msgs_btw` (eta=10% participation) from Action 1: EA=122, NVDA=250,
+  AMD=401. NOT a sweep (a sweep would break the fixed participation rate). `STOCK_MB` in run_experiments.sh.
+- **SAMPLE_SLICE fan-out (for scaling n_samples across GPUs):** to parallelize batches, split
+  `n_samples` into slices, one job/GPU per slice, each writing its samples (global sample ids) into the
+  SAME consolidated path so they merge automatically. Set `SAMPLE_SLICE` to skip the dir-clean so slices
+  don't wipe each other. Worth it at large n_samples (e.g. 2048 = 32 batches); at 256 the per-job
+  model-load+compile overhead isn't worth it. (Hook is in run_experiments.sh; scenario needs a
+  sample-offset + exact-folder mode to fully merge slices — TODO when we scale.)
 - **Shard mounting**: actions 1/2 launchers are SLURM scripts that self-mount one month shard via
   `squashfuse_ll "$SRC/$SHARD" "$MNT"` (node-local `$TMPDIR`, trap-unmount on exit), default
   `SHARD=shard_2026-01.squashfs` from `/lus/.../public/s5e/quant_team/lob_preproc_sp500_squashfs`
