@@ -64,8 +64,10 @@ agent reasoning, TODOs, and conventions HERE.
   old exps are gone at the new base — need current job IDs.
 - **L10 vs L500**: squashfs proc data is L10 (orderbook 43 cols); S5 configs use `book_dim=503`
   (wide L500). Resolve the transform before a real run; smoke surfaces it fast.
-- **`compute_daily_stats.py` `COL_PRICE=4`** is a GUESS — proc `.npy` reorders columns vs raw
-  LOBSTER (`compute_sp500_msgs_btw` proves event=1/size=5, not the raw layout). Verify H/L on first run.
+- **`compute_daily_stats.py`** RESOLVED: proc `.npy` columns are event=1, **price(abs)=3** (col 4 is
+  price-relative-to-mid), size=5. Daily H/L from **executions only** (event_type==4) — the only
+  definition giving sane Parkinson σ (NVDA 1.4%, AMD 2.5%); all-orders methods are garbage on proc
+  data (far resting limit orders → H/L 18-40×). EA is genuinely low-vol (~0.12%).
 - **`compute_depth_stats.py` `PICKLE_BASE`** still points at the old `s5e/lob_pipeline` path — fix
   when wiring it; it reads Action-3 pickles, so it's really post-Action-3 calibration (not Action 2).
 - **`tick_size`** defaults to 100 (GOOG); set per-stock `STOCK_TICK` in the launcher if EA/NVDA/AMD differ.

@@ -17,25 +17,21 @@ Modes:
   (default) per-day : one row per trading day (what the analysis loader expects).
   --aggregate       : a single pooled row (overall H/L, total execution_sum).
 
-PROC-FILE COLUMN LAYOUT (verified against compute_sp500_msgs_btw.py):
+PROC-FILE COLUMN LAYOUT (verified on the Jan-2026 squashfs proc .npy, shape [N, 14]):
     COL_EVENT_TYPE = 1     # event_type (4 == execution/trade)
-    COL_SIZE       = 5     # order size  (NOT col 3 — proc format differs from raw LOBSTER CSV)
-    COL_PRICE      = 4     # <-- NOT yet verified for the proc .npy. The raw LOBSTER CSV had
-                          #     Price at col 4, but the proc npy is [N, 14] and reorders columns.
-                          #     ON FIRST RUN: sanity-check the printed H/L against known prices for
-                          #     the stock; if wrong (e.g. normalized/relative), set --price-col or
-                          #     confirm the true price column before trusting Parkinson sigma.
+    COL_PRICE      = 3     # ABSOLUTE price (col 4 is price-relative-to-mid; col 3 is the real price)
+    COL_SIZE       = 5     # order size
+Daily H/L are taken from EXECUTION prices (event_type == 4) only -> true traded high/low,
+robust to far-away resting limit orders.
 """
 import os, re, csv, glob, argparse
 import numpy as np
 
 COL_EVENT_TYPE = 1
+COL_PRICE      = 3
 COL_SIZE       = 5
-COL_PRICE      = 4          # see header NOTE — verify on first run
 EXECUTION_EVENT_TYPE = 4
-PRICE_MIN = 500_000         # LOBSTER price units (1/10000 $); guards padding/sentinel values
-PRICE_MAX = 20_000_000
-DAY_RE    = re.compile(r'(\d{4}-\d{2}-\d{2})')
+DAY_RE = re.compile(r'(\d{4}-\d{2}-\d{2})')
 
 
 def stats_one_file(f, col_price):
@@ -45,10 +41,12 @@ def stats_one_file(f, col_price):
     size  = np.asarray(a[:, COL_SIZE])
     price = np.asarray(a[:, col_price]).astype(np.float64)
 
-    valid = price[(price >= PRICE_MIN) & (price <= PRICE_MAX)]
-    hi = float(valid.max()) if valid.size else float('nan')
-    lo = float(valid.min()) if valid.size else float('nan')
-    exec_sum = int(size[ev == EXECUTION_EVENT_TYPE].sum())
+    is_exec = ev == EXECUTION_EVENT_TYPE
+    exec_px = price[is_exec]
+    exec_px = exec_px[exec_px > 0]                      # daily H/L from real trades
+    hi = float(exec_px.max()) if exec_px.size else float('nan')
+    lo = float(exec_px.min()) if exec_px.size else float('nan')
+    exec_sum = int(size[is_exec].sum())
 
     m = DAY_RE.search(os.path.basename(f))
     return dict(day=(m.group(1) if m else os.path.basename(f)),
@@ -62,7 +60,7 @@ def main():
     ap.add_argument('--stock', required=True, help='ticker, e.g. EA / NVDA / AMD')
     ap.add_argument('--out_dir', default=os.path.dirname(os.path.abspath(__file__)))
     ap.add_argument('--price-col', type=int, default=COL_PRICE,
-                    help=f'price column in proc .npy (default {COL_PRICE}; verify on first run)')
+                    help=f'absolute-price column in proc .npy (default {COL_PRICE})')
     ap.add_argument('--aggregate', action='store_true',
                     help='emit a single pooled row instead of one row per day')
     args = ap.parse_args()
@@ -93,13 +91,11 @@ def main():
         w = csv.DictWriter(fh, fieldnames=['day', 'highest_price', 'lowest_price', 'execution_sum'])
         w.writeheader(); w.writerows(rows)
 
-    # Parkinson sigma summary (sanity-check the price column here!)
     valid = [r for r in rows if not np.isnan(r['highest_price']) and r['lowest_price'] > 0]
     if valid:
         ln_hl = np.log([r['highest_price'] / r['lowest_price'] for r in valid])
-        print(f'  H/L sample: hi={valid[0]["highest_price"]:.0f} lo={valid[0]["lowest_price"]:.0f} '
-              f'| mean Parkinson sigma = {float(np.mean(ln_hl) / 1.6651092):.5f}')
-        print('  ^ verify these prices look like real prices for this stock (see header NOTE).')
+        print(f'  e.g. {valid[0]["day"]}: H={valid[0]["highest_price"]:.0f} L={valid[0]["lowest_price"]:.0f} '
+              f'exec={valid[0]["execution_sum"]} | mean Parkinson sigma = {float(np.mean(ln_hl) / 1.6651092):.5f}')
     print(f'Wrote {out} ({len(rows)} rows)', flush=True)
 
 
