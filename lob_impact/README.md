@@ -84,7 +84,24 @@ Owned **here** (`core/`):
   transferred** with this copy. To run CST, vendor `cst.py` + `param_estimation.py` (and the
   `params_file` the launchers reference) from the original `lob_bench/cst_model/`. Until then the
   S5 / historic / heuristic / CGAN scenarios are fully runnable; CST is not.
-- **Launcher is wired for the original `s5e` account.** `run_isambard_c10x_v2.sh` hardcodes
-  `PROJECT_DIR=/home/s5e/georgenigm.s5e/LOBS5_11_march`, `LUS=/lus/lfs1aip2/projects/s5e`
-  (data + checkpoints), and a conda env under another user's home. Update these for your
-  account/checkout before launching, and ensure `Alphatrade` resolves at `$PROJECT_DIR/Alphatrade`.
+## Running on the S&P500 squashfs data (S5)
+
+The S&P500 preprocessed data lives as **monthly squashfs shards** at
+`$LUS/lob_preproc_sp500_squashfs/` (`shard_YYYY-MM.squashfs` + `index_YYYY-MM.json`); inside each
+shard: `<TICKER>/<TICKER>_<date>_..._{message,orderbook}_10_proc.npy` (L10; the dataloader expands
+L2 → wide book, so `book_dim=503` is unchanged). Mounting is a separate step — scripts consume the
+**already-mounted root** (same `--mnt` convention as `stage1_stats/compute_sp500_msgs_btw.py`).
+
+To launch S5 on Isambard:
+```bash
+# 1. mount the target month's shard (team squashfuse/apptainer step) -> $MNT
+export DATA_MOUNT="$MNT"        # get_data_dir returns $DATA_MOUNT/<stock>
+export PROJECT_DIR=/home/u6gb/georgenigm.u6gb/LOBS5   # or your checkout
+sbatch lob_impact/stage3_run/run_isambard_c10x_v2.sh   # models s5_150m / s5_4k resolve now
+```
+
+Status of the launcher's checkpoint table (`LUS=/lus/lfs1aip2/projects/public/s5e/quant_team`):
+- ✅ **S5-150M** (`exp_H1-scaling-law/.../j2514440`) and **S5-4K** (`exp_H2-context-scale/.../j2504167`) resolve.
+- ⚠️ **LobS5** (`j2633975`) and **S5-360M** (`j2731367`) are not at the new base — update their job IDs.
+- The full architecture leaderboard (Mamba3 / GDN / Mamba2 / Transformer / MoE / KDA / NSA) is a
+  **separate integration**: each is a different architecture, and the scenarios currently load **S5 only**.
