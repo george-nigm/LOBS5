@@ -41,6 +41,14 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   echo "[$(date)] mounting ${SHARD} -> ${DATA_MOUNT}"
   squashfuse_ll "${SRC}/${SHARD}" "$DATA_MOUNT"
   trap 'fusermount -u "$DATA_MOUNT" 2>/dev/null; rmdir "$DATA_MOUNT" 2>/dev/null' EXIT
+  # Fail LOUDLY (not silently with empty data) if the mount didn't populate — retry once.
+  if [ -z "$(ls -A "$DATA_MOUNT" 2>/dev/null)" ]; then
+    echo "[$(date)] WARN mount empty, retrying squashfuse_ll once" >&2
+    fusermount -u "$DATA_MOUNT" 2>/dev/null || true; sleep 3
+    squashfuse_ll "${SRC}/${SHARD}" "$DATA_MOUNT"
+  fi
+  [ -n "$(ls -A "$DATA_MOUNT" 2>/dev/null)" ] || { echo "[$(date)] FATAL: ${SHARD} mount empty at ${DATA_MOUNT}" >&2; exit 3; }
+  echo "[$(date)] mounted: $(ls "$DATA_MOUNT" | wc -l) tickers"
 fi
 
 # --- Models: "label|script|ckpt_path|checkpoint_step|book_dim" (script relative to 3_scenarios/) ---
@@ -138,7 +146,9 @@ for model_key in "${MODEL_KEYS[@]}"; do
         scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
         SAVE_DIR="${SAVE_BASE}/${scen}/${dir}"
         cfg_dir="${SAVE_BASE}/_configs/${scen}"
-        cfg_file="${cfg_dir}/cfg_${scen}_${dir}.yaml"
+        # cfg must be PER-SLICE: concurrent slice jobs each bake their OWN node-local data_dir into the
+        # config; a shared cfg would race and the loser would read the winner's (invalid) mount path.
+        cfg_file="${cfg_dir}/cfg_${scen}_${dir}${SLICE_K:+_slice${SLICE_K}}.yaml"
         mkdir -p "$cfg_dir"
         # Consolidation: one experiment per path. On a fresh (non-slice) run, clear it so reruns
         # don't pile up exp_* and so the analysis sees a single clean experiment per (stock,model,shape,dir).
