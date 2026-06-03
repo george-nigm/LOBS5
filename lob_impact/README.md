@@ -1,107 +1,75 @@
 # LOB-Impact
 
-Market-impact evaluation for generative LOB models. A submodule of **LOBS5** that runs
-alongside [`lob_bench`](../lob_bench): where LOB-Bench measures *distributional* realism,
-LOB-Impact measures *response* realism — how a model's order book reacts when an aggressive
-metaorder is injected, and whether that reaction obeys known market-microstructure laws
-(square-root impact `β ≈ 0.5`, decay toward a `2/3` permanent level, Kyle's λ, propagator, Hurst).
+Market-impact evaluation for generative LOB models — a submodule of **LOBS5** that runs alongside
+[`lob_bench`](../lob_bench). Where LOB-Bench measures *distributional* realism, LOB-Impact measures
+*response* realism: inject an aggressive metaorder into a model's generated order book and check the
+reaction against known microstructure laws (square-root impact `β ≈ 0.5`, decay toward a `2/3`
+permanent level, Kyle's λ, propagator, Hurst). See `FRAMEWORK.md` for the full methodology, and the
+two reference images (`1. FRAMEWORK-*.jpg`, `2. models-leaderboard.jpeg`).
 
-See [`FRAMEWORK.md`](FRAMEWORK.md) for the full methodology spec and glossary, and
-[`FINDINGS_MARKET_IMPACT.md`](FINDINGS_MARKET_IMPACT.md) for the readable results companion.
-
-## The 5-stage framework → repository layout
+## Pipeline — 5 actions
 
 ```
 lob_impact/
-├── stage1_stats/   # 1. STOCKS & STATISTICS — pick S&P500 stocks, compute msgs_btw / trade_frac / MO volume
-├── scenarios/      # 2. SCENARIOS (i, c, mb) — the reusable core: inject metaorders, measure impact
-├── stage3_run/     # 3. RUN MODELS — run_isambard_c10x_v2.sh (writes its own configs at runtime)
-├── analysis/       # 4. DIAGNOSE + 5. ANALYSIS — master curve, participation, beta, decay
-├── core/           # shared logic imported by scenarios (impact-generation + model glue)
-├── FRAMEWORK.md    # methodology spec
-└── FINDINGS_MARKET_IMPACT.md
+├── core/            # the ONLY importable package (lob_impact.core): shared impact/model logic
+├── 1_data_prep/     # Action 1: msgs_between over the S&P500 universe → choose stocks
+├── 2_daily_stats/   # Action 2: per-day / aggregated daily stats (H/L, exec-vol, depth) for normalization
+├── 3_scenarios/     # Action 3: scenario generation + experiment launcher          ← runnable now
+├── 4_diagnostics/   # Action 4: master curves / book updates / participation + interactive notebook
+└── 5_analysis/      # Action 5: beta/  and  decay/
 ```
 
-| Stage | What it does | Where |
-|-------|--------------|-------|
-| **1. Stocks & statistics** | S&P500 (Jan-2026, out-of-sample) `msgs_btw` (η=10%), `trade_frac`, MO-volume, liquidity cohorts → choose stocks (EA / NVDA / AMD) | `stage1_stats/compute_sp500_msgs_btw.py`, `postprocess_sp500.py`, `compute_depth_stats.py` |
-| **2. Scenarios** | Inject aggressive metaorders into generated sequences and measure price impact. Shapes I=(100,0,mb), II=(10,100,mb) | `scenarios/` (see below) |
-| **3. Run models** | Generate eval sequences across model architectures + baselines (SLURM array; the launcher writes per-(model×stock×grid) configs into `configs_isambard/` at runtime) | `stage3_run/run_isambard_c10x_v2.sh` |
-| **4. Diagnose** | Visual sanity: master curve, book updates, participation rate | `analysis/run_300_*.py`, `analysis/190.*.ipynb`, `analysis/220.*.ipynb` |
-| **5. Analysis** | Beta analysis (β vs k, Kyle λ, bootstrap, interception map) + decay (relaxation ratio → 2/3, propagator, Hurst) + scorecard | `analysis/run_beta_report.py`, `analysis/run_210_analysis.py`, `analysis/210.paper_v3_final.ipynb` |
+| # | Action | Run | Output |
+|---|--------|-----|--------|
+| 1 | **Data prep** — `msgs_btw` (η=10%), `trade_frac`, MO-volume over S&P500; pick 3 stocks | `1_data_prep/compute_sp500_msgs_btw.py --mnt <root> --out_dir <d>` then `postprocess_sp500.py` | `msgs_btw_sp500_*.csv` + histograms |
+| 2 | **Daily stats** — daily H/L (Parkinson σ), execution volume, depth | `2_daily_stats/compute_daily_stats.py --mnt <root> --stock EA [--aggregate]`; `compute_depth_stats.py` | `daily_h_l_<STOCK>.csv`, depth CSV |
+| 3 | **Scenarios** — inject metaorders, generate sequences | `3_scenarios/run_experiments.sh {smoke\|full}` | `save_dir/{data_cond,data_gen}/`, `aggressive_indices.csv` |
+| 4 | **Diagnostics** — master curve, book update, participation | `4_diagnostics/` (notebook + `diagnostics.py`, next round) | figures |
+| 5 | **Analysis** — `beta/` (Shape I) and `decay/` (Shape II) | `5_analysis/{beta,decay}/` (next round) | β, relaxation→2/3, γ, Hurst, propagator, scorecard |
 
-## Scenarios (Stage 2 — the reusable core)
+## Two scenario shapes (Action 3)
 
-Each scenario script reads a YAML config and writes eval sequences. They share the impact-generation
-logic in `core/`.
+The launcher runs both shapes per model×stock; in each config you vary only **stock, mb, model**:
 
-| Script | Model | Notes |
-|--------|-------|-------|
-| `scenarios/1.aggressive_scenario_s5.py` | S5 (neural) | Canonical aggressive scenario; pattern for all neural models |
-| `scenarios/1.aggressive_scenario_s5_v3.py` | S5 (24-tok) | Encoding bridge for v3 checkpoints |
-| `scenarios/0.null_baseline_s5.py` | S5 | Null/drift counterfactual (no injections) |
-| `scenarios/2.historic_scenario.py` | — | Historic replay baseline |
-| `scenarios/3.heuristic_scenario.py` | — | Heuristic price-shift baseline |
-| `scenarios/4.aggressive_scenario_cst.py` | Stoikov–Talreja | Parametric baseline — **see Known gaps** |
-| `scenarios/5v2.aggressive_scenario_cgan.py` | CGAN | Needs `abides_markets` on path |
-| `scenarios/6.twap_scenario_s5.py` | S5 | TWAP passive-order variant |
+| Config | Shape (i, c) | Feeds |
+|--------|-------------|-------|
+| `config_bet_composition.yaml` | I = (`num_insertions=100`, `num_coolings=0`) | `5_analysis/beta` |
+| `config_beta_decay.yaml` | II = (`num_insertions=10`, `num_coolings=100`) | `5_analysis/decay` |
 
-Run a single scenario (from the repo root, so `lob_impact.*` and `lob.*` resolve):
+### Run the experiments (Action 3)
 
 ```bash
-python lob_impact/scenarios/1.aggressive_scenario_s5.py \
-    --config lob_impact/scenarios/1.aggressive_scenario_config.yaml   # the one example config
+# 1. mount the target month's squashfs shard (team step) -> $MNT  (one subdir per ticker)
+export DATA_MOUNT="$MNT"
+export PROJECT_DIR=/home/u6gb/georgenigm.u6gb/LOBS5     # optional (defaults to repo root)
+# 2. fill the MODELS array in 3_scenarios/run_experiments.sh (verified S5 paths are in comments)
+# 3. smoke first (1 combo, n_samples=64), then full
+bash lob_impact/3_scenarios/run_experiments.sh smoke
+bash lob_impact/3_scenarios/run_experiments.sh full
 ```
 
-Or launch the full grid (8 models × stocks × grid × direction) on Isambard. The launcher
-generates its own YAML configs at runtime — no pre-baked config tree is kept in the repo:
+Results are written under `SAVE_BASE` (default `lob_impact/data/evalsequences/impact_v4/`, on u6gb),
+laid out as `<shape>/<model>/<stock>/<dir>/mb<mb>/` so the analysis stages can glob by shape.
 
-```bash
-sbatch lob_impact/stage3_run/run_isambard_c10x_v2.sh
-```
+## Structure rules
 
-## Dependency boundary — what the parent LOBS5 must provide
+- **Only `core/` is importable** (`lob_impact.core`). Digit-prefixed folders (`1_…`–`5_…`) hold
+  scripts run as files (`python -u path/to/x.py`) or notebooks — never `import`ed (a package name
+  can't start with a digit). Scenario scripts run as files and `import lob_impact.core.*`, which is
+  legal because `core/` is non-digit.
+- **Dependency boundary** — provided by the parent **LOBS5** (not this submodule): `lob/` (model,
+  tokenizer, inference, checkpointing), `preproc.py`, `s5/`, and the `Alphatrade/gymnax_exchange`
+  JAX-LOB simulator (symlinked at `LOBS5/Alphatrade`). Run everything from the repo root.
 
-LOB-Impact owns its impact logic but relies on the parent project for the model and simulator.
-Run everything from the **repo root** (the scenarios insert it on `sys.path`), like `lob_bench`.
+## Known gaps / TODO
 
-Provided by **LOBS5** (not part of this submodule):
-- `lob/` — model & tokenizer: `encoding` / `encoding_24tok`, `inference`, `inference_no_errcorr`,
-  `init_train` (`init_train_state`, `load_checkpoint`, `load_metadata`), `validation_helpers`
-- `preproc.py` (repo root), `s5/` (SSM framework)
-- `Alphatrade/gymnax_exchange/` — JAX-LOB simulator (`OrderBook`, `JaxOrderBookArrays`, …), a git submodule
-- model checkpoints + preprocessed `.npy` data (mounted, gitignored)
-
-Owned **here** (`core/`):
-- `core/inference_w_insertions.py` — impact-specific generation with insertion schedules
-  (moved out of `lob/` so the submodule owns its own impact logic)
-- `core/_cgan_mocks.py` — `sys.modules` glue required before CGAN imports
-
-## Known gaps
-
-- **CST scenario needs vendored modules.** `scenarios/4.aggressive_scenario_cst.py` imports
-  `cst` and `param_estimation`, expected at `../lob_bench/cst_model/`. Those files were **not
-  transferred** with this copy. To run CST, vendor `cst.py` + `param_estimation.py` (and the
-  `params_file` the launchers reference) from the original `lob_bench/cst_model/`. Until then the
-  S5 / historic / heuristic / CGAN scenarios are fully runnable; CST is not.
-## Running on the S&P500 squashfs data (S5)
-
-The S&P500 preprocessed data lives as **monthly squashfs shards** at
-`$LUS/lob_preproc_sp500_squashfs/` (`shard_YYYY-MM.squashfs` + `index_YYYY-MM.json`); inside each
-shard: `<TICKER>/<TICKER>_<date>_..._{message,orderbook}_10_proc.npy` (L10; the dataloader expands
-L2 → wide book, so `book_dim=503` is unchanged). Mounting is a separate step — scripts consume the
-**already-mounted root** (same `--mnt` convention as `stage1_stats/compute_sp500_msgs_btw.py`).
-
-To launch S5 on Isambard:
-```bash
-# 1. mount the target month's shard (team squashfuse/apptainer step) -> $MNT
-export DATA_MOUNT="$MNT"        # get_data_dir returns $DATA_MOUNT/<stock>
-export PROJECT_DIR=/home/u6gb/georgenigm.u6gb/LOBS5   # or your checkout
-sbatch lob_impact/stage3_run/run_isambard_c10x_v2.sh   # models s5_150m / s5_4k resolve now
-```
-
-Status of the launcher's checkpoint table (`LUS=/lus/lfs1aip2/projects/public/s5e/quant_team`):
-- ✅ **S5-150M** (`exp_H1-scaling-law/.../j2514440`) and **S5-4K** (`exp_H2-context-scale/.../j2504167`) resolve.
-- ⚠️ **LobS5** (`j2633975`) and **S5-360M** (`j2731367`) are not at the new base — update their job IDs.
-- The full architecture leaderboard (Mamba3 / GDN / Mamba2 / Transformer / MoE / KDA / NSA) is a
-  **separate integration**: each is a different architecture, and the scenarios currently load **S5 only**.
+- **Models are placeholders** in `run_experiments.sh`; S5-150M and S5-4K checkpoint paths are in the
+  comments (verified to resolve). LobS5 / S5-360M need current job IDs.
+- **L10 vs L500 book width** — squashfs proc data is L10 (orderbook 43 cols); S5 configs use
+  `book_dim=503` (wide L500). Resolve the transform before a real run (smoke surfaces it fast).
+- **`compute_daily_stats.py` price column** — `COL_PRICE` is flagged for first-run verification
+  (proc `.npy` reorders columns vs raw LOBSTER); confirm H/L look like real prices.
+- **`tick_size`** defaults to 100 (GOOG) — set per-stock `STOCK_TICK` in the launcher if EA/NVDA/AMD differ.
+- **CST** scenario needs `cst.py`/`param_estimation.py` vendored into `lob_bench/cst_model/`.
+- **Analysis (4/5)** internals are the next rewrite: extract the metric functions from
+  `5_analysis/run_300_analyze_one.py` into `core/impact_metrics.py`, then split beta/decay.
