@@ -45,6 +45,7 @@ fi
 # --- Models: "label|script|ckpt_path|checkpoint_step|book_dim" (script relative to 3_scenarios/) ---
 declare -A MODELS=(
   [historic]="Historic|2.historic_scenario.py|||503"
+  [mamba3]="Mamba3|1.aggressive_scenario_mamba3.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503"
   [s5_150m]="S5-150M|1.aggressive_scenario_s5_v3.py|${CKPT_BASE}/exp_H1-scaling-law/checkpoints/j2514440_bkotgtm5_2514440|135458|503"
   [s5_4k]="S5-4K|1.aggressive_scenario_s5_v3.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|100378|503"
 )

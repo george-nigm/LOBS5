@@ -856,9 +856,12 @@ def _generate_msg(
         sample_top_n: int,
         tick_size: int,
         debug_book: bool,
-        
-        m_init: jax.Array, #last token from prev message, or start tok. 
-        b_init: jax.Array, #last book state after prev message, or start book. 
+        # NEW: insertion_schedule parameters
+        insertion_schedule: Optional[jax.Array],  # shape (total_msgs, >=4) or None
+        total_n_msg_todo: int,  # original n_msg_todo for calculating current_step
+
+        m_init: jax.Array, #last token from prev message, or start tok.
+        b_init: jax.Array, #last book state after prev message, or start book.
         n_msg_todo: int,
         p_mid: jax.Array,
         sim_state: LobState,
@@ -983,21 +986,94 @@ def _generate_msg(
 
     # debug('trades', _trades)
 
+    # === CAPTURE BOOK STATE AFTER REGULAR MESSAGE ===
     # get current mid price from simulator
-    p_mid_new = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
-    # jax.debug.print('p_mid_new {}', p_mid_new)
+    p_mid_after_regular = _get_new_mid_price(sim, sim_state, p_mid, tick_size)
+    # jax.debug.print('p_mid_after_regular {}', p_mid_after_regular)
 
     # price change in ticks
-    p_change = ((p_mid_new - p_mid) // tick_size)#.astype(jnp.int32)
+    p_change_regular = ((p_mid_after_regular - p_mid) // tick_size)#.astype(jnp.int32)
 
-    # get new book state
-    book_l2 = sim.get_L2_state(sim_state, l2_state_n)
-    # l2_book_states.append(book_l2)
+    # get new book state (after regular message, before any aggressive insertion)
+    book_l2_regular = sim.get_L2_state(sim_state, l2_state_n)
 
-    # error if the new message does not change the book state
-    # is_error = (book_l2 == b_seq[-1, 1:]).all()
+    # === INSERTION SCHEDULE LOGIC ===
+    aggressive_msg_decoded = jnp.zeros(14, dtype=jnp.int32)
+    # Initialize book_l2_after_aggressive as copy of regular (will be overwritten if insertion)
+    book_l2_after_aggressive = book_l2_regular
+    p_mid_after_aggressive = p_mid_after_regular
 
-    new_book_raw = jnp.concatenate([jnp.array([p_change]),time_f, book_l2[0:40]]).reshape(1,-1)
+    if insertion_schedule is not None:
+        current_step = total_n_msg_todo - n_msg_todo
+        should_insert = insertion_schedule[current_step, 0] == 1
+
+        def do_insert(operands):
+            sim_state_in, n_msg_todo_in, time_f_in, p_mid_in = operands
+
+            # Get dynamic price and available volume from book
+            best_bid_ask = sim.get_best_bid_and_ask_inclQuants(sim_state_in)
+            # best_bid_ask[0] = (ask_price, ask_qty), best_bid_ask[1] = (bid_price, bid_qty)
+            direction = insertion_schedule[current_step, 2]
+            price = jax.lax.cond(
+                direction == 0,
+                lambda: best_bid_ask[0][0],  # BUY hits ask price
+                lambda: best_bid_ask[1][0]   # SELL hits bid price
+            )
+
+            # Get available volume at best level and cap order size
+            avail = jax.lax.cond(
+                direction == 0,
+                lambda: best_bid_ask[0][1],  # ask volume for buy
+                lambda: best_bid_ask[1][1]   # bid volume for sell
+            ).astype(jnp.int32)
+            order_volume = insertion_schedule[current_step, 3]
+            quantity = jnp.minimum(order_volume, avail)
+
+            # Aggressive order gets NEXT order_id (same decreasing sequence)
+            aggressive_order_id = n_msg_todo_in - 1
+
+            aggressive_msg = construct_sim_msg(
+                event_type=insertion_schedule[current_step, 1],
+                side=direction,
+                quantity=quantity,
+                price=price,
+                order_id=aggressive_order_id,
+                time_s=time_f_in[0],
+                time_ns=time_f_in[1] + 1,
+            )
+            new_sim_state = sim.process_order_array(sim_state_in, aggressive_msg)
+            new_n_msg_todo = n_msg_todo_in - 1  # Decrement for aggressive order
+
+            # Create decoded representation of aggressive order
+            agg_msg_decoded = jnp.zeros(14, dtype=jnp.int32)
+            agg_msg_decoded = agg_msg_decoded.at[ORDER_ID_i].set(aggressive_order_id)
+            agg_msg_decoded = agg_msg_decoded.at[EVENT_TYPE_i].set(insertion_schedule[current_step, 1])
+            agg_msg_decoded = agg_msg_decoded.at[DIRECTION_i].set(direction)
+            agg_msg_decoded = agg_msg_decoded.at[PRICE_ABS_i].set(price)
+            agg_msg_decoded = agg_msg_decoded.at[SIZE_i].set(quantity)
+            agg_msg_decoded = agg_msg_decoded.at[TIMEs_i].set(time_f_in[0])
+            agg_msg_decoded = agg_msg_decoded.at[TIMEns_i].set(time_f_in[1] + 1)
+
+            # Capture book state AFTER aggressive order
+            book_l2_after = sim.get_L2_state(new_sim_state, l2_state_n)
+            p_mid_after = _get_new_mid_price(sim, new_sim_state, p_mid_in, tick_size)
+
+            return new_sim_state, new_n_msg_todo, agg_msg_decoded, book_l2_after, p_mid_after
+
+        def no_insert(operands):
+            sim_state_in, n_msg_todo_in, time_f_in, p_mid_in = operands
+            # Return same book state (no change from aggressive)
+            book_l2_same = sim.get_L2_state(sim_state_in, l2_state_n)
+            return sim_state_in, n_msg_todo_in, jnp.zeros(14, dtype=jnp.int32), book_l2_same, p_mid_in
+
+        sim_state, n_msg_todo, aggressive_msg_decoded, book_l2_after_aggressive, p_mid_after_aggressive = jax.lax.cond(
+            should_insert,
+            do_insert,
+            no_insert,
+            (sim_state, n_msg_todo, time_f, p_mid_after_regular)
+        )
+
+    new_book_raw = jnp.concatenate([jnp.array([p_change_regular]),time_f, book_l2_regular[0:40]]).reshape(1,-1)
     # jax.debug.print("book shape with time and midprice sim for with {} msg todo \n {}",n_msg_todo,new_book_raw)
 
     b_final = preproc.transform_L2_state_gpu(new_book_raw, 500, 100)
@@ -1006,7 +1082,8 @@ def _generate_msg(
 
     n_msg_todo -= 1
 
-    return msg_decoded, sim_state, m_final, tok_seq_gen, b_final, book_l2, p_mid_new, n_msg_todo, hidden, time_f
+    # Return both book states: regular (for regular msg) and after_aggressive (for aggressive msg)
+    return msg_decoded, aggressive_msg_decoded, sim_state, m_final, tok_seq_gen, b_final, book_l2_regular, book_l2_after_aggressive, p_mid_after_aggressive, n_msg_todo, hidden, time_f
 
     
 def _make_generate_msg_scannable(
@@ -1019,12 +1096,16 @@ def _make_generate_msg_scannable(
         sample_top_n: int,
         tick_size: int,
         debug_book: bool,
+        # NEW: insertion_schedule parameters
+        insertion_schedule: Optional[jax.Array],
+        total_n_msg_todo: int,
     ):
     """
     """
     _partial_msg = functools.partial(
         _generate_msg, sim, train_state, model, batchnorm,
-        encoder, valid_mask_array, sample_top_n, tick_size, debug_book
+        encoder, valid_mask_array, sample_top_n, tick_size, debug_book,
+        insertion_schedule, total_n_msg_todo,  # NEW
     )
     # Skip jit when inside outer TP jit (nested jit device=[0] conflict)
     __generate_msg = _partial_msg if valh._TP_MESH is not None else jax.jit(_partial_msg, device=jax.devices()[0])
@@ -1035,11 +1116,12 @@ def _make_generate_msg_scannable(
         b_seq_real=input
         m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng, hidden, time= gen_state
         rng, rng_ = jax.random.split(rng)
-        
-        msg_decoded, sim_state, m_seq, msg_token, b_seq, book_l2, p_mid, n_msg_todo,hidden, time = __generate_msg(
+
+        msg_decoded, aggressive_msg_decoded, sim_state, m_seq, msg_token, b_seq, book_l2_regular, book_l2_after_agg, p_mid, n_msg_todo, hidden, time = __generate_msg(
             m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng_, hidden, time, b_seq_real
         )
-        return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, book_l2, msg_token)
+        # Return both book states: regular and after_aggressive
+        return (m_seq, b_seq, n_msg_todo, p_mid, sim_state, rng,hidden, time), (msg_decoded, aggressive_msg_decoded, book_l2_regular, book_l2_after_agg, msg_token)
     return _generate_msg_scannable
 
 
@@ -1275,7 +1357,7 @@ generate_batched_1tok = jax.jit(
 )
 
 
-@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu')
+@partial(jax.jit, static_argnums=(0, 2, 3, 5, 6, 9,13,15,19),backend='gpu')
 def generate(
         sim: OrderBook,  # static
         train_state: TrainState,
@@ -1295,6 +1377,9 @@ def generate(
         debug_book: bool=False,
         b_seq_real: Optional[jax.Array]=None, #Must be very careful, these should only be used for debugging.
         valid_mask_array: Optional[jax.Array]=None,  # pre-computed syntax mask
+        # NEW: insertion_schedule parameters
+        insertion_schedule: Optional[jax.Array] = None,
+        chunk_size: int = 1,  # static: N messages per conditioning chunk
         # if eval_msgs given, also returns loss of predictions
         # e.g. to calculate perplexity
         # m_seq_eval: Optional[jax.Array] = None,
@@ -1340,12 +1425,10 @@ def generate(
 
         print(m_seq_cond[:-1],b_seq_cond[:-1])
         # Split conditioning into N chunks for the scan.
-        # N=n_cond_msgs (1 message per step) keeps attention matrices small,
-        # avoiding O(L²) OOM for transformers while being harmless for S5.
-        l = Message_Tokenizer.MSG_LEN
-        total_cond_tokens = m_seq_cond[:-1].shape[0]
-        N = total_cond_tokens // l   # 1 message per chunk
-        chex.assert_is_divisible(total_cond_tokens, N)
+        # N=chunk_size controls how many chunks the conditioning sequence is
+        # split into for the roll-hidden scan (mirrors the OLD-fork behaviour).
+        N = chunk_size
+        chex.assert_is_divisible(m_seq_cond[:-1].shape[0], N)
         chex.assert_is_divisible(b_seq_cond[:-1].shape[0], N)
         m_seq_cond_split = m_seq_cond[:-1].reshape((N, -1))
         b_seq_cond_split = b_seq_cond[:-1].reshape((N, -1) + b_seq_cond[:-1].shape[1:])
@@ -1372,38 +1455,52 @@ def generate(
     p_mid = _get_safe_mid_price(sim, sim_state, tick_size)
     # jax.debug.print('generate - p_mid {}', p_mid)
 
+    # Store original n_msg_todo for later use (will be decremented during scan)
+    original_n_msg_todo = n_msg_todo
+
     generate_msg_scannable = _make_generate_msg_scannable(
-        sim, train_state, model, batchnorm, 
+        sim, train_state, model, batchnorm,
         encoder, valid_mask_array, sample_top_n, tick_size, debug_book,
+        insertion_schedule, n_msg_todo,  # NEW: pass schedule and total count
     )
-    gen_state, (msgs_decoded, l2_book_states,msgs_tokens) = jax.lax.scan(
+    gen_state, (msgs_decoded, aggressive_msgs_decoded, l2_book_states_regular, l2_book_states_after_agg, msgs_tokens) = jax.lax.scan(
         generate_msg_scannable,
         (init_token, init_book, n_msg_todo, p_mid, sim_state,rng, hidden_state,init_time),
         length=n_msg_todo,
         xs=b_seq_real,
     )
-    (final_token, final_book,n_msg_todo, p_mid, sim_state, rng, hidden_state,final_time) = gen_state
+    (final_token, final_book,final_n_msg_todo, p_mid, sim_state, rng, hidden_state,final_time) = gen_state
 
-    # all_msg_toks_gen=jnp.concatenate(msgs_tokens)
+    # Merge regular and aggressive messages: [reg0, agg0, reg1, agg1, ...]
+    merged_msgs = jnp.zeros((original_n_msg_todo * 2, msgs_decoded.shape[1]), dtype=msgs_decoded.dtype)
+    merged_msgs = merged_msgs.at[::2].set(msgs_decoded)
+    merged_msgs = merged_msgs.at[1::2].set(aggressive_msgs_decoded)
 
-
+    # Merge book states: regular (for regular msg) and after_agg (for aggressive msg)
+    # l2_book_states_regular[i] = book state AFTER regular message i (BEFORE aggressive)
+    # l2_book_states_after_agg[i] = book state AFTER aggressive order i (or same as regular if no insertion)
+    merged_books = jnp.zeros((original_n_msg_todo * 2, l2_book_states_regular.shape[1]), dtype=l2_book_states_regular.dtype)
+    merged_books = merged_books.at[::2].set(l2_book_states_regular)
+    merged_books = merged_books.at[1::2].set(l2_book_states_after_agg)
 
     # count errors when the message does not change the (visible) book state
-    num_errors = (l2_book_states[1:] == l2_book_states[:-1]).all(axis=1).sum()
+    num_errors = (merged_books[1:] == merged_books[:-1]).all(axis=1).sum()
 
-    return msgs_decoded, l2_book_states, num_errors, msgs_tokens
+    # Return merged messages and book states (caller filters zeros)
+    # Shape: (n_msg_todo * 2, ...) - includes placeholder zeros for positions without aggressive orders
+    return merged_msgs, merged_books, num_errors, msgs_tokens
 
 generate_batched = jax.jit(
     jax.vmap(
         generate,
         in_axes=(
-            None, None, None, None, None,
-            None, None,    0,    0, None,
-            0,       0,    0, None,    0,
-            None,    0, None,
+            None, None, None, None, None,  # sim, train_state, model, batchnorm, encoder
+            None, None,    0,    0, None,  # sample_top_n, tick_size, m_seq_cond, b_seq_cond, n_msg_todo
+            0,       0,    0, None,    0,  # sim_state, rng, init_hidden, conditional, init_time
+            None,    0, None,    0, None,  # debug_book, b_seq_real, valid_mask_array, insertion_schedule (batched), chunk_size
         )
     ),
-    static_argnums=(0, 2, 3, 5, 6, 9,13,15),backend='gpu'
+    static_argnums=(0, 2, 3, 5, 6, 9,13,15,19),backend='gpu'
 )
 
 @partial(jax.jit, static_argnums=(3, 4, 5, 6))
