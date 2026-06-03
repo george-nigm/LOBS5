@@ -8,13 +8,13 @@
 #
 # Usage:
 #   # Submit all 8 models (8 array jobs × 120 tasks each):
-#   bash lob_impact/run_isambard_c10x_v2.sh submit
+#   bash lob_impact/stage3_run/run_isambard_c10x_v2.sh submit
 #
 #   # Submit specific model:
-#   bash lob_impact/run_isambard_c10x_v2.sh submit s5_150m
+#   bash lob_impact/stage3_run/run_isambard_c10x_v2.sh submit s5_150m
 #
 #   # Direct single-task run (called by SLURM):
-#   MODEL=s5_150m sbatch --array=0-119 lob_impact/run_isambard_c10x_v2.sh
+#   MODEL=s5_150m sbatch --array=0-119 lob_impact/stage3_run/run_isambard_c10x_v2.sh
 # =============================================================================
 #SBATCH --job-name=impact
 #SBATCH --partition=workq
@@ -36,15 +36,15 @@ CST_PARAMS_DIR="${PROJECT_DIR}/data/checkpoints/cst_params"
 # ── Model definitions ──
 # Format: "label|script|ckpt_path|checkpoint_step|book_dim|data_variant"
 declare -A MODELS=(
-    [lobs5]="LobS5|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J1-sparse-book-anchoring/checkpoints/j2633975_gao5ok51_2633975|61037|503|v3"
-    [s5_150m]="S5-150M|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H1-scaling-law/checkpoints/j2514440_bkotgtm5_2514440|135458|503|v3"
-    [s5_4k]="S5-4K|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|100378|503|v3"
-    [s5_360m]="S5-360M|lob_impact/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J2_muon_optimizer/checkpoints/j2731367_u5xps1po_2731367|34158|503|v3"
-    [zero]="ZeroInsertions|lob_impact/2.historic_scenario.py|||503|base"
-    [historic]="Historic|lob_impact/2.historic_scenario.py|||503|base"
-    [heuristic]="Heuristic|lob_impact/3.heuristic_scenario.py|||503|base"
-    [cst]="CST|lob_impact/4.aggressive_scenario_cst.py|||503|base"
-    [cgan]="CGAN|lob_impact/5v2.aggressive_scenario_cgan.py|${PROJECT_DIR}/data/checkpoints/cgan|null|503|base"
+    [lobs5]="LobS5|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J1-sparse-book-anchoring/checkpoints/j2633975_gao5ok51_2633975|61037|503|v3"
+    [s5_150m]="S5-150M|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H1-scaling-law/checkpoints/j2514440_bkotgtm5_2514440|135458|503|v3"
+    [s5_4k]="S5-4K|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|100378|503|v3"
+    [s5_360m]="S5-360M|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J2_muon_optimizer/checkpoints/j2731367_u5xps1po_2731367|34158|503|v3"
+    [zero]="ZeroInsertions|lob_impact/scenarios/2.historic_scenario.py|||503|base"
+    [historic]="Historic|lob_impact/scenarios/2.historic_scenario.py|||503|base"
+    [heuristic]="Heuristic|lob_impact/scenarios/3.heuristic_scenario.py|||503|base"
+    [cst]="CST|lob_impact/scenarios/4.aggressive_scenario_cst.py|||503|base"
+    [cgan]="CGAN|lob_impact/scenarios/5v2.aggressive_scenario_cgan.py|${PROJECT_DIR}/data/checkpoints/cgan|null|503|base"
 )
 
 ALL_MODEL_KEYS=(lobs5 s5_150m s5_4k s5_360m zero historic heuristic cst cgan)
@@ -164,7 +164,7 @@ if [ "${1:-}" = "submit" ]; then
             --job-name="impact_${model_key}" \
             ${gres_flag} ${time_flag} \
             --parsable \
-            "${PROJECT_DIR}/lob_impact/run_isambard_c10x_v2.sh")
+            "${PROJECT_DIR}/lob_impact/stage3_run/run_isambard_c10x_v2.sh")
         echo "  ${label} (${model_key}): job ${job_id}, ${N_TASKS} tasks [${tag}]"
     done
     echo "Done. Monitor with: squeue -u \$USER"

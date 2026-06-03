@@ -34,7 +34,7 @@ from tqdm import tqdm
 
 # Add parent folder to path (using __file__ to get correct path)
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_folder_path = os.path.dirname(script_dir)
+parent_folder_path = os.path.dirname(os.path.dirname(script_dir))
 sys.path.insert(0, parent_folder_path)
 
 # Add AlphaTrade submodule (mounted at /AlphaTrade in container)
@@ -51,7 +51,7 @@ import gymnax_exchange.jaxob.jaxob_constants as cst
 import gymnax_exchange.jaxob.JaxOrderBookArrays as job
 
 from lob.encoding import Vocab, Message_Tokenizer
-from lob import inference_no_errcorr_w_insertions as inference
+from lob_impact.core import inference_w_insertions as inference
 import lob.validation_helpers as valh
 import lob.encoding as encoding
 import preproc
@@ -611,7 +611,7 @@ def parse_args():
     parser.add_argument(
         '--config', '-c',
         type=str,
-        default='lob_impact/1.aggressive_scenario_config.yaml',
+        default='lob_impact/scenarios/1.aggressive_scenario_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None, help='Override n_gen_msgs from config')

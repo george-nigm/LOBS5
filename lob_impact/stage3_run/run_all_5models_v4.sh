@@ -269,7 +269,7 @@ run_scenario() {
     local scenario_type=$5   # "s5", "cgan", "cst", "hist", "heur"
     local extra_mounts="${6:-}"
 
-    local configs_dir="${PROJECT_DIR}/lob_impact/configs_${scenario_name}_v4"
+    local configs_dir="${PROJECT_DIR}/lob_impact/configs/${scenario_name}_v4"
     mkdir -p "$configs_dir"
 
     echo ""
@@ -299,7 +299,7 @@ run_scenario() {
                 workload=$total
 
                 cfg_host="${configs_dir}/cfg_i${i}_c${cool}_mb${mb}_v${vol}_${dir_name}.yaml"
-                cfg_container="lob_impact/configs_${scenario_name}_v4/cfg_i${i}_c${cool}_mb${mb}_v${vol}_${dir_name}.yaml"
+                cfg_container="lob_impact/configs/${scenario_name}_v4/cfg_i${i}_c${cool}_mb${mb}_v${vol}_${dir_name}.yaml"
                 $write_fn "$cfg_host" "$i" "$save_dir" "$vol" "$cool"
 
                 job_name="${scenario_name}_${folder_name}_${dir_name}"
@@ -419,21 +419,21 @@ echo "================================================================="
 
 # 1. S5 (slowest — neural model with checkpoint)
 run_scenario "s5" \
-    "lob_impact/1.aggressive_scenario_s5.py" \
+    "lob_impact/scenarios/1.aggressive_scenario_s5.py" \
     "write_config_s5" \
     "aggressive_scenario" \
     "s5"
 
 # 2. CGAN (neural model, needs pip install)
 run_scenario "cgan" \
-    "lob_impact/5v2.aggressive_scenario_cgan.py" \
+    "lob_impact/scenarios/5v2.aggressive_scenario_cgan.py" \
     "write_config_cgan" \
     "cgan_aggressive_scenario" \
     "cgan"
 
 # 3. CST (parametric model, needs scratch mount)
 run_scenario "cst" \
-    "lob_impact/4.aggressive_scenario_cst.py" \
+    "lob_impact/scenarios/4.aggressive_scenario_cst.py" \
     "write_config_cst" \
     "cst_scenario" \
     "cst" \
@@ -441,14 +441,14 @@ run_scenario "cst" \
 
 # 4. Historic (replay, no model)
 run_scenario "historic" \
-    "lob_impact/2.historic_scenario.py" \
+    "lob_impact/scenarios/2.historic_scenario.py" \
     "write_config_historic_heuristic" \
     "historic_scenario" \
     "hist"
 
 # 5. Heuristic (replay + price shift, no model)
 run_scenario "heuristic" \
-    "lob_impact/3.heuristic_scenario.py" \
+    "lob_impact/scenarios/3.heuristic_scenario.py" \
     "write_config_historic_heuristic" \
     "heuristic_scenario" \
     "heur"

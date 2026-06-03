@@ -28,8 +28,8 @@ print('Keys:', list(params.keys()))
 echo ""
 echo "=== Step 2: Run CST aggressive scenario (small test) ==="
 cd /app
-python3 -u lob_impact/4.aggressive_scenario_cst.py \
-    --config lob_impact/4.aggressive_scenario_cst_config_test.yaml
+python3 -u lob_impact/scenarios/4.aggressive_scenario_cst.py \
+    --config lob_impact/scenarios/4.aggressive_scenario_cst_config_test.yaml
 
 echo ""
 echo "=== Step 3: Verify output ==="

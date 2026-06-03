@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 # Add parent folder to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_folder_path = os.path.dirname(script_dir)
+parent_folder_path = os.path.dirname(os.path.dirname(script_dir))
 sys.path.insert(0, parent_folder_path)
 
 # Add AlphaTrade submodule
@@ -55,7 +55,7 @@ from lob.inference_no_errcorr import (
 )
 
 # CGAN imports — mock ABIDES deps, then import ganmodels
-import lob_impact._cgan_mocks  # noqa: F401
+import lob_impact.core._cgan_mocks  # noqa: F401
 from abides_markets.agents.gan.v2_41 import ganmodels
 ganmodels.abides_test = True
 from abides_markets.agents.gan.v2_41 import gan_utils
@@ -954,7 +954,7 @@ def parse_args():
     )
     parser.add_argument(
         '--config', '-c', type=str,
-        default='lob_impact/5.aggressive_scenario_cgan_config.yaml',
+        default='lob_impact/scenarios/5.aggressive_scenario_cgan_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None,

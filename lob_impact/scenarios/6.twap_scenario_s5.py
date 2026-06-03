@@ -34,7 +34,7 @@ import jax.numpy as jnp
 
 # Swap encoding for v3 checkpoints
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_folder_path = os.path.dirname(script_dir)
+parent_folder_path = os.path.dirname(os.path.dirname(script_dir))
 sys.path.insert(0, parent_folder_path)
 import lob.encoding_24tok
 sys.modules['lob.encoding'] = lob.encoding_24tok
@@ -184,7 +184,7 @@ def run(cfg):
     encode_msg_jit = jax.jit(jax.vmap(tokenizer.encode_msg))
 
     # Generation function (reuse from inference)
-    from lob.inference_no_errcorr_w_insertions import generate_msgs_w_insertions
+    from lob_impact.core.inference_w_insertions import generate_msgs_w_insertions
 
     print(f"\nProcessing {len(sample_i)} batches...")
     from tqdm import tqdm

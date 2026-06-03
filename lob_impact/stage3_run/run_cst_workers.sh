@@ -3,10 +3,10 @@
 # Usage: bash lob_impact/run_cst_workers.sh [CONFIG] [NUM_WORKERS]
 #
 # Example:
-#   bash lob_impact/run_cst_workers.sh lob_impact/4.aggressive_scenario_cst_config.yaml 16
+#   bash lob_impact/run_cst_workers.sh lob_impact/scenarios/4.aggressive_scenario_cst_config.yaml 16
 set -e
 
-CONFIG="${1:-lob_impact/4.aggressive_scenario_cst_config.yaml}"
+CONFIG="${1:-lob_impact/scenarios/4.aggressive_scenario_cst_config.yaml}"
 NUM_WORKERS="${2:-8}"
 
 # Docker image and volume mounts
@@ -55,7 +55,7 @@ for W in $(seq 0 $((NUM_WORKERS - 1))); do
         --shm-size=1g \
         -w /app \
         "$IMAGE" \
-        python3 -u lob_impact/4.aggressive_scenario_cst.py \
+        python3 -u lob_impact/scenarios/4.aggressive_scenario_cst.py \
             --config "$CONFIG" \
             --worker_id "$W" \
             --num_workers "$NUM_WORKERS" \

@@ -33,7 +33,7 @@ set -euo pipefail
 
 # ── Paths ──
 PROJECT_DIR="/home/s5e/georgenigm.s5e/LOBS5_11_march"
-CONFIGS="${PROJECT_DIR}/lob_impact/configs_smoke_test"
+CONFIGS="${PROJECT_DIR}/lob_impact/configs/smoke"
 LOGDIR="${PROJECT_DIR}/logs/smoke_${SLURM_JOB_ID}"
 L10_SOURCE="/lus/lfs1aip2/projects/s5e/lob_reconstruction/GOOG/reconstructed_l10"
 CST_PARAMS_DIR="${PROJECT_DIR}/data/checkpoints/cst_params"
@@ -129,7 +129,7 @@ echo "--- Step 1: Launching 9 models ---"
 srun --nodes=1 --ntasks=1 --gpus=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [lobs5] START: \$(date) ==='
-python -u lob_impact/1.aggressive_scenario_s5_v3.py \
+python -u lob_impact/scenarios/1.aggressive_scenario_s5_v3.py \
     --config '${CONFIGS}/cfg_lobs5.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/lobs5.log'
@@ -139,7 +139,7 @@ echo '=== [lobs5] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --gpus=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [s5_150m] START: \$(date) ==='
-python -u lob_impact/1.aggressive_scenario_s5_v3.py \
+python -u lob_impact/scenarios/1.aggressive_scenario_s5_v3.py \
     --config '${CONFIGS}/cfg_s5_150m.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/s5_150m.log'
@@ -149,7 +149,7 @@ echo '=== [s5_150m] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --gpus=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [s5_4k] START: \$(date) ==='
-python -u lob_impact/1.aggressive_scenario_s5_v3.py \
+python -u lob_impact/scenarios/1.aggressive_scenario_s5_v3.py \
     --config '${CONFIGS}/cfg_s5_4k.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/s5_4k.log'
@@ -159,7 +159,7 @@ echo '=== [s5_4k] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --gpus=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [s5_360m] START: \$(date) ==='
-python -u lob_impact/1.aggressive_scenario_s5_v3.py \
+python -u lob_impact/scenarios/1.aggressive_scenario_s5_v3.py \
     --config '${CONFIGS}/cfg_s5_360m.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/s5_360m.log'
@@ -169,7 +169,7 @@ echo '=== [s5_360m] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --gpus=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [cgan] START: \$(date) ==='
-python -u lob_impact/5v2.aggressive_scenario_cgan.py \
+python -u lob_impact/scenarios/5v2.aggressive_scenario_cgan.py \
     --config '${CONFIGS}/cfg_cgan.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/cgan.log'
@@ -181,7 +181,7 @@ echo '=== [cgan] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [zero] START: \$(date) ==='
-python -u lob_impact/2.historic_scenario.py \
+python -u lob_impact/scenarios/2.historic_scenario.py \
     --config '${CONFIGS}/cfg_zero.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/zero.log'
@@ -191,7 +191,7 @@ echo '=== [zero] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [historic] START: \$(date) ==='
-python -u lob_impact/2.historic_scenario.py \
+python -u lob_impact/scenarios/2.historic_scenario.py \
     --config '${CONFIGS}/cfg_historic.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/historic.log'
@@ -201,7 +201,7 @@ echo '=== [historic] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [heuristic] START: \$(date) ==='
-python -u lob_impact/3.heuristic_scenario.py \
+python -u lob_impact/scenarios/3.heuristic_scenario.py \
     --config '${CONFIGS}/cfg_heuristic.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/heuristic.log'
@@ -211,7 +211,7 @@ echo '=== [heuristic] DONE: \$(date) ==='" &
 srun --nodes=1 --ntasks=1 --exclusive \
     bash -c "${SETUP_ENV}
 echo '=== [cst] START: \$(date) ==='
-python -u lob_impact/4.aggressive_scenario_cst.py \
+python -u lob_impact/scenarios/4.aggressive_scenario_cst.py \
     --config '${CONFIGS}/cfg_cst.yaml' \
     --direction 0 \
     2>&1 | tee '${LOGDIR}/cst.log'

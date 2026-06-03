@@ -31,7 +31,7 @@ from tqdm import tqdm
 
 # Add parent folder to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_folder_path = os.path.dirname(script_dir)
+parent_folder_path = os.path.dirname(os.path.dirname(script_dir))
 sys.path.insert(0, parent_folder_path)
 
 # Add AlphaTrade submodule
@@ -41,6 +41,8 @@ else:
     sys.path.insert(0, os.path.join(parent_folder_path, 'Alphatrade'))
 
 # Add CST model path (alias as stoikov to avoid conflict with jaxob_constants alias)
+# NOTE: cst.py / param_estimation.py live in ../lob_bench/cst_model/ and were NOT transferred
+# with this submodule copy. Vendor them from the original lob_bench/cst_model/ to run CST. See README "Known gaps".
 sys.path.insert(0, os.path.join(parent_folder_path, 'lob_bench', 'cst_model'))
 import cst as stoikov
 from param_estimation import load_params
@@ -622,7 +624,7 @@ def parse_args():
     parser.add_argument(
         '--config', '-c',
         type=str,
-        default='lob_impact/4.aggressive_scenario_cst_config.yaml',
+        default='lob_impact/scenarios/4.aggressive_scenario_cst_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None, help='Override n_gen_msgs from config')

@@ -17,7 +17,7 @@ import sys
 # This makes all downstream modules (inference, validation_helpers, etc.)
 # use the 24-token Vocab & Message_Tokenizer transparently.
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_folder_path = os.path.dirname(script_dir)
+parent_folder_path = os.path.dirname(os.path.dirname(script_dir))
 sys.path.insert(0, parent_folder_path)
 
 # Import 24tok module and install it as 'lob.encoding'

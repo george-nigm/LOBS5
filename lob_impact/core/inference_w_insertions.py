@@ -1,8 +1,9 @@
 """
-inference_no_errcorr_w_insertions.py
+inference_w_insertions.py  (lob_impact.core)
 
-Copy of inference_no_errcorr.py with insertion_schedule support for aggressive scenario.
+Impact-specific variant of lob.inference_no_errcorr with insertion_schedule support.
 Allows inserting aggressive orders at specific steps during single-call generation.
+Moved here from lob/ so the LOB-Impact submodule owns its own impact-generation logic.
 """
 
 from jax import config

@@ -27,7 +27,7 @@ from tqdm import tqdm
 
 # Add parent folder to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_folder_path = os.path.dirname(script_dir)
+parent_folder_path = os.path.dirname(os.path.dirname(script_dir))
 sys.path.insert(0, parent_folder_path)
 
 # Add AlphaTrade submodule
@@ -385,7 +385,7 @@ def parse_args():
     parser.add_argument(
         '--config', '-c',
         type=str,
-        default='lob_impact/2.historic_scenario_config.yaml',
+        default='lob_impact/scenarios/2.historic_scenario_config.yaml',
         help='Path to YAML config file'
     )
     parser.add_argument('--n_gen_msgs', type=int, default=None, help='Override n_gen_msgs from config')

@@ -279,7 +279,7 @@ def section_3_scaling_dynamics(plt, D, stock):
         with open(raw_pkl, 'rb') as f:
             md = pickle.load(f)
         # Quick point cloud extraction
-        from lob_impact.run_300_analyze_one import (
+        from lob_impact.analysis.run_300_analyze_one import (
             extract_point_cloud, filter_model, load_daily_params, collect_days
         )
         daily_params = None
@@ -293,7 +293,7 @@ def section_3_scaling_dynamics(plt, D, stock):
 
     # Fig R4: β vs k
     if pc_k_data is not None and not pc_k_data.empty and 'k' in pc_k_data.columns:
-        from lob_impact.run_300_analyze_one import compute_global_beta
+        from lob_impact.analysis.run_300_analyze_one import compute_global_beta
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
 
@@ -588,7 +588,7 @@ def section_8_new_analyses(plt, D, stock):
     with open(raw_pkl, 'rb') as f:
         md = pickle.load(f)
 
-    from lob_impact.run_300_analyze_one import (
+    from lob_impact.analysis.run_300_analyze_one import (
         extract_point_cloud, filter_model, load_daily_params, collect_days, compute_global_beta
     )
     daily_params = None

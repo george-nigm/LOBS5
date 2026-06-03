@@ -33,7 +33,7 @@ export XLA_PYTHON_CLIENT_PREALLOCATE=true
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.90
 export TF_FORCE_GPU_ALLOW_GROWTH=true
 
-SCRIPT_PY="lob_impact/0.null_baseline_s5.py"
+SCRIPT_PY="lob_impact/scenarios/0.null_baseline_s5.py"
 N_GEN=500
 
 # ── S5 Models (neural models only - baselines don't need null test) ──

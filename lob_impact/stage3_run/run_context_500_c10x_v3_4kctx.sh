@@ -25,11 +25,11 @@
 set -eo pipefail
 
 PROJECT_DIR="/scratch/local/homes/80/georgenigm/LOBS5"
-CONFIGS_DIR="${PROJECT_DIR}/lob_impact/configs_context_500_c10x_v3_4kctx"
+CONFIGS_DIR="${PROJECT_DIR}/lob_impact/configs/context_v3_4kctx"
 LOGS_DIR="${PROJECT_DIR}/output/evalsequences/aggressive_scenario_v3/logs_4kctx"
 DOCKER_IMAGE="georgenigm_25jan"
 WANDB_KEY="74075d19681454163130e79756ce47db4dcb571f"
-SCRIPT_PY="lob_impact/1.aggressive_scenario_s5_v3.py"
+SCRIPT_PY="lob_impact/scenarios/1.aggressive_scenario_s5_v3.py"
 
 SAVE_BASE="/home/myuser/data/evalsequences/aggressive_scenario_v3"
 N_COND=500
@@ -172,7 +172,7 @@ for step in "${RUN_STEPS[@]}"; do
                 workload=$total
 
                 cfg_host="${CONFIGS_DIR}/s${step}_cfg_i${i}_c${c}_mb${mb}_v${vol}_${dir_name}.yaml"
-                cfg_container="lob_impact/configs_context_500_c10x_v3_4kctx/s${step}_cfg_i${i}_c${c}_mb${mb}_v${vol}_${dir_name}.yaml"
+                cfg_container="lob_impact/configs/context_v3_4kctx/s${step}_cfg_i${i}_c${c}_mb${mb}_v${vol}_${dir_name}.yaml"
                 write_config "$cfg_host" "$i" "$c" "$save_dir" "$vol" "$CKPT_PATH" "$step"
 
                 job_name="v3_4k_s${step}_${folder_name}_${dir_name}"
