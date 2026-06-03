@@ -120,9 +120,9 @@ class TeeLogger:
         self.log_file.close()
 
 
-def setup_logging(save_folder: Path) -> TeeLogger:
+def setup_logging(save_folder: Path, log_name: str = 'experiment.log') -> TeeLogger:
     """Set up logging to both console and file."""
-    log_file = save_folder / 'experiment.log'
+    log_file = save_folder / log_name
     tee = TeeLogger(log_file)
     sys.stdout = tee
     sys.stderr = tee
@@ -399,6 +399,17 @@ def sample_aggressive_scenario(
         replace=False
     ).tolist()
 
+    # SAMPLE_SLICE: run only one batch (slice) of the deterministic partition, so N jobs fan out
+    # across GPUs and merge into one consolidated folder (slices are disjoint -> distinct real_ids).
+    slice_k = cfg.get('sample_slice', None)
+    if slice_k is not None:
+        slice_k = int(slice_k)
+        assert 0 <= slice_k < len(sample_i), f'sample_slice {slice_k} out of range 0..{len(sample_i)-1}'
+        batches = [(slice_k, sample_i[slice_k])]
+        print(f'>>> SAMPLE_SLICE {slice_k}/{len(sample_i)} -> batch of {batch_size} samples')
+    else:
+        batches = list(enumerate(sample_i))
+
     # Initialize hidden state template (Mamba3 recipe).
     # Mirrors sample_new (inference_no_errcorr.py) ssm_type=='mamba3' branch.
     m3_n_heads = (args.mamba3_expand * args.d_model) // args.mamba3_headdim
@@ -441,7 +452,7 @@ def sample_aggressive_scenario(
     rng, rng_ = jax.random.split(rng)
 
     # Process batches
-    for batch_idx, batch_i in enumerate(tqdm(sample_i, desc="Batches")):
+    for batch_idx, batch_i in tqdm(batches, desc="Batches"):
         print(f'\n=== BATCH {batch_idx}: samples {batch_i} ===')
 
         # Load data and put on GPU
@@ -593,8 +604,8 @@ def sample_aggressive_scenario(
         # Split RNG for next iteration (matches sample_new line 1382)
         rng, rng_ = jax.random.split(rng)
 
-        # Save aggressive indices once (same for all samples)
-        if batch_idx == 0:
+        # Save aggressive indices once (same for all samples / slices)
+        if not (save_folder / 'aggressive_indices.csv').exists():
             original_indices = onp.arange(all_msgs.shape[1])
             is_aggressive_original = (original_indices % 2 == 1)
             is_aggressive = is_aggressive_original[valid_mask[0]]
@@ -637,12 +648,17 @@ def main():
 
     print(f"Configuration: {cfg}")
 
-    # Create experiment folder
-    save_folder = create_experiment_folder(cfg['save_dir'])
+    # Experiment folder. In slice mode all slices share ONE exact folder (so they merge); otherwise
+    # a fresh exp_N is created. The consolidated launcher pre-clears the path on non-slice runs.
+    if cfg.get('sample_slice', None) is not None or cfg.get('exact_save_dir', False):
+        save_folder = Path(cfg['save_dir']); save_folder.mkdir(parents=True, exist_ok=True)
+    else:
+        save_folder = create_experiment_folder(cfg['save_dir'])
     print(f"Experiment folder: {save_folder}")
 
-    # Set up logging to experiment folder
-    logger = setup_logging(save_folder)
+    # Set up logging (per-slice log so concurrent slices don't clobber each other)
+    _logname = f"experiment_slice{cfg['sample_slice']}.log" if cfg.get('sample_slice', None) is not None else 'experiment.log'
+    logger = setup_logging(save_folder, log_name=_logname)
     print(f"\n{'='*60}")
     print(f"Aggressive Scenario Experiment (Mamba3)")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

@@ -79,6 +79,16 @@ elif [ "$MODE" = "full" ]; then
 else
   echo "usage: $0 {smoke|full} [model_key ...]" >&2; exit 2
 fi
+
+# SAMPLE_SLICE="k/N": this job runs only slice k of N (one batch). Total n_samples = N * batch_size;
+# the scenario computes the deterministic partition and runs only batch k. N jobs fan out across GPUs
+# and merge into the consolidated path (slices are disjoint). Set submit_slices.sh for the fan-out.
+SLICE_K="${SLICE_K:-}"
+if [ -n "${SAMPLE_SLICE:-}" ]; then
+  SLICE_K="${SAMPLE_SLICE%%/*}"; N_SLICES="${SAMPLE_SLICE##*/}"
+  N_SAMPLES_OVERRIDE=$(( N_SLICES * ${BATCH_SIZE:-64} ))     # total; only batch SLICE_K runs here
+  echo ">>> SLICE ${SLICE_K}/${N_SLICES} | batch_size ${BATCH_SIZE:-64} | total n_samples ${N_SAMPLES_OVERRIDE}"
+fi
 echo ">>> run ${RUN_TS} | save_base ${SAVE_BASE}"
 
 # JAX on CPU for models without a checkpoint (historic/heuristic); neural models use the GPU.
@@ -88,10 +98,12 @@ render_config() {
   local tmpl="$1" out="$2"
   TMPL="$tmpl" OUT="$out" STOCK="$STOCK" DATA_DIR="$DATA_DIR" CKPT="$CKPT" \
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
-  N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" \
+  N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" \
   python3 - <<'PY'
 import os, yaml
 cfg = yaml.safe_load(open(os.environ["TMPL"]))
+if os.environ.get("SLICE_K", "") != "":
+    cfg["sample_slice"] = int(os.environ["SLICE_K"])
 cfg["stock"]          = os.environ["STOCK"]
 cfg["data_dir"]       = os.environ["DATA_DIR"]
 cfg["save_dir"]       = os.environ["SAVE_DIR"]
