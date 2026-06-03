@@ -15,8 +15,7 @@ See [`FRAMEWORK.md`](FRAMEWORK.md) for the full methodology spec and glossary, a
 lob_impact/
 ├── stage1_stats/   # 1. STOCKS & STATISTICS — pick S&P500 stocks, compute msgs_btw / trade_frac / MO volume
 ├── scenarios/      # 2. SCENARIOS (i, c, mb) — the reusable core: inject metaorders, measure impact
-├── stage3_run/     # 3. RUN MODELS — launchers that run scenarios across architectures + baselines
-├── configs/        # 3. config grids consumed by stage3_run (one subdir per scenario family)
+├── stage3_run/     # 3. RUN MODELS — run_isambard_c10x_v2.sh (writes its own configs at runtime)
 ├── analysis/       # 4. DIAGNOSE + 5. ANALYSIS — master curve, participation, beta, decay
 ├── core/           # shared logic imported by scenarios (impact-generation + model glue)
 ├── FRAMEWORK.md    # methodology spec
@@ -27,7 +26,7 @@ lob_impact/
 |-------|--------------|-------|
 | **1. Stocks & statistics** | S&P500 (Jan-2026, out-of-sample) `msgs_btw` (η=10%), `trade_frac`, MO-volume, liquidity cohorts → choose stocks (EA / NVDA / AMD) | `stage1_stats/compute_sp500_msgs_btw.py`, `postprocess_sp500.py`, `compute_depth_stats.py` |
 | **2. Scenarios** | Inject aggressive metaorders into generated sequences and measure price impact. Shapes I=(100,0,mb), II=(10,100,mb) | `scenarios/` (see below) |
-| **3. Run models** | Generate eval sequences across model architectures + baselines (config-driven, per-GPU containers / SLURM) | `stage3_run/*.sh`, `configs/` |
+| **3. Run models** | Generate eval sequences across model architectures + baselines (SLURM array; the launcher writes per-(model×stock×grid) configs into `configs_isambard/` at runtime) | `stage3_run/run_isambard_c10x_v2.sh` |
 | **4. Diagnose** | Visual sanity: master curve, book updates, participation rate | `analysis/run_300_*.py`, `analysis/190.*.ipynb`, `analysis/220.*.ipynb` |
 | **5. Analysis** | Beta analysis (β vs k, Kyle λ, bootstrap, interception map) + decay (relaxation ratio → 2/3, propagator, Hurst) + scorecard | `analysis/run_beta_report.py`, `analysis/run_210_analysis.py`, `analysis/210.paper_v3_final.ipynb` |
 
@@ -51,14 +50,14 @@ Run a single scenario (from the repo root, so `lob_impact.*` and `lob.*` resolve
 
 ```bash
 python lob_impact/scenarios/1.aggressive_scenario_s5.py \
-    --config lob_impact/configs/s5_v4/cfg_i3_c0_mb50_v75_buy.yaml
+    --config lob_impact/scenarios/1.aggressive_scenario_config.yaml   # the one example config
 ```
 
-Or launch a full grid via a launcher in `stage3_run/` (Docker / Isambard SLURM):
+Or launch the full grid (8 models × stocks × grid × direction) on Isambard. The launcher
+generates its own YAML configs at runtime — no pre-baked config tree is kept in the repo:
 
 ```bash
-sbatch lob_impact/stage3_run/run_isambard_c10x_v2.sh        # production: 8 models
-bash   lob_impact/stage3_run/run_all_5models_v4.sh          # Docker v4 grid
+sbatch lob_impact/stage3_run/run_isambard_c10x_v2.sh
 ```
 
 ## Dependency boundary — what the parent LOBS5 must provide
@@ -85,5 +84,7 @@ Owned **here** (`core/`):
   transferred** with this copy. To run CST, vendor `cst.py` + `param_estimation.py` (and the
   `params_file` the launchers reference) from the original `lob_bench/cst_model/`. Until then the
   S5 / historic / heuristic / CGAN scenarios are fully runnable; CST is not.
-- Verify a reorganized run with the smoke test before launching the full grid:
-  `sbatch lob_impact/stage3_run/run_isambard_smoke_test.sh`.
+- **Launcher is wired for the original `s5e` account.** `run_isambard_c10x_v2.sh` hardcodes
+  `PROJECT_DIR=/home/s5e/georgenigm.s5e/LOBS5_11_march`, `LUS=/lus/lfs1aip2/projects/s5e`
+  (data + checkpoints), and a conda env under another user's home. Update these for your
+  account/checkout before launching, and ensure `Alphatrade` resolves at `$PROJECT_DIR/Alphatrade`.
