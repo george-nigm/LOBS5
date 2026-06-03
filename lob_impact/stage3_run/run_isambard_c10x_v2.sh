@@ -36,9 +36,11 @@ CST_PARAMS_DIR="${PROJECT_DIR}/data/checkpoints/cst_params"
 # ── Model definitions ──
 # Format: "label|script|ckpt_path|checkpoint_step|book_dim|data_variant"
 declare -A MODELS=(
+    # STALE ckpt path: exp_J1-sparse-book-anchoring is gone at the new LUS base — set the current job ID before using.
     [lobs5]="LobS5|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J1-sparse-book-anchoring/checkpoints/j2633975_gao5ok51_2633975|61037|503|v3"
     [s5_150m]="S5-150M|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H1-scaling-law/checkpoints/j2514440_bkotgtm5_2514440|135458|503|v3"
     [s5_4k]="S5-4K|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|100378|503|v3"
+    # STALE ckpt path: exp_J2_muon_optimizer/checkpoints is empty at the new base; leaderboard now has S5-360m-adamw (different run). Set the current job ID before using.
     [s5_360m]="S5-360M|lob_impact/scenarios/1.aggressive_scenario_s5_v3.py|${LUS}/quant/AlphaTrade/experiments/exp_J2_muon_optimizer/checkpoints/j2731367_u5xps1po_2731367|34158|503|v3"
     [zero]="ZeroInsertions|lob_impact/scenarios/2.historic_scenario.py|||503|base"
     [historic]="Historic|lob_impact/scenarios/2.historic_scenario.py|||503|base"
@@ -47,7 +49,8 @@ declare -A MODELS=(
     [cgan]="CGAN|lob_impact/scenarios/5v2.aggressive_scenario_cgan.py|${PROJECT_DIR}/data/checkpoints/cgan|null|503|base"
 )
 
-ALL_MODEL_KEYS=(lobs5 s5_150m s5_4k s5_360m zero historic heuristic cst cgan)
+# Default run set excludes lobs5 / s5_360m (stale ckpt paths — re-add once their job IDs are set).
+ALL_MODEL_KEYS=(s5_150m s5_4k zero historic heuristic cst cgan)
 
 # Models that need GPU vs CPU-only
 GPU_MODELS="lobs5 s5_150m s5_4k s5_360m cgan"
