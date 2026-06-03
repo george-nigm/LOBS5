@@ -50,13 +50,13 @@ declare -A MODELS=(
   [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503"
 )
 MODEL_KEYS=(historic mamba3)
-STOCKS=(EA NVDA AMD)
+read -ra STOCKS <<< "${STOCKS:-EA NVDA AMD}"        # env-overridable: STOCKS="EA" for per-stock jobs
 # shape: "name|num_insertions|num_coolings|template|tag"   (tag = folder suffix: beta | relaxation)
 SHAPES=(
   "bet_composition|100|0|config_bet_composition.yaml|beta"        # Shape I  -> beta
   "beta_decay|10|100|config_beta_decay.yaml|relaxation"          # Shape II -> decay/relaxation
 )
-MB_VALUES=(5 10 15 20)
+read -ra MB_VALUES <<< "${MB_VALUES:-5 10 15 20}"   # env-overridable
 DIRECTIONS=(buy sell)
 declare -A STOCK_TICK=()        # e.g. ([EA]=100 [NVDA]=100 [AMD]=100)
 
@@ -70,8 +70,8 @@ if [ "$MODE" = "smoke" ]; then
   N_SAMPLES_OVERRIDE=64; SMOKE_N_INS=3      # user: 3 insertions, not 100 — just to check
   echo ">>> SMOKE: ${MODEL_KEYS[0]} x EA x bet_composition x buy x mb=5, n_samples=64, num_insertions=3"
 elif [ "$MODE" = "full" ]; then
-  N_SAMPLES_OVERRIDE=""
-  echo ">>> FULL: ${#MODEL_KEYS[@]} models x ${#STOCKS[@]} stocks x ${#SHAPES[@]} shapes x 2 dir x ${#MB_VALUES[@]} mb"
+  N_SAMPLES_OVERRIDE="${N_SAMPLES:-}"        # env-overridable; empty => use the config's n_samples
+  echo ">>> FULL: ${#MODEL_KEYS[@]} models x ${#STOCKS[@]} stocks x ${#SHAPES[@]} shapes x 2 dir x ${#MB_VALUES[@]} mb${N_SAMPLES_OVERRIDE:+ | n_samples=$N_SAMPLES_OVERRIDE}"
 else
   echo "usage: $0 {smoke|full} [model_key ...]" >&2; exit 2
 fi
