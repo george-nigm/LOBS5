@@ -362,7 +362,7 @@ def sample_aggressive_scenario(
         new_train_state, ckpt_path, step=checkpoint_step,
         train=False, partial_restore=True,
     )
-    print(f"Loaded checkpoint step: {ckpt['step']}")
+    print(f"Loaded checkpoint step: {ckpt.get('step', checkpoint_step)}")
     train_state = ckpt['model']
     model = model_cls(training=False, step_rescale=1.0)
 
