@@ -17,13 +17,17 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../lob_impact/3_scenarios
 IMPACT_DIR="$(dirname "$HERE")"                         # .../lob_impact
 REPO_ROOT="$(dirname "$IMPACT_DIR")"                    # .../LOBS5
+RUN_TS="$(date +%Y%m%d-%H%M%S)"                         # run timestamp for results/ + logs/
 
 # --- Env-overridable anchors -------------------------------------------------
 PROJECT_DIR="${PROJECT_DIR:-$REPO_ROOT}"
 DATA_MOUNT="${DATA_MOUNT:?set DATA_MOUNT to the mounted squashfs root (one subdir per ticker)}"
 CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/s5e/quant_team/quant/AlphaTrade/experiments}"
-SAVE_BASE="${SAVE_BASE:-${IMPACT_DIR}/data/evalsequences/impact_v4}"
+SAVE_BASE="${SAVE_BASE:-${HERE}/results/run_${RUN_TS}}"   # all outputs of this run, timestamped
+LOG="${HERE}/logs/run_${RUN_TS}.log"; mkdir -p "${HERE}/logs"
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
+exec > >(tee -a "$LOG") 2>&1                            # everything below is mirrored to the log
+echo ">>> run ${RUN_TS}  | log: ${LOG}"
 
 # --- Models (PLACEHOLDERS — fill ckpt_path / step / book_dim later) ----------
 # Format: "label|script|ckpt_path|checkpoint_step|book_dim"  (script relative to 3_scenarios/)

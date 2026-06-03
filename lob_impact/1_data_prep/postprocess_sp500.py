@@ -1,12 +1,13 @@
 #!/usr/bin/env python3.11
 """Post-process sp500 per-day stats: integer day-mean volume & msgs_btw,
 clean 3-panel histogram (volume, trade_frac, msgs_btw). Light: safe on login."""
-import csv, statistics as st
+import sys, csv, statistics as st
 import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-D = '/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/sp500_universe'
+# Directory holding msgs_btw_sp500_perday.csv (pass as argv[1]; defaults to cwd).
+D = sys.argv[1] if len(sys.argv) > 1 else '.'
 
 byt = {}
 for r in csv.DictReader(open(f'{D}/msgs_btw_sp500_perday.csv')):
