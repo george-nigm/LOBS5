@@ -16,8 +16,8 @@ to its own `logs/` folder.
 
 | Step | Folder | What it produces | How to run |
 |------|--------|------------------|-----------|
-| 1. Pick stocks | `1_data_prep/` | `msgs_between` table over the S&P500 + histograms → choose 3 stocks | `bash 1_data_prep/run_msgs_btw.sh` |
-| 2. Daily stats | `2_daily_stats/` | per-stock daily High/Low + execution volume (`daily_h_l_<STOCK>.csv`); order-depth calibration | `bash 2_daily_stats/run_daily_stats.sh` |
+| 1. Pick stocks | `1_data_prep/` | `msgs_between` table over the S&P500 + histograms → choose 3 stocks | `sbatch 1_data_prep/run_msgs_btw.sh` |
+| 2. Daily stats | `2_daily_stats/` | per-stock daily High/Low + execution volume (`daily_h_l_<STOCK>.csv`) | `sbatch 2_daily_stats/run_daily_stats.sh` |
 | 3. Experiments | `3_scenarios/` | injected-metaorder sequences for each model × stock × shape | `bash 3_scenarios/run_experiments.sh smoke` then `… full` |
 | 4. Diagnostics | `4_diagnostics/` | master curves, book-update and participation-rate plots; interactive notebook | *(in progress)* |
 | 5. Analysis | `5_analysis/beta/`, `5_analysis/decay/` | β (square-root law) and decay (relaxation, Hurst, propagator) | *(in progress)* |
@@ -34,26 +34,25 @@ and model**:
 
 ## Running it
 
-Data and model checkpoints live on the cluster and are referenced by environment variables, so
-nothing is hard-coded to one machine:
+Steps 1–2 are SLURM jobs that mount one month of S&P500 data themselves (default January 2026) —
+no manual mount needed. Step 3 needs a mounted data root and the model checkpoints.
 
 ```bash
-# point at a mounted month of S&P500 data (one subdirectory per ticker)
-export DATA_MOUNT=/path/to/mounted/shard
-
-# Step 1 — choose stocks
-bash lob_impact/1_data_prep/run_msgs_btw.sh
+# Step 1 — choose stocks (whole S&P500, January 2026 by default)
+sbatch lob_impact/1_data_prep/run_msgs_btw.sh
+# other month:  SHARD=shard_2025-12.squashfs sbatch lob_impact/1_data_prep/run_msgs_btw.sh
 
 # Step 2 — daily stats for the chosen stocks
-STOCKS="EA NVDA AMD" bash lob_impact/2_daily_stats/run_daily_stats.sh
+STOCKS="EA NVDA AMD" sbatch lob_impact/2_daily_stats/run_daily_stats.sh
 
-# Step 3 — fill the MODELS list in 3_scenarios/run_experiments.sh, then:
+# Step 3 — fill the MODELS list in 3_scenarios/run_experiments.sh, set DATA_MOUNT, then:
+export DATA_MOUNT=/path/to/mounted/shard
 bash lob_impact/3_scenarios/run_experiments.sh smoke   # quick check (1 combo, tiny sample)
 bash lob_impact/3_scenarios/run_experiments.sh full    # the grid
 ```
 
-Each run prints to the terminal and saves a copy under the step's `logs/`; outputs land under the
-step's `results/<name>_<timestamp>/`.
+Outputs land under each step's `results/<name>_<timestamp>/`; the full run log goes to the step's
+`logs/`.
 
 ## Requirements
 

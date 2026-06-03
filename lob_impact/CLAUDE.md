@@ -19,6 +19,11 @@ agent reasoning, TODOs, and conventions HERE.
   the full run log → `<action>/logs/<name>_<ts>.log`.
 - Each action's **launcher `run_*.sh` lives in its own action folder**. Pattern: compute `RUN_TS`,
   make `results/<name>_$RUN_TS` + `logs/`, run python, `tee` everything to the log.
+- **Shard mounting**: actions 1/2 launchers are SLURM scripts that self-mount one month shard via
+  `squashfuse_ll "$SRC/$SHARD" "$MNT"` (node-local `$TMPDIR`, trap-unmount on exit), default
+  `SHARD=shard_2026-01.squashfs` from `/lus/.../public/s5e/quant_team/lob_preproc_sp500_squashfs`
+  (recovered from the user's original `submit_sp500_msgs_btw.sbatch`). Action 3 still takes a
+  pre-set `DATA_MOUNT` — give it the same self-mount when wiring its cluster job.
 
 ## Structure rule (load-bearing)
 - **Only `core/` is importable** (`lob_impact.core`) — digit-prefixed folders (`1_…`–`5_…`) can't be
@@ -33,8 +38,9 @@ agent reasoning, TODOs, and conventions HERE.
    `postprocess_sp500.py` (day-mean table + 3-panel histogram; dir via `argv[1]`).
    Launcher: `run_msgs_btw.sh`. Goal: pick 3 stocks (EA/NVDA/AMD).
 2. **`2_daily_stats/`** — `compute_daily_stats.py` (NEW: daily H/L + execution_sum per stock →
-   `daily_h_l_<STOCK>.csv` for Parkinson σ; `--per-day` default / `--aggregate`),
-   `compute_depth_stats.py` (order-volume calibration from book depth-at-best percentiles).
+   `daily_h_l_<STOCK>.csv` for Parkinson σ; `--per-day` default / `--aggregate`).
+   `compute_depth_stats_outdated.py` — NOT used: order_volume is now chosen from historical market
+   orders, not book-depth percentiles (kept for reference; PICKLE_BASE points at the old s5e path).
    Launcher: `run_daily_stats.sh`.
 3. **`3_scenarios/`** — 8 scenario scripts + two shape configs + `run_experiments.sh`. THE core.
 4. **`4_diagnostics/`** — master curve / book update / participation + interactive notebook (to build).
