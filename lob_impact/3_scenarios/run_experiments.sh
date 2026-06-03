@@ -50,10 +50,10 @@ declare -A MODELS=(
 )
 MODEL_KEYS=(historic)
 STOCKS=(EA NVDA AMD)
-# shape: "name|num_insertions|num_coolings|template"
+# shape: "name|num_insertions|num_coolings|template|tag"   (tag = folder suffix: beta | relaxation)
 SHAPES=(
-  "bet_composition|100|0|config_bet_composition.yaml"   # Shape I  -> beta
-  "beta_decay|10|100|config_beta_decay.yaml"           # Shape II -> decay
+  "bet_composition|100|0|config_bet_composition.yaml|beta"        # Shape I  -> beta
+  "beta_decay|10|100|config_beta_decay.yaml|relaxation"          # Shape II -> decay/relaxation
 )
 MB_VALUES=(5 10 15 20)
 DIRECTIONS=(buy sell)
@@ -112,15 +112,16 @@ for model_key in "${MODEL_KEYS[@]}"; do
     DATA_DIR="${DATA_MOUNT}/${STOCK}"
     TICK="${STOCK_TICK[$STOCK]:-}"
     for shape_row in "${SHAPES[@]}"; do
-      IFS='|' read -r SHAPE_NAME N_INS N_COOL TEMPLATE <<< "$shape_row"
+      IFS='|' read -r SHAPE_NAME N_INS N_COOL TEMPLATE TAG <<< "$shape_row"
       [ -n "$SMOKE_N_INS" ] && N_INS="$SMOKE_N_INS"
       tmpl_path="${HERE}/${TEMPLATE}"
       for dir in "${DIRECTIONS[@]}"; do
         dir_int="$(dir_to_int "$dir")"
         for mb in "${MB_VALUES[@]}"; do
-          run_id="${LABEL}_${STOCK}_${SHAPE_NAME}_${dir}_mb${mb}"
-          SAVE_DIR="${SAVE_BASE}/${SHAPE_NAME}/${LABEL}/${STOCK}/${dir}/mb${mb}"
-          cfg_dir="${SAVE_BASE}/_configs/${SHAPE_NAME}/${LABEL}/${STOCK}"
+          scen="${STOCK}-${LABEL}-${TAG}"            # folder name: stock-model-(beta|relaxation)
+          run_id="${scen}_${dir}_mb${mb}"
+          SAVE_DIR="${SAVE_BASE}/${scen}/${dir}/mb${mb}"
+          cfg_dir="${SAVE_BASE}/_configs/${scen}"
           cfg_file="${cfg_dir}/cfg_${run_id}.yaml"
           mkdir -p "$cfg_dir" "$SAVE_DIR"
           render_config "$tmpl_path" "$cfg_file"
