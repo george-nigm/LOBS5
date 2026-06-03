@@ -29,7 +29,7 @@ set -euo pipefail
 
 # ── Isambard paths ──
 PROJECT_DIR="${PROJECT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5}"
-LUS="/lus/lfs1aip2/projects/s5e"
+LUS="/lus/lfs1aip2/projects/public/s5e/quant_team"   # quant/ space moved here (2026); checkpoints under $LUS/quant/AlphaTrade/experiments
 SAVE_BASE="${PROJECT_DIR}/data/evalsequences/aggressive_scenario_v3"
 CST_PARAMS_DIR="${PROJECT_DIR}/data/checkpoints/cst_params"
 
@@ -53,14 +53,19 @@ ALL_MODEL_KEYS=(lobs5 s5_150m s5_4k s5_360m zero historic heuristic cst cgan)
 GPU_MODELS="lobs5 s5_150m s5_4k s5_360m cgan"
 needs_gpu() { [[ " ${GPU_MODELS} " == *" $1 "* ]]; }
 
-# ── Stock data paths by variant ──
+# ── Stock data (S&P500) ──
+# Preprocessed S&P500 lives as monthly squashfs shards + a JSON index:
+#   ${SQUASHFS_DIR}/shard_YYYY-MM.squashfs   (inside: <TICKER>/<TICKER>_<date>_..._{message,orderbook}_10_proc.npy)
+#   ${SQUASHFS_DIR}/index_YYYY-MM.json
+SQUASHFS_DIR="${LUS}/lob_preproc_sp500_squashfs"
+#
+# TODO (not yet wired — see README "Known gaps"): the scenario reads a plain dir of *_proc.npy,
+# so the target month's shard must first be MOUNTED (squashfuse / apptainer) to expose <TICKER>/ dirs,
+# then data_dir = "${DATA_MOUNT}/${stock}". Also: shards are L10 (orderbook 43 cols) whereas the S5
+# checkpoints expect the L500 wide book (book_dim=503) — resolve the book-width transform before running.
 get_data_dir() {
     local stock=$1 variant=$2
-    case "${stock}_${variant}" in
-        GOOG_v2)   echo "${LUS}/lob_pipeline/data/GOOG_jan2026" ;;
-        GOOG_v3)   echo "${LUS}/lob_pipeline/data/GOOG_jan2026" ;;
-        GOOG_base) echo "${LUS}/lob_pipeline/data/GOOG_jan2026" ;;
-    esac
+    echo "${DATA_MOUNT:?set DATA_MOUNT to a mounted shard dir}/${stock}"
 }
 
 declare -A STOCK_TICK=(
