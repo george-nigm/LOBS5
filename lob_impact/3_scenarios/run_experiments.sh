@@ -26,6 +26,13 @@ SAVE_BASE="${SAVE_BASE:-${HERE}/results/grid}"   # STABLE consolidated root: all
                                                   # -> analysis points at ONE path (results/grid), not per-run dirs
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
+# --- per-day calibration (order_volume = daily-median MO = p50, mb per day) ---
+# PER_DAY=1 makes the scenario read per_day_params_<STOCK>.csv (Action-1 derived) and use a
+# per-day child(order_volume)=p50 + mb=msgs_btw, instead of the hardcoded template order_volume=75.
+PER_DAY="${PER_DAY:-}"
+PDP_DIR="${PDP_DIR:-${IMPACT_DIR}/1_data_prep/results/per_day_params}"
+N_PER_DAY="${N_PER_DAY:-8}"          # samples generated per day (also the batch size) in per-day mode
+
 # --- Python env (jax, lob, model deps) ---  (conda activate scripts aren't set -u safe)
 set +u
 source "${CONDA_SH:-/home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh}"
@@ -107,6 +114,7 @@ render_config() {
   TMPL="$tmpl" OUT="$out" STOCK="$STOCK" DATA_DIR="$DATA_DIR" CKPT="$CKPT" \
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
   N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" \
+  PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" \
   python3 - <<'PY'
 import os, yaml
 cfg = yaml.safe_load(open(os.environ["TMPL"]))
@@ -124,6 +132,13 @@ step = os.environ["CKPT_STEP"]
 cfg["checkpoint_step"] = None if step in ("", "null", "None", "PLACEHOLDER") else int(step)
 ov = os.environ["N_SAMPLES_OVERRIDE"]
 if ov: cfg["n_samples"] = int(ov)
+if os.environ.get("PER_DAY"):
+    # per-day calibration: child(order_volume)=p50 and mb come from the CSV per day (NOT the
+    # hardcoded 75). batch_size == n_samples_per_day so each day = one batch.
+    cfg["per_day_params"]    = os.path.join(os.environ["PDP_DIR"], f"per_day_params_{os.environ['STOCK']}.csv")
+    cfg["order_volume_mult"] = 1.0
+    cfg["n_samples_per_day"] = int(os.environ["NPD"])
+    cfg["batch_size"]        = int(os.environ["NPD"])
 yaml.safe_dump(cfg, open(os.environ["OUT"], "w"), sort_keys=False)
 PY
 }
