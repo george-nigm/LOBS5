@@ -325,6 +325,178 @@ def _snapshot(grid, exp, side, which='aggr', out=None):
     print(f'  wrote {out} ({os.path.getsize(out)/1e3:.0f} KB)')
 
 
+# --------------------------------------------------- standalone HTML (no kernel)
+def _delta_encode(books):
+    """books: (N,40) int -> (book0:list, deltas:list[[col,val],...]) vs previous row."""
+    b = books.astype(int)
+    book0 = b[0].tolist()
+    deltas = [[]]
+    for k in range(1, len(b)):
+        ch = np.nonzero(b[k] != b[k - 1])[0]
+        deltas.append([[int(c), int(b[k][c])] for c in ch])
+    return book0, deltas
+
+
+def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
+                max_steps=0, out=None):
+    """Self-contained interactive HTML player (Plotly.js via CDN, data embedded, delta-coded).
+    Same canonical look as lob_player but needs no Jupyter kernel — just open the file."""
+    import json
+    grid = os.path.abspath(grid)
+    exp_dir = discover(grid).get(exp, {}).get(side)
+    if not exp_dir:
+        raise SystemExit(f'no {exp}/{side} under {grid}')
+    samples = []
+    for tk, dt, sid, ob in list_samples(exp_dir):
+        if len(samples) >= n_samples:
+            break
+        books, msgs, junc, aggr, tick = load_sample(exp_dir, tk, dt, sid, ob)
+        if max_steps and max_steps < len(books):
+            books, msgs = books[:max_steps], msgs[:max_steps]
+            aggr = {i for i in aggr if i < max_steps}
+        book0, deltas = _delta_encode(books)
+        mids = [None if not np.isfinite(midprice(r)) else round(float(midprice(r)) / tick, 4)
+                for r in books]
+        samples.append(dict(
+            label=f'{dt} · id{sid}', n=len(books), junc=int(junc),
+            aggr=sorted(int(i) for i in aggr), book0=book0, deltas=deltas, mids=mids,
+            tick=tick,
+            # compact message: [event_type, direction, size, price_ticks, order_id, time]
+            msgs=[[int(m[1]), int(m[5]), int(m[3]), int(m[4]), int(m[2]), round(float(m[0]), 6)]
+                  for m in msgs]))
+    if not samples:
+        raise SystemExit('no samples')
+    payload = dict(exp=exp, side=side, tick=samples[0]['tick'], samples=samples)
+    html = _HTML.replace('%%TITLE%%', f'{exp} · {side}') \
+                .replace('%%DATA%%', json.dumps(payload, separators=(',', ':')))
+    out = out or os.path.join(HERE, 'results', 'book_player', f'player_{exp}_{side}.html')
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    open(out, 'w').write(html)
+    print(f'wrote {out}  ({os.path.getsize(out)/1e6:.1f} MB, {len(samples)} samples, '
+          f'{samples[0]["n"]} steps)')
+
+
+_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Book player — %%TITLE%%</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+ body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#fafafa;color:#1a1a1a;}
+ header{padding:9px 16px;background:#1a1a1a;color:#fff;display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;}
+ header h1{font-size:15px;margin:0;} header .sub{color:#9aa;font-size:12px;}
+ .wrap{max-width:1320px;margin:0 auto;padding:12px 16px;}
+ .ctl{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0;}
+ select,button{font:13px inherit;padding:5px 9px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;}
+ button:hover{background:#eef;} button:disabled{opacity:.4;cursor:default;}
+ #slider{flex:1;min-width:240px;}
+ #fig{width:100%;height:430px;}
+ .msgbar{padding:9px 12px;border-radius:8px;background:#fff;border:1px solid #e2e2e2;margin:8px 0;
+   display:flex;gap:13px;align-items:center;flex-wrap:wrap;font:13px ui-monospace,monospace;}
+ .tag{font-weight:700;padding:2px 8px;border-radius:5px;color:#fff;font-size:12px;}
+ .badge{background:#E67E22;color:#fff;font-weight:700;padding:2px 8px;border-radius:5px;font-size:12px;}
+ .legend{font-size:12px;color:#666;margin-top:6px;}
+ .legend b{padding:1px 6px;border-radius:3px;} kbd{background:#eee;border:1px solid #ccc;border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:11px;}
+</style></head><body>
+<header><h1>📖 Order-book player</h1><span class="sub" id="hsub"></span>
+ <span class="sub">step with <kbd>←</kbd> <kbd>→</kbd> · click the mid chart to jump</span></header>
+<div class="wrap">
+ <div class="ctl">
+  <label>sample <select id="sample"></select></label>
+  <button id="junc">→ junction</button><button id="prev">◀</button>
+  <input id="slider" type="range" min="0" value="0">
+  <button id="next">▶</button><button id="nagg">→ next aggr</button>
+  <span id="info" class="sub" style="color:#333;min-width:120px;"></span>
+ </div>
+ <div id="fig"></div>
+ <div class="msgbar" id="msgbar"></div>
+ <p class="legend">change on “стало”:
+  <b style="background:rgba(192,57,43,.18);outline:1px solid #C0392B">red = volume ↑ (added)</b>&nbsp;
+  <b style="background:rgba(47,93,163,.18);outline:1px solid #2F5DA3">blue = volume ↓ (executed/removed)</b>
+  &nbsp;— an executed level is in “было” and gone (gap) in “стало”.</p>
+</div>
+<script>
+const DATA=%%DATA%%, TICK=DATA.tick||1, SENT=2147483647;
+const EV={1:'LIMIT',2:'CANCEL',3:'DELETE',4:'EXECUTE',5:'HID-EXEC',6:'CROSS'};
+const EVC={1:'#2F5DA3',2:'#7F8C8D',3:'#C0392B',4:'#111',5:'#8E44AD',6:'#E67E22'};
+const GRAY='#BBBBBB',UP='#C0392B',DOWN='#2F5DA3';
+let S=null,rows=null,k=0,AGG=null;
+
+function reconstruct(s){const r=new Array(s.n);let cur=s.book0.slice();r[0]=cur.slice();
+ for(let i=1;i<s.n;i++){for(const[c,v]of s.deltas[i])cur[c]=v;r[i]=cur.slice();}return r;}
+function sides(row){const a={},b={};for(let l=0;l<10;l++){
+  const ap=row[4*l],av=row[4*l+1],bp=row[4*l+2],bv=row[4*l+3];
+  if(ap>0&&ap<SENT&&av>0)a[ap]=(a[ap]||0)+av; if(bp>0&&bp<SENT&&bv>0)b[bp]=(b[bp]||0)+bv;}return{a,b};}
+function bars(row,prev,diff){const cur=sides(row),pv=prev?sides(prev):{a:{},b:{}};
+ const x=[],y=[],c=[];
+ const col=(v,q)=>(!diff||v===q)?GRAY:(v>q?UP:DOWN);
+ for(const p of Object.keys(cur.a).map(Number).sort((u,w)=>u-w)){x.push(p/TICK);y.push(cur.a[p]);c.push(col(cur.a[p],pv.a[p]||0));}
+ for(const p of Object.keys(cur.b).map(Number).sort((u,w)=>u-w)){x.push(p/TICK);y.push(-cur.b[p]);c.push(col(cur.b[p],pv.b[p]||0));}
+ return{x,y,c};}
+function rangeOf(a,b){const xs=a.x.concat(b.x);if(!xs.length)return null;
+ return{x:[Math.min(...xs)-0.6,Math.max(...xs)+0.6],
+        y:Math.max(1,...a.y.concat(b.y).map(Math.abs))*1.12};}
+
+function initFig(){
+ const mids=S.mids.map((v,i)=>v), xs=[...Array(S.n).keys()];
+ const av=S.aggr.filter(i=>i<S.n);
+ Plotly.newPlot('fig',[
+  {type:'bar',x:[],y:[],marker:{color:GRAY},width:0.4,xaxis:'x',yaxis:'y',hoverinfo:'x+y'},
+  {type:'bar',x:[],y:[],marker:{color:[]},width:0.4,xaxis:'x2',yaxis:'y2',hoverinfo:'x+y'},
+  {type:'scatter',x:xs,y:mids,mode:'lines',line:{color:'#1a1a1a',width:1},xaxis:'x3',yaxis:'y3',hoverinfo:'x+y'},
+  {type:'scatter',x:av,y:av.map(i=>mids[i]),mode:'markers',marker:{color:'#2E7D52',size:6,symbol:'triangle-up'},xaxis:'x3',yaxis:'y3',hoverinfo:'x'}
+ ],{
+  template:'plotly_white',showlegend:false,height:430,margin:{l:50,r:15,t:34,b:34},bargap:0.1,
+  xaxis:{domain:[0,0.3],title:'price'},yaxis:{title:'qty (ask + / bid −)'},
+  xaxis2:{domain:[0.35,0.65],title:'price'},yaxis2:{anchor:'x2'},
+  xaxis3:{domain:[0.72,1],title:'step'},yaxis3:{anchor:'x3',title:'mid'},
+  annotations:[
+   {text:'Было — t-1',x:0.15,y:1.06,xref:'paper',yref:'paper',showarrow:false,font:{size:12}},
+   {text:'Стало — t',x:0.5,y:1.06,xref:'paper',yref:'paper',showarrow:false,font:{size:12}},
+   {text:'Mid-price',x:0.86,y:1.06,xref:'paper',yref:'paper',showarrow:false,font:{size:12}}],
+  shapes:[
+   {type:'line',xref:'x3',yref:'paper',x0:0,x1:0,y0:0,y1:1,line:{color:'#888',width:1,dash:'dash'}},
+   {type:'line',xref:'x3',yref:'paper',x0:S.junc,x1:S.junc,y0:0,y1:1,line:{color:'#C0392B',width:2}}]
+ },{displayModeBar:false,responsive:true});
+ document.getElementById('fig').on('plotly_click',e=>{
+  if(e.points&&e.points[0].data.xaxis==='x3')setK(Math.round(e.points[0].x));});
+}
+function render(){
+ const before=bars(rows[Math.max(0,k-1)],null,false), after=bars(rows[k],rows[Math.max(0,k-1)],true);
+ const rg=rangeOf(before,after);
+ Plotly.restyle('fig',{x:[before.x],y:[before.y]},[0]);
+ Plotly.restyle('fig',{x:[after.x],y:[after.y],'marker.color':[after.c]},[1]);
+ const up={'shapes[0].x0':k,'shapes[0].x1':k,
+  'annotations[0].text':'Было — t='+(k-1),'annotations[1].text':'Стало — t='+k};
+ if(rg){up['xaxis.range']=rg.x;up['xaxis2.range']=rg.x;up['yaxis.range']=[-rg.y,rg.y];up['yaxis2.range']=[-rg.y,rg.y];}
+ Plotly.relayout('fig',up);
+ document.getElementById('slider').value=k;
+ document.getElementById('info').textContent='step '+k+' / '+(S.n-1);
+ document.getElementById('prev').disabled=(k<=0); document.getElementById('next').disabled=(k>=S.n-1);
+ const m=S.msgs[k],side=m[1]>0?'BUY/bid':'SELL/ask',agg=AGG.has(k);
+ document.getElementById('msgbar').innerHTML=
+  '<span class="tag" style="background:'+(EVC[m[0]]||'#555')+'">'+(EV[m[0]]||('et'+m[0]))+'</span>'+
+  '<b>'+side+'</b><span>'+m[2]+' @ <b>'+(m[3]/TICK).toFixed(TICK>=100?2:0)+'</b></span>'+
+  '<span class="sub">order '+m[4]+' · t='+m[5]+'</span>'+(agg?'<span class="badge">◆ AGGRESSIVE</span>':'');
+}
+function setK(n){k=Math.max(0,Math.min(S.n-1,n));render();}
+function nextAgg(){for(const i of S.aggr)if(i>k){setK(i);return;}}
+function load(idx){S=DATA.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
+ const sl=document.getElementById('slider');sl.max=S.n-1;
+ document.getElementById('hsub').textContent=DATA.exp+' · '+DATA.side+' · '+S.label+' · '+S.n+' msgs · '+S.aggr.length+' insertions';
+ initFig();k=Math.min(S.junc,S.n-1);render();}
+const sel=document.getElementById('sample');
+DATA.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+s.label;sel.appendChild(o);});
+sel.onchange=()=>load(+sel.value);
+document.getElementById('prev').onclick=()=>setK(k-1);
+document.getElementById('next').onclick=()=>setK(k+1);
+document.getElementById('junc').onclick=()=>setK(S.junc);
+document.getElementById('nagg').onclick=nextAgg;
+document.getElementById('slider').oninput=e=>setK(+e.target.value);
+window.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){setK(k+1);e.preventDefault();}else if(e.key==='ArrowLeft'){setK(k-1);e.preventDefault();}});
+load(0);
+</script></body></html>
+"""
+
+
 if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser()
@@ -332,6 +504,13 @@ if __name__ == '__main__':
     ap.add_argument('--exp', default='EA-Mamba3-beta')
     ap.add_argument('--side', default='buy', choices=['buy', 'sell'])
     ap.add_argument('--step', default='aggr', help="'aggr' (first insertion) | int step")
+    ap.add_argument('--html', action='store_true',
+                    help='write a self-contained interactive HTML player (no kernel needed)')
+    ap.add_argument('--n_samples', type=int, default=6)
+    ap.add_argument('--max_steps', type=int, default=0)
     ap.add_argument('--out', default=None)
     a = ap.parse_args()
-    _snapshot(a.grid, a.exp, a.side, a.step, a.out)
+    if a.html:
+        export_html(a.grid, a.exp, a.side, a.n_samples, a.max_steps, a.out)
+    else:
+        _snapshot(a.grid, a.exp, a.side, a.step, a.out)
