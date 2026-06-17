@@ -171,6 +171,14 @@ for model_key in "${MODEL_KEYS[@]}"; do
         mkdir -p "$SAVE_DIR"
         render_config "$tmpl_path" "$cfg_file"
         echo "=== ${scen}/${dir} (mb=${mb}) ===  save=${SAVE_DIR}"
+        # Warm the FUSE listing of the stock dir before python globs it — squashfuse can return an
+        # empty nested-dir listing on first access right after mount (get_dataset would then see 0
+        # files -> IndexError on day_indeces). Retry until the .npy files are visible.
+        for _try in 1 2 3 4 5; do
+          n_npy=$(ls "${DATA_DIR}"/*message*.npy 2>/dev/null | wc -l)
+          [ "$n_npy" -gt 0 ] && break
+          echo "  [warm-up] ${DATA_DIR} not visible yet (try ${_try}), waiting…" >&2; sleep 3
+        done
         python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
       done
     done
