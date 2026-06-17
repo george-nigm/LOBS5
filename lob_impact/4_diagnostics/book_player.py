@@ -75,6 +75,22 @@ def list_samples(exp_dir):
     return res
 
 
+def pick_across_days(samples, n):
+    """Round-robin across distinct days so a small subset spans as many days as possible."""
+    by_day = {}
+    for s in samples:
+        by_day.setdefault(s[1], []).append(s)
+    days = sorted(by_day)
+    out = []
+    while len(out) < n and any(by_day[d] for d in days):
+        for d in days:
+            if by_day[d]:
+                out.append(by_day[d].pop(0))
+                if len(out) >= n:
+                    break
+    return out
+
+
 def load_sample(exp_dir, ticker, date, sid, ob_file):
     """Stack cond+gen books/msgs. Returns (books, msgs, junction, aggr_set, tick)."""
     gb, gm = _csv(ob_file), _csv(ob_file.replace('orderbook', 'message'))
@@ -161,7 +177,7 @@ def lob_player(grid=GRID, exp='EA-Mamba3-beta', side='buy', max_samples=16):
     exp_dir = discover(grid).get(exp, {}).get(side)
     if not exp_dir:
         raise SystemExit(f'no {exp}/{side} under {grid}')
-    samples = list_samples(exp_dir)[:max_samples]
+    samples = pick_across_days(list_samples(exp_dir), max_samples)
     if not samples:
         raise SystemExit('no samples')
 
@@ -347,9 +363,7 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
     if not exp_dir:
         raise SystemExit(f'no {exp}/{side} under {grid}')
     samples = []
-    for tk, dt, sid, ob in list_samples(exp_dir):
-        if len(samples) >= n_samples:
-            break
+    for tk, dt, sid, ob in pick_across_days(list_samples(exp_dir), n_samples):
         books, msgs, junc, aggr, tick = load_sample(exp_dir, tk, dt, sid, ob)
         if max_steps and max_steps < len(books):
             books, msgs = books[:max_steps], msgs[:max_steps]
@@ -366,7 +380,17 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
                   for m in msgs]))
     if not samples:
         raise SystemExit('no samples')
-    payload = dict(exp=exp, side=side, tick=samples[0]['tick'], samples=samples)
+    parts = exp.split('-')
+    stock = parts[0]
+    model = parts[1] if len(parts) > 2 else '?'
+    shape = parts[-1]
+    ov = re.search(r'^order_volume\s*:\s*([0-9]+)', open(os.path.join(exp_dir, 'config.yaml')).read(), re.M) \
+        if os.path.exists(os.path.join(exp_dir, 'config.yaml')) else None
+    order_volume = int(ov.group(1)) if ov else None
+    days = sorted({s['label'].split(' · ')[0] for s in samples})
+    payload = dict(exp=exp, side=side, stock=stock, model=model, shape=shape,
+                   order_volume=order_volume, n_total=len(list_samples(exp_dir)),
+                   days=days, tick=samples[0]['tick'], samples=samples)
     html = _HTML.replace('%%TITLE%%', f'{exp} · {side}') \
                 .replace('%%DATA%%', json.dumps(payload, separators=(',', ':')))
     out = out or os.path.join(HERE, 'results', 'book_player', f'player_{exp}_{side}.html')
@@ -396,7 +420,9 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .legend{font-size:12px;color:#666;margin-top:6px;}
  .legend b{padding:1px 6px;border-radius:3px;} kbd{background:#eee;border:1px solid #ccc;border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:11px;}
 </style></head><body>
-<header><h1>📖 Order-book player</h1><span class="sub" id="hsub"></span>
+<header><h1>📖 Order-book player</h1>
+ <span id="stock" style="font-size:15px;font-weight:700;color:#E8B04B"></span>
+ <span class="sub" id="hsub"></span>
  <span class="sub">step with <kbd>←</kbd> <kbd>→</kbd> · click the mid chart to jump</span></header>
 <div class="wrap">
  <div class="ctl">
@@ -481,10 +507,15 @@ function setK(n){k=Math.max(0,Math.min(S.n-1,n));render();}
 function nextAgg(){for(const i of S.aggr)if(i>k){setK(i);return;}}
 function load(idx){S=DATA.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
  const sl=document.getElementById('slider');sl.max=S.n-1;
- document.getElementById('hsub').textContent=DATA.exp+' · '+DATA.side+' · '+S.label+' · '+S.n+' msgs · '+S.aggr.length+' insertions';
+ const day=S.label.split(' · ')[0];
+ document.getElementById('stock').textContent='📈 '+DATA.stock;
+ document.getElementById('hsub').innerHTML=DATA.model+'/'+DATA.shape+' · '+DATA.side+
+   ' · <b>day '+day+'</b> · '+S.label.split(' · ')[1]+
+   ' · '+S.n+' msgs · '+S.aggr.length+' insertions · order_volume=<b>'+DATA.order_volume+'</b>'+
+   ' · sample '+(idx+1)+'/'+DATA.samples.length+' (of '+DATA.n_total+' on disk, '+DATA.days.length+' days)';
  initFig();k=Math.min(S.junc,S.n-1);render();}
 const sel=document.getElementById('sample');
-DATA.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+s.label;sel.appendChild(o);});
+DATA.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+DATA.stock+' · '+s.label;sel.appendChild(o);});
 sel.onchange=()=>load(+sel.value);
 document.getElementById('prev').onclick=()=>setK(k-1);
 document.getElementById('next').onclick=()=>setK(k+1);
