@@ -175,13 +175,16 @@ for model_key in "${MODEL_KEYS[@]}"; do
         mkdir -p "$SAVE_DIR"
         render_config "$tmpl_path" "$cfg_file"
         echo "=== ${scen}/${dir} (mb=${mb}) ===  save=${SAVE_DIR}"
-        # Warm the FUSE listing of the stock dir before python globs it — squashfuse can return an
-        # empty nested-dir listing on first access right after mount (get_dataset would then see 0
-        # files -> IndexError on day_indeces). Retry until the .npy files are visible.
-        for _try in 1 2 3 4 5; do
-          n_npy=$(ls "${DATA_DIR}"/*message*.npy 2>/dev/null | wc -l)
-          [ "$n_npy" -gt 0 ] && break
-          echo "  [warm-up] ${DATA_DIR} not visible yet (try ${_try}), waiting…" >&2; sleep 3
+        # Verify the squashfuse mount is visible to PYTHON's glob (the warm bash listing right after
+        # mount can succeed while python's get_dataset — called tens of seconds later, after model
+        # load — sees an empty dir -> IndexError on day_indeces). Probe with python, log bash/python
+        # counts + squashfuse liveness, and wait until python sees the .npy files.
+        for _try in $(seq 1 10); do
+          pyn=$(python -c "import glob;print(len(glob.glob('${DATA_DIR}/*message*.npy')))" 2>/dev/null)
+          bn=$(ls "${DATA_DIR}"/*message*.npy 2>/dev/null | wc -l)
+          echo "  [mount-probe ${_try}] bash=${bn} python=${pyn:-?} squashfuse=$(pgrep -c squashfuse_ll 2>/dev/null)" >&2
+          [ "${pyn:-0}" -gt 0 ] && break
+          sleep 3
         done
         python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
       done
