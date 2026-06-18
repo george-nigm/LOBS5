@@ -397,9 +397,14 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
             used = set()
             for i in range(1, (len(cmsgs) - junc) // mb + 2):
                 e = junc + i * mb            # scheduled insertion step
-                for j in range(max(junc, e - 9), min(len(cmsgs), e + 9)):
-                    if j not in used and cmsgs[j][0] == 4 and cmsgs[j][2] == child:
-                        aggr2.append(j); used.add(j); break
+                # the planted market order sits at ~e as an et=4 whose size is min(child, avail)
+                # -> it may be a PARTIAL fill (< child) when the touch is thin; match size<=child
+                # and take the one nearest the schedule step.
+                cands = [j for j in range(max(junc, e - 4), min(len(cmsgs), e + 5))
+                         if j not in used and cmsgs[j][0] == 4 and 0 < cmsgs[j][2] <= child]
+                if cands:
+                    j = min(cands, key=lambda j: abs(j - e))
+                    aggr2.append(j); used.add(j)
             aggr2 = sorted(set(aggr2))
         else:                                 # fallback: the (possibly off) recorded indices
             aggr2 = sorted(int(i) for i in aggr if int(i) < len(cmsgs))
@@ -473,6 +478,7 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  <div id="fig"></div>
  <div class="msgbar" id="msgbar"></div>
  <div class="msgbar" id="statbar" style="background:#f7f9fc;"></div>
+ <div class="msgbar" id="insbar" style="background:#fbf6ef;"></div>
  <div id="daytable"></div>
  <p class="legend">change on “стало”:
   <b style="background:rgba(192,57,43,.18);outline:1px solid #C0392B">red = volume ↑ (added)</b>&nbsp;
@@ -578,6 +584,11 @@ function load(idx){S=DATA.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
    ' · '+S.label.split(' · ')[1]+' · '+S.n+' msgs · '+S.aggr.length+' aggressive · '+
    'sample '+(idx+1)+'/'+DATA.samples.length+' ('+DATA.n_total+' on disk · '+(DATA.daytable||DATA.days).length+' days)';
  dayTable(day);
+ // clickable list of THIS sample's aggressive insertions (step, gen-idx, executed size)
+ let ins='<span class="sub">вставки ('+S.aggr.length+'):</span>';
+ S.aggr.forEach((a,i)=>{const sz=S.msgs[a]?S.msgs[a][2]:'?';
+   ins+=' <button onclick="setK('+a+')" title="gen '+(a-S.junc)+'" style="padding:2px 7px">#'+(i+1)+': шаг '+a+' <span class="sub">(gen '+(a-S.junc)+', '+sz+' sh)</span></button>';});
+ document.getElementById('insbar').innerHTML=ins;
  initFig();k=Math.min(S.junc,S.n-1);render();}
 const sel=document.getElementById('sample');
 DATA.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+DATA.stock+' · '+s.label;sel.appendChild(o);});
