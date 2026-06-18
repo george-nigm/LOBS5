@@ -491,6 +491,10 @@ const EV={1:'LIMIT',2:'CANCEL',3:'DELETE',4:'EXECUTE',5:'HID-EXEC',6:'CROSS'};
 const EVC={1:'#2F5DA3',2:'#7F8C8D',3:'#C0392B',4:'#111',5:'#8E44AD',6:'#E67E22'};
 const GRAY='#BBBBBB',UP='#C0392B',DOWN='#2F5DA3';
 let S=null,rows=null,k=0,AGG=null;
+function hms(t){ // LOBSTER time = seconds after midnight -> HH:MM:SS.mmm
+ if(t==null)return'?'; const s=Math.floor(t), ms=Math.round((t-s)*1000);
+ const p=(n,w)=>String(n).padStart(w||2,'0');
+ return p(Math.floor(s/3600))+':'+p(Math.floor(s%3600/60))+':'+p(s%60)+'.'+p(ms,3);}
 
 function reconstruct(s){const r=new Array(s.n);let cur=s.book0.slice();r[0]=cur.slice();
  for(let i=1;i<s.n;i++){for(const[c,v]of s.deltas[i])cur[c]=v;r[i]=cur.slice();}return r;}
@@ -556,7 +560,7 @@ function render(){
   '<span class="tag" style="background:'+(EVC[m[0]]||'#555')+'">'+(EV[m[0]]||('et'+m[0]))+'</span>'+
   '<span>'+m[2]+' @ <b>'+(m[3]/TICK).toFixed(TICK>=100?2:0)+'</b></span>'+
   '<span class="sub">side: '+restSide+'</span>'+
-  '<span class="sub">order '+m[4]+' · t='+m[5]+'</span>'+
+  '<span class="sub">order '+m[4]+' · '+hms(m[5])+'</span>'+
   (agg?'<span class="badge">◆ AGGRESSIVE '+EXP+'</span>':'');
  // bottom stat line (per-day calibration table values): day | child volume (p50) | msgs_btw (mb)
  document.getElementById('statbar').innerHTML=
