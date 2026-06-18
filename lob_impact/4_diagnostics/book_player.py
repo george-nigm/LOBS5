@@ -337,7 +337,7 @@ def _snapshot(grid, exp, side, which='aggr', out=None):
                       margin=dict(l=40, r=20, t=40, b=35), title=f'{exp} · {side} · step {t}')
     out = out or os.path.join(HERE, 'results', 'book_player', f'snapshot_{exp}_{side}.html')
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    fig.write_html(out, include_plotlyjs='cdn')
+    fig.write_html(out, include_plotlyjs=True)
     print(f'  wrote {out} ({os.path.getsize(out)/1e3:.0f} KB)')
 
 
@@ -422,8 +422,11 @@ def _build_dataset(grid, exp, side, n_samples=6, max_steps=0):
 
 def _write_html(datasets, out, title):
     import json
+    from plotly.offline import get_plotlyjs          # inline Plotly -> fully self-contained, works OFFLINE
     payload = dict(datasets=datasets)
-    html = _HTML.replace('%%TITLE%%', title).replace('%%DATA%%', json.dumps(payload, separators=(',', ':')))
+    html = (_HTML.replace('%%TITLE%%', title)
+                 .replace('%%PLOTLYJS%%', get_plotlyjs())
+                 .replace('%%DATA%%', json.dumps(payload, separators=(',', ':'))))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write(html)
     ns = sum(len(d['samples']) for d in datasets)
@@ -464,7 +467,7 @@ def export_multi_html(grid=GRID, stocks=('EA', 'NVDA', 'AMD'), models=('Historic
 
 _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <title>Book player — %%TITLE%%</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>%%PLOTLYJS%%</script>
 <style>
  body{font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#fafafa;color:#1a1a1a;}
  header{padding:9px 16px;background:#1a1a1a;color:#fff;display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;}
