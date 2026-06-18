@@ -50,7 +50,9 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   # Hold an fd on the node-local scratch root: it is an autofs auto-mount that idle-expires after
   # ~30-40s, and during the long model load nothing touches it -> autofs unmounts it, wiping the
   # squashfuse mount AND staged data under it (-> get_dataset sees an empty dir -> IndexError).
-  exec 9<"$TMPROOT" 2>/dev/null || true
+  # NOTE: do NOT append 2>/dev/null to a command-less `exec` — that makes the redirect PERMANENT and
+  # silences the whole script's stderr. Keep the fd-hold on its own line.
+  exec 9<"$TMPROOT" || echo "[scratch] WARN: could not hold fd on $TMPROOT" >&2
   echo "[scratch] $TMPROOT fstype=$(stat -f -c %T "$TMPROOT" 2>/dev/null) | $(grep -m1 " $TMPROOT " /proc/self/mounts 2>/dev/null)" >&2
   DATA_MOUNT="${TMPROOT}/s5e_mnt_${SLURM_JOB_ID:-$$}"
   mkdir -p "$DATA_MOUNT"
