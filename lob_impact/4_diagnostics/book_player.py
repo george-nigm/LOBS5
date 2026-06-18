@@ -386,7 +386,7 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         ref = next((mids[i] for i in range(a0 - 1, -1, -1) if mids[i] is not None), None)
         child, mb = pdp.get(dt, (None, None))
         # compact message: [event_type, direction, size, price_ticks, order_id, time]
-        cmsgs = [[int(m[1]), int(m[5]), int(m[3]), int(m[4]), int(m[2]), round(float(m[0]), 6)]
+        cmsgs = [[int(m[1]), int(m[5]), int(m[3]), int(m[4]), int(m[2]), round(float(m[0]), 9)]
                  for m in msgs]
         # Find the aggressive executions PER SAMPLE directly (do NOT trust aggressive_indices.csv: in
         # per-day mode it is ONE file for the whole experiment, but each day has a different mb, so its
@@ -491,10 +491,11 @@ const EV={1:'LIMIT',2:'CANCEL',3:'DELETE',4:'EXECUTE',5:'HID-EXEC',6:'CROSS'};
 const EVC={1:'#2F5DA3',2:'#7F8C8D',3:'#C0392B',4:'#111',5:'#8E44AD',6:'#E67E22'};
 const GRAY='#BBBBBB',UP='#C0392B',DOWN='#2F5DA3';
 let S=null,rows=null,k=0,AGG=null;
-function hms(t){ // LOBSTER time = seconds after midnight -> HH:MM:SS.mmm
- if(t==null)return'?'; const s=Math.floor(t), ms=Math.round((t-s)*1000);
+function hms(t){ // LOBSTER time = seconds after midnight -> HH:MM:SS.nnnnnnnnn (+ raw seconds)
+ if(t==null)return'?'; const s=Math.floor(t), ns=Math.round((t-s)*1e9);
  const p=(n,w)=>String(n).padStart(w||2,'0');
- return p(Math.floor(s/3600))+':'+p(Math.floor(s%3600/60))+':'+p(s%60)+'.'+p(ms,3);}
+ return p(Math.floor(s/3600))+':'+p(Math.floor(s%3600/60))+':'+p(s%60)+'.'+p(ns,9)+
+        ' <span class="sub">('+t.toFixed(9)+'s)</span>';}
 
 function reconstruct(s){const r=new Array(s.n);let cur=s.book0.slice();r[0]=cur.slice();
  for(let i=1;i<s.n;i++){for(const[c,v]of s.deltas[i])cur[c]=v;r[i]=cur.slice();}return r;}
