@@ -388,17 +388,21 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         # compact message: [event_type, direction, size, price_ticks, order_id, time]
         cmsgs = [[int(m[1]), int(m[5]), int(m[3]), int(m[4]), int(m[2]), round(float(m[0]), 6)]
                  for m in msgs]
-        # Relocate each recorded aggressive index to the ACTUAL aggressive EXECUTION (et=4, size==child):
-        # the scenario records schedule positions, off by the messages the aggressive order itself
-        # generates. The real metaorder fill is the et=4 of size==child just before the recorded index.
-
-        def _reloc(i):
-            if child:
-                for j in range(min(i, len(cmsgs) - 1), max(-1, i - 14), -1):
-                    if cmsgs[j][0] == 4 and cmsgs[j][2] == child:
-                        return j
-            return i
-        aggr2 = sorted({_reloc(int(i)) for i in aggr if int(i) < len(cmsgs)})
+        # Find the aggressive executions PER SAMPLE directly (do NOT trust aggressive_indices.csv: in
+        # per-day mode it is ONE file for the whole experiment, but each day has a different mb, so its
+        # positions are only right for the one day that wrote it last). The metaorder fills are the
+        # et=4 messages of size==child at ~mb spacing in the gen region (step > junction).
+        aggr2 = []
+        if child and mb and mb > 0:
+            used = set()
+            for i in range(1, (len(cmsgs) - junc) // mb + 2):
+                e = junc + i * mb            # scheduled insertion step
+                for j in range(max(junc, e - 9), min(len(cmsgs), e + 9)):
+                    if j not in used and cmsgs[j][0] == 4 and cmsgs[j][2] == child:
+                        aggr2.append(j); used.add(j); break
+            aggr2 = sorted(set(aggr2))
+        else:                                 # fallback: the (possibly off) recorded indices
+            aggr2 = sorted(int(i) for i in aggr if int(i) < len(cmsgs))
         samples.append(dict(
             label=f'{dt} · id{sid}', day=dt, n=len(books), junc=int(junc),
             child=child, mb=mb, ref=ref,
