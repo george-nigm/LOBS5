@@ -337,7 +337,7 @@ def _snapshot(grid, exp, side, which='aggr', out=None):
                       margin=dict(l=40, r=20, t=40, b=35), title=f'{exp} · {side} · step {t}')
     out = out or os.path.join(HERE, 'results', 'book_player', f'snapshot_{exp}_{side}.html')
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    fig.write_html(out, include_plotlyjs=True)
+    fig.write_html(out, include_plotlyjs='cdn')
     print(f'  wrote {out} ({os.path.getsize(out)/1e3:.0f} KB)')
 
 
@@ -353,11 +353,15 @@ def _delta_encode(books):
     return book0, deltas
 
 
-def _build_dataset(grid, exp, side, n_samples=6, max_steps=0):
-    """Build one embedded dataset dict for (exp, side), or None if it has no data."""
+def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
+                max_steps=0, out=None):
+    """Self-contained interactive HTML player (Plotly.js via CDN, data embedded, delta-coded).
+    Same canonical look as lob_player but needs no Jupyter kernel — just open the file."""
+    import json
+    grid = os.path.abspath(grid)
     exp_dir = discover(grid).get(exp, {}).get(side)
     if not exp_dir:
-        return None
+        raise SystemExit(f'no {exp}/{side} under {grid}')
     # per-day child (the order_volume that actually executes that day, =p50) from per_day_params —
     # this is the real per-day stat (NOT the stale config order_volume=75).
     pdp = {}  # day -> (child=p50 volume, mb=msgs_btw)
@@ -409,60 +413,29 @@ def _build_dataset(grid, exp, side, n_samples=6, max_steps=0):
             child=child, mb=mb, ref=ref,
             aggr=aggr2, book0=book0, deltas=deltas, mids=mids, tick=tick, msgs=cmsgs))
     if not samples:
-        return None
+        raise SystemExit('no samples')
     parts = exp.split('-')
     stock = parts[0]
     model = parts[1] if len(parts) > 2 else '?'
     shape = parts[-1]
+    ov = re.search(r'^order_volume\s*:\s*([0-9]+)', open(os.path.join(exp_dir, 'config.yaml')).read(), re.M) \
+        if os.path.exists(os.path.join(exp_dir, 'config.yaml')) else None
+    order_volume = int(ov.group(1)) if ov else None
+    days = sorted({s['label'].split(' · ')[0] for s in samples})
+    # full per-day calibration table (ALL days), so the player can show day/child/mb for every day
     daytable = [{'day': d, 'child': c, 'mb': m} for d, (c, m) in sorted(pdp.items())]
-    return dict(exp=exp, side=side, stock=stock, model=model, shape=shape,
-                n_total=len(list_samples(exp_dir)), daytable=daytable,
-                tick=samples[0]['tick'], samples=samples)
-
-
-def _write_html(datasets, out, title):
-    import json
-    from plotly.offline import get_plotlyjs          # inline Plotly -> fully self-contained, works OFFLINE
-    payload = dict(datasets=datasets)
-    html = (_HTML.replace('%%TITLE%%', title)
-                 .replace('%%PLOTLYJS%%', get_plotlyjs())
-                 .replace('%%DATA%%', json.dumps(payload, separators=(',', ':'))))
-    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    open(out, 'w').write(html)
-    ns = sum(len(d['samples']) for d in datasets)
-    print(f'wrote {out}  ({os.path.getsize(out)/1e6:.1f} MB, {len(datasets)} datasets, {ns} samples)')
-
-
-def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6, max_steps=0, out=None):
-    """Self-contained interactive HTML player for ONE (exp, side)."""
-    grid = os.path.abspath(grid)
-    ds = _build_dataset(grid, exp, side, n_samples, max_steps)
-    if not ds:
-        raise SystemExit(f'no usable samples for {exp}/{side}')
+    payload = dict(exp=exp, side=side, stock=stock, model=model, shape=shape,
+                   order_volume=order_volume, n_total=len(list_samples(exp_dir)),
+                   days=days, daytable=daytable, tick=samples[0]['tick'], samples=samples)
+    from plotly.offline import get_plotlyjs          # inline Plotly -> works OFFLINE (no CDN needed)
+    html = _HTML.replace('%%TITLE%%', f'{exp} · {side}') \
+                .replace('%%PLOTLYJS%%', get_plotlyjs()) \
+                .replace('%%DATA%%', json.dumps(payload, separators=(',', ':')))
     out = out or os.path.join(HERE, 'results', 'book_player', f'player_{exp}_{side}.html')
-    _write_html([ds], out, f'{exp} · {side}')
-
-
-def export_multi_html(grid=GRID, stocks=('EA', 'NVDA', 'AMD'), models=('Historic', 'Mamba3'),
-                      shapes=('beta', 'relaxation'), sides=('buy', 'sell'),
-                      n_samples=6, max_steps=0, out=None):
-    """ONE self-contained HTML with a top selector over many (stock·method·shape·side) datasets."""
-    grid = os.path.abspath(grid)
-    datasets = []
-    for s in stocks:
-        for m in models:
-            for sh in shapes:
-                for d in sides:
-                    ds = _build_dataset(grid, f'{s}-{m}-{sh}', d, n_samples, max_steps)
-                    if ds:
-                        datasets.append(ds)
-                        print(f'  + {s}-{m}-{sh}/{d}: {len(ds["samples"])} samples')
-                    else:
-                        print(f'  - {s}-{m}-{sh}/{d}: skip (no data)')
-    if not datasets:
-        raise SystemExit('no datasets with data')
-    out = out or os.path.join(HERE, 'results', 'book_player', 'player_combined.html')
-    _write_html(datasets, out, 'combined')
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    open(out, 'w').write(html)
+    print(f'wrote {out}  ({os.path.getsize(out)/1e6:.1f} MB, {len(samples)} samples, '
+          f'{samples[0]["n"]} steps)')
 
 
 _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -498,7 +471,6 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  <span class="sub">step with <kbd>←</kbd> <kbd>→</kbd> · click the mid chart to jump</span></header>
 <div class="wrap">
  <div class="ctl">
-  <label>набор <select id="dataset"></select></label>
   <label>sample <select id="sample"></select></label>
   <button id="junc">→ junction</button><button id="prev">◀</button>
   <input id="slider" type="range" min="0" value="0">
@@ -516,7 +488,7 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   &nbsp;— an executed level is in “было” and gone (gap) in “стало”.</p>
 </div>
 <script>
-const DATA=%%DATA%%; let D=null, TICK=1; const SENT=2147483647;
+const DATA=%%DATA%%, TICK=DATA.tick||1, SENT=2147483647;
 const EV={1:'LIMIT',2:'CANCEL',3:'DELETE',4:'EXECUTE',5:'HID-EXEC',6:'CROSS'};
 const EVC={1:'#2F5DA3',2:'#7F8C8D',3:'#C0392B',4:'#111',5:'#8E44AD',6:'#E67E22'};
 const GRAY='#BBBBBB',UP='#C0392B',DOWN='#2F5DA3';
@@ -586,7 +558,7 @@ function render(){
  const m=S.msgs[k],agg=AGG.has(k);
  // m[1] = the message's own side (for et=4 executions this is the RESTING side that got hit).
  const restSide=m[1]>0?'bid (buy-side)':'ask (sell-side)';
- const EXP=D.side.toUpperCase();   // the experiment / aggressive-order direction (buy or sell folder)
+ const EXP=DATA.side.toUpperCase();   // the experiment / aggressive-order direction (buy or sell folder)
  document.getElementById('msgbar').innerHTML=
   '<span class="tag" style="background:'+(EVC[m[0]]||'#555')+'">'+(EV[m[0]]||('et'+m[0]))+'</span>'+
   '<span>'+m[2]+' @ <b>'+(m[3]/TICK).toFixed(TICK>=100?2:0)+'</b></span>'+
@@ -603,21 +575,21 @@ function render(){
 function setK(n){k=Math.max(0,Math.min(S.n-1,n));render();}
 function nextAgg(){for(const i of S.aggr)if(i>k){setK(i);return;}}
 function dayTable(curDay){
- const t=D.daytable||[];
+ const t=DATA.daytable||[];
  if(!t.length){document.getElementById('daytable').innerHTML='';return;}
  let h='<table><tr><th>day</th><th>child (p50 vol)</th><th>msgs_btw (mb)</th></tr>';
  for(const r of t){const cur=(r.day===curDay)?' class="cur"':'';
    h+='<tr'+cur+'><td>'+r.day+'</td><td>'+(r.child!=null?r.child:'?')+'</td><td>'+(r.mb!=null?r.mb:'?')+'</td></tr>';}
  document.getElementById('daytable').innerHTML=h+'</table>';
 }
-function load(idx){S=D.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
+function load(idx){S=DATA.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
  const sl=document.getElementById('slider');sl.max=S.n-1;
  const day=S.day;
- document.getElementById('stock').textContent='📈 '+D.stock+' · '+day;
+ document.getElementById('stock').textContent='📈 '+DATA.stock+' · '+day;
  // header = identity only; the REAL per-day numbers (child/mb) live in the stat line + day table below.
- document.getElementById('hsub').innerHTML=D.model+'/'+D.shape+' · '+D.side+
+ document.getElementById('hsub').innerHTML=DATA.model+'/'+DATA.shape+' · '+DATA.side+
    ' · '+S.label.split(' · ')[1]+' · '+S.n+' msgs · '+S.aggr.length+' aggressive · '+
-   'sample '+(idx+1)+'/'+D.samples.length+' ('+D.n_total+' on disk · '+D.daytable.length+' days)';
+   'sample '+(idx+1)+'/'+DATA.samples.length+' ('+DATA.n_total+' on disk · '+(DATA.daytable||DATA.days).length+' days)';
  dayTable(day);
  // clickable list of THIS sample's aggressive insertions (step, gen-idx, executed size)
  let ins='<span class="sub">вставки ('+S.aggr.length+'):</span>';
@@ -626,16 +598,7 @@ function load(idx){S=D.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
  document.getElementById('insbar').innerHTML=ins;
  initFig();k=Math.min(S.junc,S.n-1);render();}
 const sel=document.getElementById('sample');
-function loadDataset(di){
- D=DATA.datasets[di]; TICK=D.tick||1;
- sel.innerHTML='';
- D.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+s.label;sel.appendChild(o);});
- load(0);
-}
-const dsel=document.getElementById('dataset');
-DATA.datasets.forEach((d,i)=>{const o=document.createElement('option');o.value=i;
- o.textContent=d.stock+' · '+d.model+' · '+d.shape+' · '+d.side+' ('+d.samples.length+')';dsel.appendChild(o);});
-dsel.onchange=()=>loadDataset(+dsel.value);
+DATA.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+DATA.stock+' · '+s.label;sel.appendChild(o);});
 sel.onchange=()=>load(+sel.value);
 document.getElementById('prev').onclick=()=>setK(k-1);
 document.getElementById('next').onclick=()=>setK(k+1);
@@ -643,7 +606,7 @@ document.getElementById('junc').onclick=()=>setK(S.junc);
 document.getElementById('nagg').onclick=nextAgg;
 document.getElementById('slider').oninput=e=>setK(+e.target.value);
 window.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){setK(k+1);e.preventDefault();}else if(e.key==='ArrowLeft'){setK(k-1);e.preventDefault();}});
-loadDataset(0);
+load(0);
 </script></body></html>
 """
 
@@ -657,21 +620,11 @@ if __name__ == '__main__':
     ap.add_argument('--step', default='aggr', help="'aggr' (first insertion) | int step")
     ap.add_argument('--html', action='store_true',
                     help='write a self-contained interactive HTML player (no kernel needed)')
-    ap.add_argument('--combined', action='store_true',
-                    help='ONE html with a top selector over stocks×models×shapes×sides')
-    ap.add_argument('--stocks', default='EA,NVDA,AMD')
-    ap.add_argument('--models', default='Historic,Mamba3')
-    ap.add_argument('--shapes', default='beta,relaxation')
-    ap.add_argument('--sides', default='buy,sell')
     ap.add_argument('--n_samples', type=int, default=6)
     ap.add_argument('--max_steps', type=int, default=0)
     ap.add_argument('--out', default=None)
     a = ap.parse_args()
-    _lst = lambda x: [v for v in x.split(',') if v]
-    if a.combined:
-        export_multi_html(a.grid, _lst(a.stocks), _lst(a.models), _lst(a.shapes), _lst(a.sides),
-                          a.n_samples, a.max_steps, a.out)
-    elif a.html:
+    if a.html:
         export_html(a.grid, a.exp, a.side, a.n_samples, a.max_steps, a.out)
     else:
         _snapshot(a.grid, a.exp, a.side, a.step, a.out)
