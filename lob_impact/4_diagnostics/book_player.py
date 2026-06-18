@@ -385,14 +385,24 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         a0 = (min(aggr) if aggr else junc)
         ref = next((mids[i] for i in range(a0 - 1, -1, -1) if mids[i] is not None), None)
         child, mb = pdp.get(dt, (None, None))
+        # compact message: [event_type, direction, size, price_ticks, order_id, time]
+        cmsgs = [[int(m[1]), int(m[5]), int(m[3]), int(m[4]), int(m[2]), round(float(m[0]), 6)]
+                 for m in msgs]
+        # Relocate each recorded aggressive index to the ACTUAL aggressive EXECUTION (et=4, size==child):
+        # the scenario records schedule positions, off by the messages the aggressive order itself
+        # generates. The real metaorder fill is the et=4 of size==child just before the recorded index.
+
+        def _reloc(i):
+            if child:
+                for j in range(min(i, len(cmsgs) - 1), max(-1, i - 14), -1):
+                    if cmsgs[j][0] == 4 and cmsgs[j][2] == child:
+                        return j
+            return i
+        aggr2 = sorted({_reloc(int(i)) for i in aggr if int(i) < len(cmsgs)})
         samples.append(dict(
             label=f'{dt} · id{sid}', day=dt, n=len(books), junc=int(junc),
             child=child, mb=mb, ref=ref,
-            aggr=sorted(int(i) for i in aggr), book0=book0, deltas=deltas, mids=mids,
-            tick=tick,
-            # compact message: [event_type, direction, size, price_ticks, order_id, time]
-            msgs=[[int(m[1]), int(m[5]), int(m[3]), int(m[4]), int(m[2]), round(float(m[0]), 6)]
-                  for m in msgs]))
+            aggr=aggr2, book0=book0, deltas=deltas, mids=mids, tick=tick, msgs=cmsgs))
     if not samples:
         raise SystemExit('no samples')
     parts = exp.split('-')
@@ -403,9 +413,11 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         if os.path.exists(os.path.join(exp_dir, 'config.yaml')) else None
     order_volume = int(ov.group(1)) if ov else None
     days = sorted({s['label'].split(' · ')[0] for s in samples})
+    # full per-day calibration table (ALL days), so the player can show day/child/mb for every day
+    daytable = [{'day': d, 'child': c, 'mb': m} for d, (c, m) in sorted(pdp.items())]
     payload = dict(exp=exp, side=side, stock=stock, model=model, shape=shape,
                    order_volume=order_volume, n_total=len(list_samples(exp_dir)),
-                   days=days, tick=samples[0]['tick'], samples=samples)
+                   days=days, daytable=daytable, tick=samples[0]['tick'], samples=samples)
     html = _HTML.replace('%%TITLE%%', f'{exp} · {side}') \
                 .replace('%%DATA%%', json.dumps(payload, separators=(',', ':')))
     out = out or os.path.join(HERE, 'results', 'book_player', f'player_{exp}_{side}.html')
@@ -430,6 +442,13 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #fig{width:100%;height:430px;}
  .msgbar{padding:9px 12px;border-radius:8px;background:#fff;border:1px solid #e2e2e2;margin:8px 0;
    display:flex;gap:13px;align-items:center;flex-wrap:wrap;font:13px ui-monospace,monospace;}
+ #daytable{margin:8px 0;overflow-x:auto;}
+ #daytable table{border-collapse:collapse;font:12px ui-monospace,monospace;}
+ #daytable th,#daytable td{padding:3px 10px;border:1px solid #e6e6e6;text-align:right;white-space:nowrap;}
+ #daytable th{background:#f2f2f2;color:#555;font-weight:600;}
+ #daytable td:first-child,#daytable th:first-child{text-align:left;}
+ #daytable tr.cur td{background:#fff3d6;font-weight:700;outline:2px solid #E8B04B;}
+ #daytable tr:hover td{background:#eef4ff;cursor:default;}
  .tag{font-weight:700;padding:2px 8px;border-radius:5px;color:#fff;font-size:12px;}
  .badge{background:#E67E22;color:#fff;font-weight:700;padding:2px 8px;border-radius:5px;font-size:12px;}
  .legend{font-size:12px;color:#666;margin-top:6px;}
@@ -450,6 +469,7 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  <div id="fig"></div>
  <div class="msgbar" id="msgbar"></div>
  <div class="msgbar" id="statbar" style="background:#f7f9fc;"></div>
+ <div id="daytable"></div>
  <p class="legend">change on “стало”:
   <b style="background:rgba(192,57,43,.18);outline:1px solid #C0392B">red = volume ↑ (added)</b>&nbsp;
   <b style="background:rgba(47,93,163,.18);outline:1px solid #2F5DA3">blue = volume ↓ (executed/removed)</b>
@@ -537,14 +557,23 @@ function render(){
 }
 function setK(n){k=Math.max(0,Math.min(S.n-1,n));render();}
 function nextAgg(){for(const i of S.aggr)if(i>k){setK(i);return;}}
+function dayTable(curDay){
+ const t=DATA.daytable||[];
+ if(!t.length){document.getElementById('daytable').innerHTML='';return;}
+ let h='<table><tr><th>day</th><th>child (p50 vol)</th><th>msgs_btw (mb)</th></tr>';
+ for(const r of t){const cur=(r.day===curDay)?' class="cur"':'';
+   h+='<tr'+cur+'><td>'+r.day+'</td><td>'+(r.child!=null?r.child:'?')+'</td><td>'+(r.mb!=null?r.mb:'?')+'</td></tr>';}
+ document.getElementById('daytable').innerHTML=h+'</table>';
+}
 function load(idx){S=DATA.samples[idx];rows=reconstruct(S);AGG=new Set(S.aggr);
  const sl=document.getElementById('slider');sl.max=S.n-1;
- const day=S.label.split(' · ')[0];
- document.getElementById('stock').textContent='📈 '+DATA.stock;
+ const day=S.day;
+ document.getElementById('stock').textContent='📈 '+DATA.stock+' · '+day;
+ // header = identity only; the REAL per-day numbers (child/mb) live in the stat line + day table below.
  document.getElementById('hsub').innerHTML=DATA.model+'/'+DATA.shape+' · '+DATA.side+
-   ' · <b>day '+day+'</b> · '+S.label.split(' · ')[1]+
-   ' · '+S.n+' msgs · '+S.aggr.length+' insertions · order_volume=<b>'+DATA.order_volume+'</b>'+
-   ' · sample '+(idx+1)+'/'+DATA.samples.length+' (of '+DATA.n_total+' on disk, '+DATA.days.length+' days)';
+   ' · '+S.label.split(' · ')[1]+' · '+S.n+' msgs · '+S.aggr.length+' aggressive · '+
+   'sample '+(idx+1)+'/'+DATA.samples.length+' ('+DATA.n_total+' on disk · '+(DATA.daytable||DATA.days).length+' days)';
+ dayTable(day);
  initFig();k=Math.min(S.junc,S.n-1);render();}
 const sel=document.getElementById('sample');
 DATA.samples.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent='#'+i+' · '+DATA.stock+' · '+s.label;sel.appendChild(o);});
