@@ -611,12 +611,14 @@ def sample_aggressive_scenario(
         # Split RNG for next iteration (matches sample_new line 1382)
         rng, rng_ = jax.random.split(rng)
 
-        # Save aggressive indices once (same for all samples / slices)
+        # Save aggressive indices. PER-DAY file (aggressive_indices_<date>.csv): in per-day mode each
+        # day has its own insertion positions, so one shared file is wrong for all but one day (the
+        # old `if not exists` guard kept only the FIRST day). Keep the shared file for back-compat.
+        original_indices = onp.arange(all_msgs.shape[1])
+        is_aggressive = (original_indices % 2 == 1)[valid_mask[0]]
+        aggressive_indices = onp.where(is_aggressive)[0]
+        onp.savetxt(save_folder / f'aggressive_indices_{date}.csv', aggressive_indices, fmt='%d')
         if not (save_folder / 'aggressive_indices.csv').exists():
-            original_indices = onp.arange(all_msgs.shape[1])
-            is_aggressive_original = (original_indices % 2 == 1)
-            is_aggressive = is_aggressive_original[valid_mask[0]]
-            aggressive_indices = onp.where(is_aggressive)[0]
             onp.savetxt(save_folder / 'aggressive_indices.csv', aggressive_indices, fmt='%d')
 
     print(f"\nResults saved to: {save_folder}")

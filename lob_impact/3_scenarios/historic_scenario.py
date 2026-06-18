@@ -377,10 +377,13 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
                 index=False, header=False
             )
 
-        # Save aggressive indices once
+        # Save aggressive indices once. PER-DAY file (aggressive_indices_<date>.csv): in per-day mode
+        # each day has its own mb -> its own insertion positions; a single shared file gets overwritten
+        # by the last day and is wrong for every other day. Keep the legacy shared file for back-compat.
         if batch_idx == 0:
             aggressive_indices = onp.array(sorted(insertion_steps))
             onp.savetxt(save_folder / 'aggressive_indices.csv', aggressive_indices, fmt='%d')
+            onp.savetxt(save_folder / f'aggressive_indices_{date}.csv', aggressive_indices, fmt='%d')
 
         rng, _ = jax.random.split(rng)
 
