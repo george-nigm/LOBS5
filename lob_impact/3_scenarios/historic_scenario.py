@@ -242,10 +242,12 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
     # Load dataset
     print(f"Loading dataset from {data_dir} (day_indeces={day_indeces})")
     import glob as _gg, os as _oo
+    _root = _oo.path.dirname(str(data_dir))
     print(f"[DIAG] main-proc: data_dir={data_dir!r} isdir={_oo.path.isdir(str(data_dir))} "
-          f"msg_glob={len(_gg.glob(str(data_dir)+'/*message*.npy'))} "
-          f"book_glob={len(_gg.glob(str(data_dir)+'/*book*.npy'))} "
-          f"listdir3={_oo.listdir(str(data_dir))[:3] if _oo.path.isdir(str(data_dir)) else 'NODIR'}", flush=True)
+          f"msg_glob={len(_gg.glob(str(data_dir)+'/*message*.npy'))} | "
+          f"PARENT={_root} parent_isdir={_oo.path.isdir(_root)} "
+          f"parent_ls={_oo.listdir(_root)[:6] if _oo.path.isdir(_root) else 'NOPARENT'} "
+          f"TMPDIR={_oo.environ.get('TMPDIR')}", flush=True)
     ds = get_dataset(
         data_dir,
         n_cond_msgs,
