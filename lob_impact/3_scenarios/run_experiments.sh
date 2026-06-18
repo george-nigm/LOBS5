@@ -21,7 +21,8 @@ REPO_ROOT="$(dirname "$IMPACT_DIR")"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 
 PROJECT_DIR="${PROJECT_DIR:-$REPO_ROOT}"
-CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/s5e/quant_team/quant/AlphaTrade/experiments}"
+# U6GB project mirror (our own project, full group access — replaces the s5e world-read dependency)
+CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team_quant/AlphaTrade/experiments}"
 SAVE_BASE="${SAVE_BASE:-${HERE}/results/grid}"   # STABLE consolidated root: all jobs/slices merge here
                                                   # -> analysis points at ONE path (results/grid), not per-run dirs
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
@@ -40,7 +41,8 @@ conda activate "${CONDA_ENV:-lobs5}"
 set -u
 
 # --- Data: self-mount a month shard unless DATA_MOUNT is already provided ---
-SRC="${SRC:-/lus/lfs1aip2/projects/public/s5e/quant_team/lob_preproc_sp500_squashfs}"
+# U6GB mirror (flat dir of monthly shards, our project) — was s5e/.../lob_preproc_sp500_squashfs
+SRC="${SRC:-/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team}"
 SHARD="${SHARD:-shard_2026-01.squashfs}"
 if [ -z "${DATA_MOUNT:-}" ]; then
   DATA_MOUNT="${TMPDIR:-/tmp}/s5e_mnt_${SLURM_JOB_ID:-$$}"
