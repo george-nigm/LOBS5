@@ -241,6 +241,11 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
 
     # Load dataset
     print(f"Loading dataset from {data_dir} (day_indeces={day_indeces})")
+    import glob as _gg, os as _oo
+    print(f"[DIAG] main-proc: data_dir={data_dir!r} isdir={_oo.path.isdir(str(data_dir))} "
+          f"msg_glob={len(_gg.glob(str(data_dir)+'/*message*.npy'))} "
+          f"book_glob={len(_gg.glob(str(data_dir)+'/*book*.npy'))} "
+          f"listdir3={_oo.listdir(str(data_dir))[:3] if _oo.path.isdir(str(data_dir)) else 'NODIR'}", flush=True)
     ds = get_dataset(
         data_dir,
         n_cond_msgs,
