@@ -54,6 +54,10 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   # silences the whole script's stderr. Keep the fd-hold on its own line.
   exec 9<"$TMPROOT" || echo "[scratch] WARN: could not hold fd on $TMPROOT" >&2
   echo "[scratch] $TMPROOT fstype=$(stat -f -c %T "$TMPROOT" 2>/dev/null) | $(grep -m1 " $TMPROOT " /proc/self/mounts 2>/dev/null)" >&2
+  # DIAG: which node-local paths exist + are stable (TMPROOT=tmpfs vanishes mid-job — find a stable one)
+  for _p in "$TMPDIR" /tmp /dev/shm /local/scratch "${SLURM_TMPDIR:-}" "/local/user/${SLURM_JOB_ID:-}"; do
+    [ -n "$_p" ] && echo "[paths] $_p exists=$([ -d "$_p" ] && echo 1 || echo 0) fstype=$(stat -f -c %T "$_p" 2>/dev/null) writable=$([ -w "$_p" ] && echo 1 || echo 0)" >&2
+  done
   DATA_MOUNT="${TMPROOT}/s5e_mnt_${SLURM_JOB_ID:-$$}"
   mkdir -p "$DATA_MOUNT"
   echo "[$(date)] mounting ${SHARD} -> ${DATA_MOUNT}"
@@ -213,7 +217,7 @@ for model_key in "${MODEL_KEYS[@]}"; do
         done
         # Keepalive: touch the autofs scratch every 5s for the duration so it never idle-expires
         # while python is busy loading the model (belt-and-suspenders alongside the held fd 9).
-        ( while :; do ls "${TMPROOT:-/tmp}" >/dev/null 2>&1; ls "$DATA_DIR" >/dev/null 2>&1; sleep 5; done ) &
+        ( while :; do echo "[ka $(date +%H:%M:%S)] TMPROOT=$([ -d "${TMPROOT:-/tmp}" ] && echo 1||echo 0) staged=$([ -d "$DATA_DIR" ] && echo 1||echo 0) mount=$([ -d "$DATA_MOUNT" ] && echo 1||echo 0) sqfuse=$(pgrep -c squashfuse_ll 2>/dev/null)" >&2; sleep 3; done ) &
         _KEEPALIVE=$!
         python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
         kill "$_KEEPALIVE" 2>/dev/null || true
