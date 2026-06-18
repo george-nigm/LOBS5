@@ -394,17 +394,23 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         # et=4 messages of size==child at ~mb spacing in the gen region (step > junction).
         aggr2 = []
         if child and mb and mb > 0:
-            used = set()
-            for i in range(1, (len(cmsgs) - junc) // mb + 2):
-                e = junc + i * mb            # scheduled insertion step
-                # the planted market order sits at ~e as an et=4 whose size is min(child, avail)
-                # -> it may be a PARTIAL fill (< child) when the touch is thin; match size<=child
-                # and take the one nearest the schedule step.
-                cands = [j for j in range(max(junc, e - 4), min(len(cmsgs), e + 5))
-                         if j not in used and cmsgs[j][0] == 4 and 0 < cmsgs[j][2] <= child]
-                if cands:
-                    j = min(cands, key=lambda j: abs(j - e))
-                    aggr2.append(j); used.add(j)
+            # The aggressive fills are et=4 of size≈child, ~mb apart. Their position in the OUTPUT
+            # array DRIFTS (each market order adds its own execution messages), so a fixed junc+i*mb
+            # schedule misses the later ones. Instead track relative to the LAST found insertion:
+            # next expected ≈ last + mb. Prefer an exact size==child fill, else a partial (size<=child).
+            W, e = 8, junc + mb
+            while e < len(cmsgs):
+                lo, hi = max(junc, e - W), min(len(cmsgs), e + W + 1)
+                cands = [j for j in range(lo, hi) if cmsgs[j][0] == 4 and 0 < cmsgs[j][2] <= child]
+                exact = [j for j in cands if cmsgs[j][2] == child]
+                pool = exact or cands
+                if pool:
+                    j = min(pool, key=lambda j: abs(j - e))
+                    if not aggr2 or j > aggr2[-1]:
+                        aggr2.append(j)
+                    e = j + mb               # advance from where we actually landed (tracks drift)
+                else:
+                    e += mb                  # nothing here; keep the cadence
             aggr2 = sorted(set(aggr2))
         else:                                 # fallback: the (possibly off) recorded indices
             aggr2 = sorted(int(i) for i in aggr if int(i) < len(cmsgs))
