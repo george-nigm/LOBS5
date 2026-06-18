@@ -364,14 +364,14 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         raise SystemExit(f'no {exp}/{side} under {grid}')
     # per-day child (the order_volume that actually executes that day, =p50) from per_day_params —
     # this is the real per-day stat (NOT the stale config order_volume=75).
-    pdp = {}
+    pdp = {}  # day -> (child=p50 volume, mb=msgs_btw)
     cfgp = os.path.join(exp_dir, 'config.yaml')
     if os.path.exists(cfgp):
         m = re.search(r'^per_day_params\s*:\s*(\S+)', open(cfgp).read(), re.M)
         if m and os.path.exists(m.group(1)):
             for r in csv.DictReader(open(m.group(1))):
                 if abs(float(r.get('mult', 1)) - 1.0) < 1e-9:
-                    pdp[r['day']] = int(float(r['child']))
+                    pdp[r['day']] = (int(float(r['child'])), int(float(r['mb'])))
     samples = []
     for tk, dt, sid, ob in pick_across_days(list_samples(exp_dir), n_samples):
         books, msgs, junc, aggr, tick = load_sample(exp_dir, tk, dt, sid, ob)
@@ -384,9 +384,10 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         # reference mid = mid just before the first aggressive insertion (else at the cond/gen junction)
         a0 = (min(aggr) if aggr else junc)
         ref = next((mids[i] for i in range(a0 - 1, -1, -1) if mids[i] is not None), None)
+        child, mb = pdp.get(dt, (None, None))
         samples.append(dict(
             label=f'{dt} · id{sid}', day=dt, n=len(books), junc=int(junc),
-            child=pdp.get(dt), ref=ref,
+            child=child, mb=mb, ref=ref,
             aggr=sorted(int(i) for i in aggr), book0=book0, deltas=deltas, mids=mids,
             tick=tick,
             # compact message: [event_type, direction, size, price_ticks, order_id, time]
@@ -527,16 +528,12 @@ function render(){
   '<span class="sub">side: '+restSide+'</span>'+
   '<span class="sub">order '+m[4]+' · t='+m[5]+'</span>'+
   (agg?'<span class="badge">◆ AGGRESSIVE '+EXP+'</span>':'');
- // bottom stat line: day | required volume (per-day child) | displacement (mid vs reference)
- const mid=S.mids[k], ref=S.ref;
- let off='—';
- if(mid!=null&&ref!=null){const dt=(mid-ref)*TICK, pc=(mid-ref)/ref*100;
-   off=(dt>=0?'+':'')+dt.toFixed(0)+' тиков ('+(pc>=0?'+':'')+pc.toFixed(3)+'%)';}
+ // bottom stat line (per-day calibration table values): day | child volume (p50) | msgs_btw (mb)
  document.getElementById('statbar').innerHTML=
   '<span>📅 день <b>'+S.day+'</b></span>'+
   '<span>объём (исполняемый/день, p50): <b>'+(S.child!=null?S.child:'?')+'</b> shares</span>'+
-  '<span>смещение mid vs ref: <b>'+off+'</b></span>'+
-  '<span class="sub">ref mid='+(ref!=null?ref.toFixed(2):'?')+' · сейчас='+(mid!=null?mid.toFixed(2):'?')+'</span>';
+  '<span>msgs_btw (mb): <b>'+(S.mb!=null?S.mb:'?')+'</b></span>'+
+  '<span class="sub">mid='+(S.mids[k]!=null?S.mids[k].toFixed(2):'?')+'</span>';
 }
 function setK(n){k=Math.max(0,Math.min(S.n-1,n));render();}
 function nextAgg(){for(const i of S.aggr)if(i>k){setK(i);return;}}
