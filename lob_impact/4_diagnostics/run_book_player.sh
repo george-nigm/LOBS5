@@ -19,7 +19,7 @@ PY="${PY:-/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python}"
 GRID="${GRID:-${HERE}/../3_scenarios/results/grid}"
 STOCKS="${STOCKS:-EA NVDA AMD}"; MODELS="${MODELS:-Historic Mamba3}"
 SHAPES="${SHAPES:-beta relaxation}"; SIDES="${SIDES:-buy sell}"
-N_SAMPLES="${N_SAMPLES:-8}"; MAX_STEPS="${MAX_STEPS:-0}"
+N_SAMPLES="${N_SAMPLES:-8}"; MAX_STEPS="${MAX_STEPS:-6000}"
 csv(){ echo "$*" | tr ' ' ','; }
 
 if [ -n "${SEPARATE:-}" ]; then            # one HTML per (stock·method·shape·side)
