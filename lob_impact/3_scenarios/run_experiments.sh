@@ -50,6 +50,9 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   # dir under node-global /dev/shm instead (override with LOB_SCRATCH).
   TMPROOT="${LOB_SCRATCH:-/dev/shm/lob_${SLURM_JOB_ID:-$$}}"
   mkdir -p "$TMPROOT"
+  # CRITICAL: also repoint $TMPDIR so python/JAX/orbax tempfile.mkdtemp uses the STABLE /dev/shm dir
+  # instead of the vanishing per-user /local/user/<uid> (else FileNotFoundError mid-init).
+  export TMPDIR="$TMPROOT"
   # Hold an fd on the node-local scratch root: it is an autofs auto-mount that idle-expires after
   # ~30-40s, and during the long model load nothing touches it -> autofs unmounts it, wiping the
   # squashfuse mount AND staged data under it (-> get_dataset sees an empty dir -> IndexError).
