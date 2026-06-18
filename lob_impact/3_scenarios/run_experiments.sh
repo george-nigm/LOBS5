@@ -151,7 +151,21 @@ for model_key in "${MODEL_KEYS[@]}"; do
   # no checkpoint -> replay/parametric baseline -> force JAX onto CPU
   if [ -z "$CKPT" ]; then export JAX_PLATFORMS=cpu; else unset JAX_PLATFORMS; fi
   for STOCK in "${STOCKS[@]}"; do
-    DATA_DIR="${DATA_MOUNT}/${STOCK}"
+    RAW_DIR="${DATA_MOUNT}/${STOCK}"
+    # STAGE the stock's .npy from the (fresh) squashfuse mount to node-local NVMe BEFORE python/JAX
+    # starts: the squashfuse daemon dies ~40s in under model-load memory pressure, so reading data
+    # lazily during the run hits an empty dir (get_dataset IndexError). Copy now while the mount is
+    # healthy; the scenario then reads stable local files. (Lustre-safe: node-local glob/cp only.)
+    if [ "${STAGE_LOCAL:-1}" = "1" ]; then
+      DATA_DIR="${DATA_MOUNT%/*}/staged_${STOCK}"
+      mkdir -p "$DATA_DIR"
+      cp -n "$RAW_DIR"/*.npy "$DATA_DIR"/ 2>/dev/null || true
+      nst=$(ls "$DATA_DIR"/*message*.npy 2>/dev/null | wc -l)
+      echo "[stage] $STOCK: $nst message .npy -> $DATA_DIR" >&2
+      [ "$nst" -gt 0 ] || { echo "FATAL: staging $STOCK got 0 files (mount died during copy?)" >&2; exit 4; }
+    else
+      DATA_DIR="$RAW_DIR"
+    fi
     TICK="${STOCK_TICK[$STOCK]:-}"
     for shape_row in "${SHAPES[@]}"; do
       IFS='|' read -r SHAPE_NAME N_INS N_COOL TEMPLATE TAG <<< "$shape_row"
