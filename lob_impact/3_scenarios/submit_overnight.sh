@@ -17,7 +17,7 @@ GAP="${GAP:-35}"
 
 # ---- 1) smokes (gates) ----
 M3SMOKE=$(sbatch --parsable --account=$ACC --partition=$PART --gres=gpu:1 \
-  --cpus-per-task=2 --mem=12G --time=00:15:00 --job-name=m3smoke \
+  --cpus-per-task=2 --mem=32G --time=00:20:00 --job-name=m3smoke \
   --output="$HERE/logs/m3smoke_%j.out" --export=ALL,PER_DAY=1,N_PER_DAY=4 \
   "$RUN" smoke mamba3)
 echo "GATE mamba3-smoke  = $M3SMOKE" | tee -a "$JIDS"; sleep "$GAP"
