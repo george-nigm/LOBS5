@@ -23,7 +23,7 @@ Usage (in JupyterLab, lobs5 kernel — has plotly 5.22 + ipywidgets 8.1):
 Run as a script to write a STATIC one-step snapshot for a quick eyeball (no kernel):
     python book_player.py --exp EA-Mamba3-beta --side buy --step aggr
 """
-import os, glob, re
+import os, glob, re, csv
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -362,6 +362,16 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
     exp_dir = discover(grid).get(exp, {}).get(side)
     if not exp_dir:
         raise SystemExit(f'no {exp}/{side} under {grid}')
+    # per-day child (the order_volume that actually executes that day, =p50) from per_day_params —
+    # this is the real per-day stat (NOT the stale config order_volume=75).
+    pdp = {}
+    cfgp = os.path.join(exp_dir, 'config.yaml')
+    if os.path.exists(cfgp):
+        m = re.search(r'^per_day_params\s*:\s*(\S+)', open(cfgp).read(), re.M)
+        if m and os.path.exists(m.group(1)):
+            for r in csv.DictReader(open(m.group(1))):
+                if abs(float(r.get('mult', 1)) - 1.0) < 1e-9:
+                    pdp[r['day']] = int(float(r['child']))
     samples = []
     for tk, dt, sid, ob in pick_across_days(list_samples(exp_dir), n_samples):
         books, msgs, junc, aggr, tick = load_sample(exp_dir, tk, dt, sid, ob)
@@ -371,8 +381,12 @@ def export_html(grid=GRID, exp='EA-Mamba3-beta', side='buy', n_samples=6,
         book0, deltas = _delta_encode(books)
         mids = [None if not np.isfinite(midprice(r)) else round(float(midprice(r)) / tick, 4)
                 for r in books]
+        # reference mid = mid just before the first aggressive insertion (else at the cond/gen junction)
+        a0 = (min(aggr) if aggr else junc)
+        ref = next((mids[i] for i in range(a0 - 1, -1, -1) if mids[i] is not None), None)
         samples.append(dict(
-            label=f'{dt} · id{sid}', n=len(books), junc=int(junc),
+            label=f'{dt} · id{sid}', day=dt, n=len(books), junc=int(junc),
+            child=pdp.get(dt), ref=ref,
             aggr=sorted(int(i) for i in aggr), book0=book0, deltas=deltas, mids=mids,
             tick=tick,
             # compact message: [event_type, direction, size, price_ticks, order_id, time]
@@ -434,6 +448,7 @@ _HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  </div>
  <div id="fig"></div>
  <div class="msgbar" id="msgbar"></div>
+ <div class="msgbar" id="statbar" style="background:#f7f9fc;"></div>
  <p class="legend">change on “стало”:
   <b style="background:rgba(192,57,43,.18);outline:1px solid #C0392B">red = volume ↑ (added)</b>&nbsp;
   <b style="background:rgba(47,93,163,.18);outline:1px solid #2F5DA3">blue = volume ↓ (executed/removed)</b>
@@ -458,8 +473,13 @@ function bars(row,prev,diff){const cur=sides(row),pv=prev?sides(prev):{a:{},b:{}
  for(const p of Object.keys(cur.b).map(Number).sort((u,w)=>u-w)){x.push(p/TICK);y.push(-cur.b[p]);c.push(col(cur.b[p],pv.b[p]||0));}
  return{x,y,c};}
 function rangeOf(a,b){const xs=a.x.concat(b.x);if(!xs.length)return null;
- return{x:[Math.min(...xs)-0.6,Math.max(...xs)+0.6],
-        y:Math.max(1,...a.y.concat(b.y).map(Math.abs))*1.12};}
+ // ROBUST y-cap: a few very deep resting orders (e.g. 4771 vs ~200 at the touch) would otherwise
+ // dwarf every near-touch bar. Cap at ~the 88th percentile so the touch stays readable; bigger
+ // bars just clip at the top edge (real value still in hover).
+ const ys=a.y.concat(b.y).map(Math.abs).filter(v=>v>0).sort((p,q)=>p-q);
+ let ym=1; if(ys.length){const p=ys[Math.min(ys.length-1,Math.floor(ys.length*0.88))];
+   ym=Math.max(1,Math.min(ys[ys.length-1],p*1.5));}
+ return{x:[Math.min(...xs)-0.6,Math.max(...xs)+0.6], y:ym*1.08};}
 
 function initFig(){
  const mids=S.mids.map((v,i)=>v), xs=[...Array(S.n).keys()];
@@ -497,11 +517,26 @@ function render(){
  document.getElementById('slider').value=k;
  document.getElementById('info').textContent='step '+k+' / '+(S.n-1);
  document.getElementById('prev').disabled=(k<=0); document.getElementById('next').disabled=(k>=S.n-1);
- const m=S.msgs[k],side=m[1]>0?'BUY/bid':'SELL/ask',agg=AGG.has(k);
+ const m=S.msgs[k],agg=AGG.has(k);
+ // m[1] = the message's own side (for et=4 executions this is the RESTING side that got hit).
+ const restSide=m[1]>0?'bid (buy-side)':'ask (sell-side)';
+ const EXP=DATA.side.toUpperCase();   // the experiment / aggressive-order direction (buy or sell folder)
  document.getElementById('msgbar').innerHTML=
   '<span class="tag" style="background:'+(EVC[m[0]]||'#555')+'">'+(EV[m[0]]||('et'+m[0]))+'</span>'+
-  '<b>'+side+'</b><span>'+m[2]+' @ <b>'+(m[3]/TICK).toFixed(TICK>=100?2:0)+'</b></span>'+
-  '<span class="sub">order '+m[4]+' · t='+m[5]+'</span>'+(agg?'<span class="badge">◆ AGGRESSIVE</span>':'');
+  '<span>'+m[2]+' @ <b>'+(m[3]/TICK).toFixed(TICK>=100?2:0)+'</b></span>'+
+  '<span class="sub">side: '+restSide+'</span>'+
+  '<span class="sub">order '+m[4]+' · t='+m[5]+'</span>'+
+  (agg?'<span class="badge">◆ AGGRESSIVE '+EXP+'</span>':'');
+ // bottom stat line: day | required volume (per-day child) | displacement (mid vs reference)
+ const mid=S.mids[k], ref=S.ref;
+ let off='—';
+ if(mid!=null&&ref!=null){const dt=(mid-ref)*TICK, pc=(mid-ref)/ref*100;
+   off=(dt>=0?'+':'')+dt.toFixed(0)+' тиков ('+(pc>=0?'+':'')+pc.toFixed(3)+'%)';}
+ document.getElementById('statbar').innerHTML=
+  '<span>📅 день <b>'+S.day+'</b></span>'+
+  '<span>объём (исполняемый/день, p50): <b>'+(S.child!=null?S.child:'?')+'</b> shares</span>'+
+  '<span>смещение mid vs ref: <b>'+off+'</b></span>'+
+  '<span class="sub">ref mid='+(ref!=null?ref.toFixed(2):'?')+' · сейчас='+(mid!=null?mid.toFixed(2):'?')+'</span>';
 }
 function setK(n){k=Math.max(0,Math.min(S.n-1,n));render();}
 function nextAgg(){for(const i of S.aggr)if(i>k){setK(i);return;}}
