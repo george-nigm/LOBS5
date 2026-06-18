@@ -45,7 +45,14 @@ set -u
 SRC="${SRC:-/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team}"
 SHARD="${SHARD:-shard_2026-01.squashfs}"
 if [ -z "${DATA_MOUNT:-}" ]; then
-  DATA_MOUNT="${TMPDIR:-/tmp}/s5e_mnt_${SLURM_JOB_ID:-$$}"
+  TMPROOT="${TMPDIR:-/tmp}"
+  mkdir -p "$TMPROOT"
+  # Hold an fd on the node-local scratch root: it is an autofs auto-mount that idle-expires after
+  # ~30-40s, and during the long model load nothing touches it -> autofs unmounts it, wiping the
+  # squashfuse mount AND staged data under it (-> get_dataset sees an empty dir -> IndexError).
+  exec 9<"$TMPROOT" 2>/dev/null || true
+  echo "[scratch] $TMPROOT fstype=$(stat -f -c %T "$TMPROOT" 2>/dev/null) | $(grep -m1 " $TMPROOT " /proc/self/mounts 2>/dev/null)" >&2
+  DATA_MOUNT="${TMPROOT}/s5e_mnt_${SLURM_JOB_ID:-$$}"
   mkdir -p "$DATA_MOUNT"
   echo "[$(date)] mounting ${SHARD} -> ${DATA_MOUNT}"
   squashfuse_ll "${SRC}/${SHARD}" "$DATA_MOUNT"
@@ -202,7 +209,12 @@ for model_key in "${MODEL_KEYS[@]}"; do
           [ "${pyn:-0}" -gt 0 ] && break
           sleep 3
         done
+        # Keepalive: touch the autofs scratch every 5s for the duration so it never idle-expires
+        # while python is busy loading the model (belt-and-suspenders alongside the held fd 9).
+        ( while :; do ls "${TMPROOT:-/tmp}" >/dev/null 2>&1; ls "$DATA_DIR" >/dev/null 2>&1; sleep 5; done ) &
+        _KEEPALIVE=$!
         python -u "$abs_script" --config "$cfg_file" --n_gen_msgs "$mb" --direction "$dir_int"
+        kill "$_KEEPALIVE" 2>/dev/null || true
       done
     done
   done
