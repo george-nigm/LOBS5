@@ -45,7 +45,10 @@ set -u
 SRC="${SRC:-/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team}"
 SHARD="${SHARD:-shard_2026-01.squashfs}"
 if [ -z "${DATA_MOUNT:-}" ]; then
-  TMPROOT="${TMPDIR:-/tmp}"
+  # $TMPDIR=/local/user/<uid> is a per-user-session tmpfs that gets torn down ~19s into the job
+  # (taking the squashfuse mount + staged data with it -> empty-glob IndexError). Use a job-private
+  # dir under node-global /dev/shm instead (override with LOB_SCRATCH).
+  TMPROOT="${LOB_SCRATCH:-/dev/shm/lob_${SLURM_JOB_ID:-$$}}"
   mkdir -p "$TMPROOT"
   # Hold an fd on the node-local scratch root: it is an autofs auto-mount that idle-expires after
   # ~30-40s, and during the long model load nothing touches it -> autofs unmounts it, wiping the
@@ -62,7 +65,7 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   mkdir -p "$DATA_MOUNT"
   echo "[$(date)] mounting ${SHARD} -> ${DATA_MOUNT}"
   squashfuse_ll "${SRC}/${SHARD}" "$DATA_MOUNT"
-  trap 'fusermount -u "$DATA_MOUNT" 2>/dev/null; rmdir "$DATA_MOUNT" 2>/dev/null' EXIT
+  trap 'fusermount -u "$DATA_MOUNT" 2>/dev/null; rm -rf "$TMPROOT" 2>/dev/null' EXIT
   # Fail LOUDLY (not silently with empty data) if the mount didn't populate — retry once.
   if [ -z "$(ls -A "$DATA_MOUNT" 2>/dev/null)" ]; then
     echo "[$(date)] WARN mount empty, retrying squashfuse_ll once" >&2
