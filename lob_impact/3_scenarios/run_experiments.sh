@@ -153,9 +153,13 @@ for model_key in "${MODEL_KEYS[@]}"; do
     TICK="${STOCK_TICK[$STOCK]:-}"
     for shape_row in "${SHAPES[@]}"; do
       IFS='|' read -r SHAPE_NAME N_INS N_COOL TEMPLATE TAG <<< "$shape_row"
+      # ONLY_SHAPE=beta|relaxation -> run a single shape (one experiment per job for max parallelism)
+      [ -n "${ONLY_SHAPE:-}" ] && [ "$TAG" != "$ONLY_SHAPE" ] && continue
       [ -n "$SMOKE_N_INS" ] && N_INS="$SMOKE_N_INS"
       tmpl_path="${HERE}/${TEMPLATE}"
       for dir in "${DIRECTIONS[@]}"; do
+        # ONLY_DIR=buy|sell -> run a single side
+        [ -n "${ONLY_DIR:-}" ] && [ "$dir" != "$ONLY_DIR" ] && continue
         dir_int="$(dir_to_int "$dir")"
         mb="${SMOKE_MB:-${STOCK_MB[$STOCK]:-50}}"   # FIXED per-stock msgs_btw (eta=10%), not swept
         scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
