@@ -313,6 +313,11 @@ def get_dataset(
         wb_ext = os.path.splitext(wide_book_files[0])[1] if wide_book_files else ''
         print(f"[get_dataset] Wide book files: {len(wide_book_files)} matched from {wide_book_dir} (format: {wb_ext})")
 
+    # exp_H2 (old S5 codebase) LOBSTER_Dataset has NO `wide_book_files` param — it consumes the wide
+    # L500 book directly via `book_files` (use_simple_book=True, book_transform=False). The mamba3 codebase
+    # split narrow book_files (sim) vs wide_book_files (model); here they collapse: feed the wide book as
+    # book_files when we matched one, else fall back to the narrow book_files.
+    _book_files = wide_book_files if wide_book_files is not None else book_files
     ds = LOBSTER_Dataset(
         msg_files,
         n_messages=n_messages + n_eval_messages,
@@ -320,14 +325,13 @@ def get_dataset(
         seed=seed,
         n_cache_files=n_cache_files,
         randomize_offset=False,
-        book_files=book_files,
+        book_files=_book_files,
         use_simple_book=True,
         book_transform=False,
         book_depth=book_depth,
         return_raw_msgs=True,
         inference=True, #this flag shifts the book to exclude the very first state b4 the 1st message.
         limit_seq_per_file=limit_seq,
-        wide_book_files=wide_book_files,
     )
     return ds
 
