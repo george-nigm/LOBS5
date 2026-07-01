@@ -345,6 +345,11 @@ def sample_aggressive_scenario(
     args.bsz = 1
     args.micro_bsz = 1
     args.opt_config = "standard"
+    # Single-GPU inference: collapse any tensor-parallel sharding from training. Long-context ckpts
+    # (e.g. j4163888) were trained with tp_size=4 -> nh_local = n_heads//4 = 8, but the hidden-carry
+    # recipe builds rope-angle state with the FULL n_heads (32). Without this the conditioning roll dies
+    # with "add got incompatible shapes (32,32) vs (8,32)". Mamba3 weights are tp-interchangeable.
+    args.tp_size = 1
 
     # Install legacy-norm shim for mamba3 BEFORE building the model.
     from mamba3_legacy_norm import maybe_install_mamba3_legacy_norm
@@ -393,8 +398,16 @@ def sample_aggressive_scenario(
     (save_folder / 'data_real').mkdir(exist_ok=True, parents=True)
     (save_folder / 'data_gen').mkdir(exist_ok=True, parents=True)
 
+    # Long-context conditioning (n_cond=4000) yields FEW windows on short days (EA ~20). To reach the
+    # requested n_samples/day we sample WITH REPLACEMENT when n_samples exceeds the window count — each
+    # reused window is generated with a different RNG so the neural model produces a DISTINCT sample.
+    assert len(ds) >= batch_size, f'dataset too small ({len(ds)} windows) for batch_size {batch_size}'
+
     # Sample indices
     assert n_samples % batch_size == 0, f'n_samples ({n_samples}) must be divisible by batch_size ({batch_size})'
+    _replace = n_samples > len(ds)
+    if _replace:
+        print(f"  [replace] n_samples {n_samples} > {len(ds)} windows -> sampling WITH replacement (distinct gen RNG)")
     # NOTE: Need TWO splits to match run_inference.py behavior:
     # run_inference.py splits once in main script (line 125), then sample_new splits again (line 1197)
     rng, _ = jax.random.split(rng)  # First split (matches run_inference.py main script)
@@ -403,7 +416,7 @@ def sample_aggressive_scenario(
         rng_,
         jnp.arange(len(ds), dtype=jnp.int32),
         shape=(n_samples // batch_size, batch_size),
-        replace=False
+        replace=_replace
     ).tolist()
 
     # SAMPLE_SLICE: run only one batch (slice) of the deterministic partition, so N jobs fan out
