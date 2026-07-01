@@ -401,13 +401,18 @@ def sample_aggressive_scenario(
     # Long-context conditioning (n_cond=4000) yields FEW windows on short days (EA ~20). To reach the
     # requested n_samples/day we sample WITH REPLACEMENT when n_samples exceeds the window count — each
     # reused window is generated with a different RNG so the neural model produces a DISTINCT sample.
-    assert len(ds) >= batch_size, f'dataset too small ({len(ds)} windows) for batch_size {batch_size}'
-
     # Sample indices
     assert n_samples % batch_size == 0, f'n_samples ({n_samples}) must be divisible by batch_size ({batch_size})'
     _replace = n_samples > len(ds)
     if _replace:
         print(f"  [replace] n_samples {n_samples} > {len(ds)} windows -> sampling WITH replacement (distinct gen RNG)")
+    # With replacement, jax.random.choice may draw a batch larger than the window count, so batch_size
+    # is allowed to exceed len(ds) here (each reuse gets a distinct gen RNG). Only enforce the floor for
+    # the non-replacement (deterministic) path where a batch must fit within the distinct windows.
+    if not _replace:
+        assert len(ds) >= batch_size, f'dataset too small ({len(ds)} windows) for batch_size {batch_size}'
+    elif len(ds) < batch_size:
+        print(f"  [replace] thin day: {len(ds)} windows < batch_size {batch_size} -> full batch drawn with replacement")
     # NOTE: Need TWO splits to match run_inference.py behavior:
     # run_inference.py splits once in main script (line 125), then sample_new splits again (line 1197)
     rng, _ = jax.random.split(rng)  # First split (matches run_inference.py main script)

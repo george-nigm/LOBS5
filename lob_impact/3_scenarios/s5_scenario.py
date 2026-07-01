@@ -357,24 +357,55 @@ def sample_aggressive_scenario(
     # ITS OWN abstract structure (so no mismatch) to host/numpy via construct_restore_args, then graft the
     # 'params' subtree. Using the on-disk abstract avoids both the structure mismatch and the missing-sharding
     # error (construct_restore_args from the abstract metadata defaults to host numpy arrays).
-    import orbax.checkpoint as _ocp
-    _mngr = _ocp.CheckpointManager(os.path.abspath(ckpt_path), item_names=('state', 'metadata'),
-                                   options=_ocp.CheckpointManagerOptions())
-    _step = checkpoint_step if checkpoint_step is not None else _mngr.latest_step()
-    print(f"[S5 params-only restore] step={_step} from {ckpt_path}")
-    _abstract = _mngr.item_metadata(_step)['state']            # on-disk abstract tree (correct structure)
-    # The ckpt was saved on a 64-device MESH -> any device-sharded restore tries to rebuild that mesh on 1
-    # GPU and fails. Restore every array to HOST numpy with ArrayRestoreArgs(restore_type=np.ndarray) (the
-    # array-specific arg — base RestoreArgs did NOT bypass sharding), which ignores the saved mesh entirely.
-    _base = _ocp.checkpoint_utils.construct_restore_args(_abstract)   # correctly-structured ArrayRestoreArgs tree
-    _rargs = jax.tree_util.tree_map(
-        lambda ra: _ocp.ArrayRestoreArgs(restore_type=onp.ndarray),
-        _base, is_leaf=lambda x: isinstance(x, _ocp.RestoreArgs))
-    _restored = _mngr.restore(_step, args=_ocp.args.Composite(state=_ocp.args.PyTreeRestore(restore_args=_rargs)))
-    _raw = _restored['state']
-    _params = _raw['params'] if (hasattr(_raw, '__contains__') and 'params' in _raw) else getattr(_raw, 'params', _raw)
-    train_state = new_train_state.replace(params=jax.tree_util.tree_map(jnp.asarray, _params))
-    print(f"Loaded S5 checkpoint step: {_step}")
+    # PREFERRED PATH: load a pre-converted host-numpy params bundle (.npz). The S5 ckpt was saved on a
+    # 64-device mesh, which orbax cannot reshard onto 1 GPU (8 failed restore attempts). convert_s5_ckpt.py
+    # restores it once on 64 FAKE CPU devices (xla_force_host_platform_device_count) and dumps params to an
+    # .npz keyed by '/'-joined pytree path. Here we graft those arrays into the freshly-built params by
+    # matching the SAME path keying — no orbax/mesh involved on the GPU run.
+    _npz = os.environ.get('S5_PARAMS_NPZ') or cfg.get('params_npz')
+    if _npz and os.path.exists(_npz):
+        def _key(path):
+            parts = []
+            for p in path:
+                parts.append(getattr(p, 'key', getattr(p, 'idx', str(p))))
+            return '/'.join(str(x) for x in parts)
+        print(f"[S5 npz restore] loading converted params from {_npz}")
+        _z = onp.load(_npz)
+        _files = set(_z.files)
+        _leaves, _tdef = jax.tree_util.tree_flatten_with_path(new_train_state.params)
+        _new, _missing = [], []
+        for path, placeholder in _leaves:
+            k = _key(path)
+            if k in _files:
+                a = jnp.asarray(_z[k])
+                if tuple(a.shape) != tuple(placeholder.shape):
+                    raise ValueError(f"[S5 npz restore] shape mismatch {k}: npz {a.shape} vs model {placeholder.shape}")
+                _new.append(a)
+            else:
+                _missing.append(k); _new.append(jnp.asarray(placeholder))
+        if _missing:
+            print(f"[S5 npz restore] WARNING {len(_missing)}/{len(_leaves)} params NOT in npz (kept init): {_missing[:8]}")
+        train_state = new_train_state.replace(params=jax.tree_util.tree_unflatten(_tdef, _new))
+        print(f"[S5 npz restore] grafted {len(_leaves)-len(_missing)}/{len(_leaves)} params from npz")
+    else:
+        import orbax.checkpoint as _ocp
+        _mngr = _ocp.CheckpointManager(os.path.abspath(ckpt_path), item_names=('state', 'metadata'),
+                                       options=_ocp.CheckpointManagerOptions())
+        _step = checkpoint_step if checkpoint_step is not None else _mngr.latest_step()
+        print(f"[S5 params-only restore] step={_step} from {ckpt_path}")
+        _abstract = _mngr.item_metadata(_step)['state']            # on-disk abstract tree (correct structure)
+        # The ckpt was saved on a 64-device MESH -> any device-sharded restore tries to rebuild that mesh on 1
+        # GPU and fails. Restore every array to HOST numpy with ArrayRestoreArgs(restore_type=np.ndarray) (the
+        # array-specific arg — base RestoreArgs did NOT bypass sharding), which ignores the saved mesh entirely.
+        _base = _ocp.checkpoint_utils.construct_restore_args(_abstract)   # correctly-structured ArrayRestoreArgs tree
+        _rargs = jax.tree_util.tree_map(
+            lambda ra: _ocp.ArrayRestoreArgs(restore_type=onp.ndarray),
+            _base, is_leaf=lambda x: isinstance(x, _ocp.RestoreArgs))
+        _restored = _mngr.restore(_step, args=_ocp.args.Composite(state=_ocp.args.PyTreeRestore(restore_args=_rargs)))
+        _raw = _restored['state']
+        _params = _raw['params'] if (hasattr(_raw, '__contains__') and 'params' in _raw) else getattr(_raw, 'params', _raw)
+        train_state = new_train_state.replace(params=jax.tree_util.tree_map(jnp.asarray, _params))
+        print(f"Loaded S5 checkpoint step: {_step}")
     model = model_cls(training=False, step_rescale=1.0)
 
     # Per-day mode: restrict to specific day

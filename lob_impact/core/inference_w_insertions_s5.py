@@ -27,6 +27,11 @@ import math
 import time
 
 import lob.validation_helpers as valh
+# exp_H2 (S5) validation_helpers has no _TP_MESH (tensor-parallel is exp_R1/mamba3-only). S5 runs
+# tp_size=1 (no TP), so default it to None -> every `valh._TP_MESH is not None` branch takes the
+# plain single-device jax.jit path.
+if not hasattr(valh, '_TP_MESH'):
+    valh._TP_MESH = None
 import lob.evaluation as eval
 import preproc as preproc
 # from preproc import transform_L2_state_gpu
