@@ -598,8 +598,13 @@ def sample_aggressive_scenario(
         # Save for each sample in batch (same format as run_inference.py)
         for i, sample_idx in enumerate(batch_i):
             date = ds.get_date(sample_idx)
+            # GLOBAL sample counter — unique across all batches this run. With replacement sampling
+            # (long-context: few windows/day) the SAME window index recurs across batches; keying the
+            # gen file on sample_idx + gen_id_0 made those reuses OVERWRITE each other, capping the run
+            # at the distinct-window count. gen_id=gid keeps every distinct-RNG generation as its own file.
+            gid = batch_idx * batch_size + i
 
-            # Conditioning data
+            # Conditioning data (per-window; identical across reuses -> keyed by window, harmless overwrite)
             inference.msg_to_lobster_format(m_seq_raw_cond[i]).to_csv(
                 save_folder / 'data_cond' / f'{stock}_{date}_message_real_id_{sample_idx}.csv',
                 index=False, header=False
@@ -615,11 +620,11 @@ def sample_aggressive_scenario(
 
             # Generated data (filtered - messages aligned 1:1 with book states)
             inference.msg_to_lobster_format(valid_msgs_i).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
             inference.book_to_lobster_format(valid_books_i).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
 
