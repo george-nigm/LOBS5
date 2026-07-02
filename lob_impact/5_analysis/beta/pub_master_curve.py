@@ -28,6 +28,7 @@ def main():
     ap.add_argument('--npz', required=True)
     ap.add_argument('--shape', default='beta', choices=['beta', 'relaxation', 'decay'])
     ap.add_argument('--stock', default='EA')
+    ap.add_argument('--loc', default=None, help='legend location override (matplotlib loc string)')
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
     apply()
@@ -56,9 +57,10 @@ def main():
     phase = 'build-up' if build_up else 'build-up + relaxation'
     ax.set_title(f'{args.stock} — impact master curve ({phase})')
     ax.margins(x=0)
-    # legends in the empty corner: build-up -> lower-right (below the rising band);
-    # relaxation -> upper-left (top is empty until CST climbs late).
-    legend_box(ax, loc='lower right' if build_up else 'upper left', ncol=1)
+    # legends in the empty corner (override with --loc):
+    # build-up -> upper-right;  relaxation -> upper-left (top is empty until CST climbs late).
+    loc = args.loc or ('upper right' if build_up else 'upper left')
+    legend_box(ax, loc=loc, ncol=1)
 
     savefig_pub(fig, os.path.abspath(args.out))
     plt.close(fig)
