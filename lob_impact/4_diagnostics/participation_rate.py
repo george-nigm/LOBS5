@@ -161,12 +161,13 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--shape', default='beta', choices=['beta', 'relaxation'])
     ap.add_argument('--metric', default='count', choices=['count', 'volume'])
+    ap.add_argument('--models', default=','.join(MODELS))
     ap.add_argument('--out_dir', default=None)
     args = ap.parse_args()
     global METRIC; METRIC = args.metric
     out_dir = args.out_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                            'results', 'participation_rate')
-    for model in MODELS:
+    for model in [m for m in args.models.split(',') if m]:
         model_figure(args.grid, model, args.shape, out_dir)
 
 

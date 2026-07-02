@@ -28,6 +28,7 @@ MODEL_STYLE = {
     'Mamba3':    dict(color='#2F5DA3', ls='-',  label='Mamba-3'),
     'Mamba3_4k': dict(color='#16A085', ls='-',  label='Mamba-3-4k'),
     'S5':        dict(color='#E67E22', ls='-',  label='LobS5'),
+    'S5_4k':     dict(color='#E67E22', ls='-',  label='S5-4k'),
 }
 
 # reference-curve styles (theory overlays)

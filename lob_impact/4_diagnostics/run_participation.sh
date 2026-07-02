@@ -29,6 +29,7 @@ set -u
 
 echo "[$(date)] host $(hostname) | grid ${GRID} | shape ${SHAPE} | metric ${METRIC}"
 cd "$IMPACT_DIR"
+MODELS="${MODELS:-Mamba3,Historic}"
 python3.11 4_diagnostics/participation_rate.py \
-  --grid "$GRID" --shape "$SHAPE" --metric "$METRIC"
-echo "[$(date)] done -> 4_diagnostics/results/participation_rate/participation_{Mamba3,Historic}_${SHAPE}_${METRIC}.png"
+  --grid "$GRID" --shape "$SHAPE" --metric "$METRIC" --models "$MODELS"
+echo "[$(date)] done -> 4_diagnostics/results/participation_rate/participation_{${MODELS}}_${SHAPE}_${METRIC}.png"
