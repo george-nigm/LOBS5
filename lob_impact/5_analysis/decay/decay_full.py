@@ -39,7 +39,6 @@ Cluster-safe: heavy Lustre globbing -> run under sbatch (run_decay.sh), never on
 """
 import os, glob, csv, re, argparse
 import numpy as np
-from scipy import optimize
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -279,6 +278,8 @@ def relaxation_ratio(mc, u_peak=1.0, u_final=3.0):
 
 
 def fit_decay(mc, u_peak=1.0):
+    """post-peak power-law exponent gamma: m(u)/m(1) = c (1+(u-1))^{-gamma}.
+    Fit in log-log space (log yn = log c - gamma log(1+pu)); numpy-only, no scipy."""
     if mc is None:
         return np.nan
     u, m = mc['u'], mc['mean']
@@ -287,16 +288,18 @@ def fit_decay(mc, u_peak=1.0):
     if len(py) < 5 or abs(py[0]) < 1e-12:
         return np.nan
     yn = py / py[0]
-    try:
-        mask = pu > 0
-        popt, _ = optimize.curve_fit(lambda x, g, c: c * (1 + x) ** (-g), pu[mask], yn[mask],
-                                     p0=[0.5, 1.0], maxfev=5000)
-        return float(popt[0])
-    except Exception:
+    mask = (pu > 0) & np.isfinite(yn) & (yn > 1e-6)
+    if mask.sum() < 3:
         return np.nan
+    x = np.log1p(pu[mask])
+    y = np.log(yn[mask])
+    slope, _ = np.polyfit(x, y, 1)
+    return float(-slope)
 
 
 def stability_vote(mc, u_peak=1.0):
+    """asymptotic-stability of the cooling tail: (1) flat tail slope and (2) mid-level ~= end-level.
+    Both numpy checks must hold. (Mirrors run_300_analyze_one's m1/m2; the scipy exp-fit m3 is dropped.)"""
     if mc is None:
         return False
     u, m = mc['u'], mc['mean']
@@ -309,13 +312,7 @@ def stability_vote(mc, u_peak=1.0):
     m1 = abs(slope) / (abs(np.mean(tail)) + 1e-10) < 0.05
     mid = n // 2
     m2 = abs(np.mean(post[-max(n // 8, 3):]) - np.mean(post[max(0, mid - n // 8):mid + n // 8])) / (abs(np.mean(tail)) + 1e-10) < 0.03
-    try:
-        popt, _ = optimize.curve_fit(lambda x, a, b, c: a * np.exp(-b * x) + c, np.arange(n), post,
-                                     p0=[post[0] - post[-1], 0.1, post[-1]], maxfev=5000)
-        m3 = (1 - abs(popt[0] * np.exp(-popt[1] * n)) / (abs(popt[2]) + 1e-10)) > 0.95
-    except Exception:
-        m3 = False
-    return bool(sum([m1, m2, m3]) >= 2)
+    return bool(m1 and m2)
 
 
 def _hurst_dfa(signs, max_lag=MAX_LAG):
