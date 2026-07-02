@@ -31,7 +31,21 @@ LABELS = {'parkinson': 'Parkinson', 'garman_klass': 'Garman-Klass',
 
 
 def _read(f):
-    return np.array([r for r in csv.reader(open(f)) if r], dtype=float)
+    # Tolerant parse: some CST message CSVs contain a corrupt glued cell
+    # (e.g. '2147483647.-2147483648' = int32 max/min mashed by the writer).
+    # Coerce any unparseable cell to NaN — downstream finite/Q>0 checks drop it.
+    out = []
+    for r in csv.reader(open(f)):
+        if not r:
+            continue
+        row = []
+        for x in r:
+            try:
+                row.append(float(x))
+            except ValueError:
+                row.append(np.nan)
+        out.append(row)
+    return np.array(out, dtype=float)
 
 
 def _aggr_by_day(side_dir):

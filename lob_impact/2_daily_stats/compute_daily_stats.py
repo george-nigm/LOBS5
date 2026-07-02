@@ -11,8 +11,9 @@ volume, used downstream for Parkinson volatility (sigma = ln(H/L)/1.6651092) and
   # a single ticker -> per-stock file (for the analysis loader):
   python 2_daily_stats/compute_daily_stats.py --mnt <root> --stock EA --out_dir <dir>
 
-Combined output  daily_h_l_all.csv  : columns  ticker, day, highest_price, lowest_price, execution_sum
-Per-stock output daily_h_l_<STOCK>.csv: columns  day, highest_price, lowest_price, execution_sum
+Combined output  daily_h_l_all.csv  : columns  ticker, day, open_price, highest_price, lowest_price, close_price, execution_sum
+Per-stock output daily_h_l_<STOCK>.csv: columns  day, open_price, highest_price, lowest_price, close_price, execution_sum
+OHLC (open=first exec px, close=last exec px) feeds the OHLC volatility estimators; H/L feeds Parkinson.
 
 PROC-FILE COLUMN LAYOUT (verified on the Jan-2026 squashfs proc .npy, shape [N, 14]):
     COL_EVENT_TYPE = 1     # event_type (4 == execution/trade)
@@ -33,18 +34,25 @@ DAY_RE = re.compile(r'(\d{4}-\d{2}-\d{2})')
 
 
 def stats_one_file(f, col_price):
-    """(day, highest_price, lowest_price, execution_sum) for one proc .npy, or None."""
+    """(day, OHLC, execution_sum) for one proc .npy, or None.
+
+    open/close = first/last execution price of the day (executions are time-ordered) ->
+    enables the OHLC volatility estimators (Garman-Klass, Rogers-Satchell, Yang-Zhang)
+    on top of Parkinson (H/L) and close-to-close."""
     try:
         a = np.load(f, mmap_mode='r')
         block = np.asarray(a[:, [COL_EVENT_TYPE, col_price, COL_SIZE]])   # single disk pass
         ev, price, size = block[:, 0], block[:, 1].astype(np.float64), block[:, 2]
         is_exec = ev == EXECUTION_EVENT_TYPE
-        exec_px = price[is_exec]; exec_px = exec_px[exec_px > 0]
+        exec_px = price[is_exec]
+        keep = exec_px > 0
+        exec_px = exec_px[keep]
         if exec_px.size == 0:
             return None
         m = DAY_RE.search(os.path.basename(f))
         return dict(day=(m.group(1) if m else os.path.basename(f)),
-                    highest_price=float(exec_px.max()), lowest_price=float(exec_px.min()),
+                    open_price=float(exec_px[0]), highest_price=float(exec_px.max()),
+                    lowest_price=float(exec_px.min()), close_price=float(exec_px[-1]),
                     execution_sum=int(size[is_exec].sum()))
     except Exception as e:
         print(f'  WARN {os.path.basename(f)}: {e}', flush=True)
@@ -78,10 +86,11 @@ def main():
         rows = [r for r in rows_for_ticker((args.mnt, args.stock, args.price_col))]
         rows.sort(key=lambda r: r['day'])
         out = os.path.join(args.out_dir, f'daily_h_l_{args.stock}.csv')
+        cols = ['day', 'open_price', 'highest_price', 'lowest_price', 'close_price', 'execution_sum']
         with open(out, 'w', newline='') as fh:
-            w = csv.DictWriter(fh, fieldnames=['day', 'highest_price', 'lowest_price', 'execution_sum'])
+            w = csv.DictWriter(fh, fieldnames=cols)
             w.writeheader()
-            w.writerows({k: r[k] for k in ('day', 'highest_price', 'lowest_price', 'execution_sum')} for r in rows)
+            w.writerows({k: r[k] for k in cols} for r in rows)
         print(f'Wrote {out} ({len(rows)} days)', flush=True)
         return
 
@@ -99,7 +108,8 @@ def main():
 
     out = os.path.join(args.out_dir, 'daily_h_l_all.csv')
     with open(out, 'w', newline='') as fh:
-        w = csv.DictWriter(fh, fieldnames=['ticker', 'day', 'highest_price', 'lowest_price', 'execution_sum'])
+        w = csv.DictWriter(fh, fieldnames=['ticker', 'day', 'open_price', 'highest_price',
+                                           'lowest_price', 'close_price', 'execution_sum'])
         w.writeheader(); w.writerows(all_rows)
     print(f'Wrote {out} ({len(all_rows)} rows, {len(tickers)} tickers)', flush=True)
 

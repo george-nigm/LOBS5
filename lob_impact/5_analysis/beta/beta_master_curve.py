@@ -55,17 +55,24 @@ def collect_points(side_dir, ticker, daily, sign):
     """Pool (x=log(Q/V), y=log(I/sigma)) points over all samples in a side."""
     obs = sorted(glob.glob(os.path.join(side_dir, '**', 'data_gen', '*orderbook*gen*.csv'),
                            recursive=True))
-    ai = glob.glob(os.path.join(side_dir, '**', 'aggressive_indices.csv'), recursive=True)
-    if not obs or not ai:
+    aggr_by_day = {}
+    for f in glob.glob(os.path.join(side_dir, '**', 'aggressive_indices_*.csv'), recursive=True):
+        d = os.path.basename(f)[len('aggressive_indices_'):-len('.csv')]
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', d):  # PER-DAY indices, not the last-day summary file
+            aggr_by_day[d] = np.loadtxt(f, dtype=int, ndmin=1)
+    if not obs or not aggr_by_day:
         return np.array([]), np.array([])
-    aggr = np.loadtxt(ai[0], dtype=int, ndmin=1)
     xs, ys = [], []
     for ob in obs:
         m = DATE_RE.search(os.path.basename(ob))
         if not m:
             continue
-        key = (ticker, m.group(1))
+        day = m.group(1)
+        key = (ticker, day)
         if key not in daily:
+            continue
+        aggr = aggr_by_day.get(day)
+        if aggr is None:
             continue
         sigma, V = daily[key]
         if not np.isfinite(sigma) or sigma <= 0 or V <= 0:

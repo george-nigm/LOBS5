@@ -35,20 +35,32 @@ def _read(f):
     return np.array([r for r in csv.reader(open(f)) if r], dtype=float)
 
 
+def _aggr_by_day(side_dir):
+    """day -> PER-DAY aggressive_indices_<day>.csv (NOT the summary file = last day only)."""
+    out = {}
+    for f in glob.glob(os.path.join(side_dir, '**', 'aggressive_indices_*.csv'), recursive=True):
+        d = os.path.basename(f)[len('aggressive_indices_'):-len('.csv')]
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', d):
+            out[d] = np.loadtxt(f, dtype=int, ndmin=1)
+    return out
+
+
 def collect_raw(side_dir, ticker, sign):
     """Pool (Q_cum, I_rel, day) per (sample, insertion); σ/V applied later per method."""
     obs = sorted(glob.glob(os.path.join(side_dir, '**', 'data_gen', '*orderbook*gen*.csv'),
                            recursive=True))
-    ai = glob.glob(os.path.join(side_dir, '**', 'aggressive_indices.csv'), recursive=True)
-    if not obs or not ai:
+    aggr_by_day = _aggr_by_day(side_dir)
+    if not obs or not aggr_by_day:
         return np.empty((0, 3))
-    aggr = np.loadtxt(ai[0], dtype=int, ndmin=1)
     rows = []
     for ob in obs:
         m = DATE_RE.search(os.path.basename(ob))
         if not m:
             continue
         day = m.group(1)
+        aggr = aggr_by_day.get(day)
+        if aggr is None:
+            continue
         a = _read(ob)
         if a.ndim != 2 or a.shape[1] < 4:
             continue

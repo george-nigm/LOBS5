@@ -15,39 +15,30 @@ JIDS="$HERE/logs/overnight_jids_$(date +%Y%m%d-%H%M%S).txt"
 echo "submitting overnight grid -> $JIDS"; : > "$JIDS"
 GAP="${GAP:-35}"
 
-# ---- 1) smokes (gates) ----
-M3SMOKE=$(sbatch --parsable --account=$ACC --partition=$PART --gres=gpu:1 \
-  --cpus-per-task=2 --mem=32G --time=00:20:00 --job-name=m3smoke \
-  --output="$HERE/logs/m3smoke_%j.out" --export=ALL,PER_DAY=1,N_PER_DAY=4 \
-  "$RUN" smoke mamba3)
-echo "GATE mamba3-smoke  = $M3SMOKE" | tee -a "$JIDS"; sleep "$GAP"
+# NO smoke gates: both per-day paths are already validated (Mamba3 generates a sane evolving L10
+# book; Historic EA/AMD/NVDA-beta completed). afterok gates risked DependencyNeverSatisfied (the
+# Mamba3 smoke timed out at 20min from model-load+compile) wiping the whole fleet. Submit direct.
+# Output root = SAVE_BASE (Lustre, no quota) via run_experiments.sh.
 
-HISMOKE=$(sbatch --parsable --account=$ACC --partition=$PART \
-  --cpus-per-task=2 --mem=8G --time=00:15:00 --job-name=hismoke \
-  --output="$HERE/logs/hismoke_%j.out" --export=ALL,PER_DAY=1,N_PER_DAY=4 \
-  "$RUN" smoke historic)
-echo "GATE historic-smoke = $HISMOKE" | tee -a "$JIDS"; sleep "$GAP"
-
-# ---- 2) Mamba3 GPU fleet (gated on mamba3 smoke) ----
+# ---- 1) Mamba3 GPU fleet ----
 for s in "${STK[@]}"; do for sh in "${SHP[@]}"; do for d in "${DIR[@]}"; do
   j=$(sbatch --parsable --account=$ACC --partition=$PART --gres=gpu:1 \
-    --cpus-per-task=16 --mem=80G --time=23:00:00 \
+    --cpus-per-task=16 --mem=96G --time=08:00:00 \
     --job-name="m3_${s}_${sh}_${d}" --output="$HERE/logs/m3_${s}_${sh}_${d}_%j.out" \
-    --dependency=afterok:$M3SMOKE \
     --export=ALL,PER_DAY=1,N_PER_DAY=$NPD,STOCKS=$s,ONLY_SHAPE=$sh,ONLY_DIR=$d \
     "$RUN" full mamba3)
   echo "mamba3   $s/$sh/$d = $j" | tee -a "$JIDS"; sleep "$GAP"
 done; done; done
 
-# ---- 3) Historic CPU fleet (gated on historic smoke) ----
+# ---- 2) Historic CPU fleet (per-stock mem: NVDA/AMD high-volume -> 192G; NVDA OOM'd at 64G) ----
+declare -A HI_MEM=([EA]=96G [NVDA]=192G [AMD]=192G)
 for s in "${STK[@]}"; do for sh in "${SHP[@]}"; do for d in "${DIR[@]}"; do
   j=$(sbatch --parsable --account=$ACC --partition=$PART \
-    --cpus-per-task=32 --mem=64G --time=12:00:00 \
+    --cpus-per-task=32 --mem="${HI_MEM[$s]:-96G}" --time=12:00:00 \
     --job-name="hi_${s}_${sh}_${d}" --output="$HERE/logs/hi_${s}_${sh}_${d}_%j.out" \
-    --dependency=afterok:$HISMOKE \
     --export=ALL,PER_DAY=1,N_PER_DAY=$NPD,STOCKS=$s,ONLY_SHAPE=$sh,ONLY_DIR=$d \
     "$RUN" full historic)
-  echo "historic $s/$sh/$d = $j" | tee -a "$JIDS"; sleep "$GAP"
+  echo "historic $s/$sh/$d = $j  (mem=${HI_MEM[$s]:-96G})" | tee -a "$JIDS"; sleep "$GAP"
 done; done; done
 
 echo "=== ALL SUBMITTED ($(grep -c '=' "$JIDS") lines) -> $JIDS ==="

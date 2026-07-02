@@ -270,7 +270,7 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         rng_,
         jnp.arange(len(ds), dtype=jnp.int32),
         shape=(n_samples // batch_size, batch_size),
-        replace=False
+        replace=(n_samples > len(ds)),  # >windows -> sample with replacement (reach 2048/side)
     ).tolist()
 
     # Build insertion schedule (positions in eval-message space)

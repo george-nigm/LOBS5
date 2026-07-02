@@ -13,7 +13,7 @@
 set -uo pipefail
 HERE="/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/4_diagnostics"
 PY="${PY:-/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python}"
-GRID="${GRID:-${HERE}/../3_scenarios/results/grid}"
+GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid}"   # consolidated grid lives on LUSTRE (no quota)
 STOCKS="${STOCKS:-EA NVDA AMD}"; MODELS="${MODELS:-Historic Mamba3}"
 SHAPES="${SHAPES:-beta relaxation}"; SIDES="${SIDES:-buy sell}"
 N_SAMPLES="${N_SAMPLES:-8}"; MAX_STEPS="${MAX_STEPS:-0}"

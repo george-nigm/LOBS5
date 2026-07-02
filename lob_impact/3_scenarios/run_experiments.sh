@@ -23,8 +23,9 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 PROJECT_DIR="${PROJECT_DIR:-$REPO_ROOT}"
 # U6GB project mirror (our own project, full group access — replaces the s5e world-read dependency)
 CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team_quant/AlphaTrade/experiments}"
-SAVE_BASE="${SAVE_BASE:-${HERE}/results/grid}"   # STABLE consolidated root: all jobs/slices merge here
-                                                  # -> analysis points at ONE path (results/grid), not per-run dirs
+SAVE_BASE="${SAVE_BASE:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid}"   # STABLE consolidated root on LUSTRE (75TB, no quota)
+                                                  # home is VAST-NFS 101G-capped -> grid MUST live on Lustre (like Kang's data)
+                                                  # -> analysis points at ONE path, not per-run dirs
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
 # --- per-day calibration (order_volume = daily-median MO = p50, mb per day) ---
@@ -79,12 +80,20 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   echo "[$(date)] mounted: $(ls "$DATA_MOUNT" | wc -l) tickers"
 fi
 
-# --- Models: "label|script|ckpt_path|checkpoint_step|book_dim" (script relative to 3_scenarios/) ---
+# --- Models: "label|script|ckpt_path|checkpoint_step|book_dim|n_cond" (script relative to 3_scenarios/) ---
 # Active models only. The old S5 scenarios (L500/24-tok, incompatible with the new L10/26-tok data)
 # live in 3_scenarios/to_implement/ and are not wired here.
+# n_cond (6th field, optional): conditioning window in messages. Empty => template default (500).
+# Long-context Mamba3 (26-tok, same arch as the 500 model) just needs a bigger n_cond matching its training.
 declare -A MODELS=(
-  [historic]="Historic|historic_scenario.py|||503"
-  [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503"
+  [historic]="Historic|historic_scenario.py|||503|"
+  [heuristic]="Heuristic|heuristic_scenario.py|||503|"
+  [cst]="CST|cst_scenario.py|||503|"
+  [hawkes]="Hawkes|hawkes_scenario.py|||503|"
+  [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503|"
+  [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
+  [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000"
+  [mamba3_4k_diag500]="Mamba3_4kD|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|"
 )
 MODEL_KEYS=(historic mamba3)
 read -ra STOCKS <<< "${STOCKS:-EA NVDA AMD}"        # env-overridable: STOCKS="EA" for per-stock jobs
@@ -96,7 +105,11 @@ SHAPES=(
   "bet_composition|100|0|config_bet_composition.yaml|beta"        # Shape I  -> beta
   "beta_decay|10|100|config_beta_decay.yaml|relaxation"          # Shape II -> decay/relaxation
 )
-DIRECTIONS=(buy sell)
+# env override to run ONE shape (parallelise combos across GPU jobs): SHAPE_ONLY=beta | relaxation
+if [ -n "${SHAPE_ONLY:-}" ]; then
+  for _s in "${SHAPES[@]}"; do [ "${_s##*|}" = "$SHAPE_ONLY" ] && SHAPES=("$_s") && break; done
+fi
+read -ra DIRECTIONS <<< "${DIRS:-buy sell}"        # env-overridable: DIRS="buy" for one-direction jobs
 declare -A STOCK_TICK=()        # e.g. ([EA]=100 [NVDA]=100 [AMD]=100)
 
 MODE="${1:-smoke}"; shift || true
@@ -135,7 +148,7 @@ render_config() {
   TMPL="$tmpl" OUT="$out" STOCK="$STOCK" DATA_DIR="$DATA_DIR" CKPT="$CKPT" \
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
   N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" \
-  PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" \
+  PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" CST_PARAMS="${CST_PARAMS:-}" HAWKES_PARAMS="${HAWKES_PARAMS:-}" N_COND="${N_COND:-}" BSZ="${BSZ:-}" \
   python3 - <<'PY'
 import os, yaml
 cfg = yaml.safe_load(open(os.environ["TMPL"]))
@@ -148,11 +161,19 @@ cfg["ckpt_path"]      = os.environ["CKPT"] or None
 cfg["book_dim"]       = int(os.environ["BOOK_DIM"])
 cfg["num_insertions"] = int(os.environ["N_INS"])
 cfg["num_coolings"]   = int(os.environ["N_COOL"])
+if os.environ.get("N_COND"):          # long-context model: widen the conditioning window to match training
+    cfg["n_cond_msgs"] = int(os.environ["N_COND"])
 if os.environ.get("TICK"):            cfg["tick_size"] = int(os.environ["TICK"])
 step = os.environ["CKPT_STEP"]
 cfg["checkpoint_step"] = None if step in ("", "null", "None", "PLACEHOLDER") else int(step)
 ov = os.environ["N_SAMPLES_OVERRIDE"]
 if ov: cfg["n_samples"] = int(ov)
+if os.environ.get("CST_PARAMS"):                                                     # CST parametric baseline
+    cfg["params_file"] = os.environ["CST_PARAMS"]
+    cfg["n_levels"]    = 10   # L10 proc data -> 40-col orderbook output, matching the other scenarios
+if os.environ.get("HAWKES_PARAMS"):                                                  # Hawkes parametric baseline
+    cfg["params_file"] = os.environ["HAWKES_PARAMS"]
+    cfg["n_levels"]    = 10
 if os.environ.get("PER_DAY"):
     # per-day calibration: child(order_volume)=p50 and mb come from the CSV per day (NOT the
     # hardcoded 75). batch_size == n_samples_per_day so each day = one batch.
@@ -160,15 +181,21 @@ if os.environ.get("PER_DAY"):
     cfg["order_volume_mult"] = 1.0
     cfg["n_samples_per_day"] = int(os.environ["NPD"])
     cfg["batch_size"]        = int(os.environ["NPD"])
+if os.environ.get("BSZ"):             # long-context models need a smaller batch (memory ~ seq_len).
+    cfg["batch_size"] = int(os.environ["BSZ"])  # AFTER per-day so it wins; scenario batches within a day
 yaml.safe_dump(cfg, open(os.environ["OUT"], "w"), sort_keys=False)
 PY
 }
 
 for model_key in "${MODEL_KEYS[@]}"; do
-  IFS='|' read -r LABEL SCRIPT CKPT CKPT_STEP BOOK_DIM <<< "${MODELS[$model_key]}"
+  IFS='|' read -r LABEL SCRIPT CKPT CKPT_STEP BOOK_DIM N_COND <<< "${MODELS[$model_key]}"
   abs_script="${HERE}/${SCRIPT}"
   # no checkpoint -> replay/parametric baseline -> force JAX onto CPU
   if [ -z "$CKPT" ]; then export JAX_PLATFORMS=cpu; else unset JAX_PLATFORMS; fi
+  # Mamba3 legacy-norm: REQUIRED for these ckpts (both the 500-ctx j3417629 AND the long-context 4k/8k
+  # j4163888 etc). Verified empirically: with =0 the 4k book blows up to negative/sentinel prices after
+  # ~1 block; with =1 it stays sane over the full 13k-msg generation. The metadata `legacy_norm=None`
+  # field is misleading. Scenario setdefault is "1"; we just honour any explicit env override.
   for STOCK in "${STOCKS[@]}"; do
     RAW_DIR="${DATA_MOUNT}/${STOCK}"
     # STAGE the stock's .npy from the (fresh) squashfuse mount to node-local NVMe BEFORE python/JAX
@@ -197,6 +224,10 @@ for model_key in "${MODEL_KEYS[@]}"; do
         [ -n "${ONLY_DIR:-}" ] && [ "$dir" != "$ONLY_DIR" ] && continue
         dir_int="$(dir_to_int "$dir")"
         mb="${SMOKE_MB:-${STOCK_MB[$STOCK]:-50}}"   # FIXED per-stock msgs_btw (eta=10%), not swept
+        # CST/Hawkes are parametric: feed per-stock estimated params (<model>_params/<...>_<STOCK>.pkl)
+        CST_PARAMS=""; HAWKES_PARAMS=""
+        [ "$LABEL" = "CST" ]    && CST_PARAMS="${HERE}/cst_params/cst_params_${STOCK}.pkl"
+        [ "$LABEL" = "Hawkes" ] && HAWKES_PARAMS="${HERE}/hawkes_params/hawkes_params_${STOCK}.pkl"
         scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
         SAVE_DIR="${SAVE_BASE}/${scen}/${dir}"
         cfg_dir="${SAVE_BASE}/_configs/${scen}"

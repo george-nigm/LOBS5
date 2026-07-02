@@ -17,8 +17,11 @@ PORT="${EXPLORER_PORT:-8899}"
 HERE="/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/4_diagnostics"
 PROJECT_DIR="/home/u6gb/georgenigm.u6gb/LOBS5"
 
+# conda activate scripts trip `set -u` (unbound ADDR2LINE in binutils activate.d) → relax around it
+set +u
 source "${CONDA_SH:-/home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh}"
 conda activate "${CONDA_ENV:-lobs5}"
+set -u
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
 
 NODE="$(hostname)"
