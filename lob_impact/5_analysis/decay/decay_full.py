@@ -102,17 +102,19 @@ def _mid_ticks(ob):
 
 
 def _signs(msg):
-    """trade-sign series eps for executions (event_type==4): buy(dir 0)=+1, sell(dir 1)=-1.
-    Returns full-length eps aligned to message rows (0 for non-executions) + a compact exec-only sign
-    series for the Hurst DFA."""
+    """trade-sign series eps for executions (event_type==4). Generated messages use the native
+    LOBSTER direction convention dir in {-1,+1}: dir=-1 means a resting ASK was consumed -> a BUY
+    market order -> buyer-initiated -> +1; dir=+1 (resting BID consumed) -> seller-initiated -> -1.
+    Returns full-length eps aligned to message rows (0 for non-executions) + a compact exec-only
+    sign series for the Hurst DFA."""
     a = _read(msg)
     if a is None or a.ndim != 2 or a.shape[1] < 6:
         return None, None
     et, dr = a[:, 1], a[:, 5]
     eps = np.zeros(len(a))
     is_exec = (et == 4)
-    eps[is_exec & (dr == 0)] = 1.0
-    eps[is_exec & (dr == 1)] = -1.0
+    eps[is_exec & (dr < 0)] = 1.0    # buyer-initiated
+    eps[is_exec & (dr > 0)] = -1.0   # seller-initiated
     exec_signs = eps[is_exec]
     exec_signs = exec_signs[exec_signs != 0]
     return eps, exec_signs
