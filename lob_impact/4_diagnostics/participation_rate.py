@@ -63,6 +63,13 @@ def sample_curves(side_dir):
         else:
             exec_w = np.where(is_exec, size, 0.0)
             meta_w = np.zeros(L); meta_w[idx] = size[idx]
+        # Each insertion is BY CONSTRUCTION one child market order -> force the insertion row to
+        # count as an execution (the metaorder child), so it is always in numerator & denominator.
+        # Without this, samples where the model didn't emit an exec exactly at idx[k] get child=0
+        # -> the whole window reads 0 and the per-window floor median collapses to ~0% (mean stays
+        # ~10% because a minority DO spike, which is why the sawtooth plot looked right but the
+        # floor annotation was wrong).
+        exec_w[idx] = np.maximum(exec_w[idx], meta_w[idx])
         cumexec = np.cumsum(exec_w)
         is_meta = np.zeros(L, bool); is_meta[idx] = True
         meta_cum = np.cumsum(meta_w)
