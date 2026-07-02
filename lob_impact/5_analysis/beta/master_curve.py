@@ -125,8 +125,8 @@ def main():
     if not build_up:
         rt = ref_style('twothirds')
         ax.axhline(2 / 3, color=rt['color'], ls=rt['ls'], lw=rt['lw'], alpha=0.8,
-                   label=r'permanent $\approx \tfrac{2}{3}$', zorder=2)
-    ax.set_xlabel(r'$v$ = fraction of metaorder executed   ($v{=}1\!:$ execution end)')
+                   label=r'permanent $\approx \frac{2}{3}$', zorder=2)
+    ax.set_xlabel(r'$v$ = fraction of metaorder executed   ($v=1$: execution end)')
     ax.set_ylabel(r'$\mathrm{master}(v)=\langle I(v)\rangle/\langle I(1)\rangle$')
     phase = 'build-up' if build_up else 'build-up + relaxation'
     ax.set_title(f'{args.stock} — impact master curve ({phase})')

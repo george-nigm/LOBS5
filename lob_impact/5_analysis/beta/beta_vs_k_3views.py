@@ -136,7 +136,7 @@ def main():
     kmax = max(int(r[0][-1]) for r in results.values())
     kcur = args.kcursor if args.kcursor else max(1, int(round(0.7 * kmax)))
     hero = args.hero if args.hero in clouds else next(iter(clouds))
-    sigtag = r'$\sigma{=}1$' if args.method == 'none' else f'$\\sigma$: {args.method}'
+    sigtag = r'$\sigma=1$' if args.method == 'none' else f'$\\sigma$: {args.method}'
 
     # ---------- 2 x 3 publication figure: β(k) top, hero impact-cloud bottom ----------
     fig, axes = plt.subplots(2, 3, figsize=(13.5, 7.6))
@@ -182,7 +182,7 @@ def main():
             b1, a1 = np.polyfit(cx[ok], cy[ok], 1)
             xx = np.linspace(xmin, xmax, 40)
             ax.plot(xx, b1 * xx + a1, color='#1a1a1a', lw=1.8, zorder=4,
-                    label=rf'$\beta={b1:.2f}$  ($n={int(ok.sum()):,}$)')
+                    label=rf'$\beta={b1:.2f}$  ($n$={int(ok.sum()):,})')
             legend_box(ax, loc='lower right', fontsize=8)
         ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
         ax.set_xlabel(r'$\ln(Q/V)$')

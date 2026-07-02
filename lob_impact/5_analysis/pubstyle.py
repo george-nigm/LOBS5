@@ -34,7 +34,7 @@ MODEL_STYLE = {
 REF = {
     'sqrt':       dict(color='k',       ls='--', lw=2.0, label=r'$\sqrt{\cdot}$-law  ($\beta=0.5$)'),
     'propagator': dict(color='#8E44AD', ls=':',  lw=2.2, label='propagator'),
-    'twothirds':  dict(color='#8E44AD', ls='--', lw=1.6, label=r'permanent $\approx \tfrac{2}{3}$'),
+    'twothirds':  dict(color='#8E44AD', ls='--', lw=1.6, label=r'permanent $\approx \frac{2}{3}$'),
     'theory':     dict(color='k',       ls='--', lw=2.0, label=r'theory ($\beta=0.5$)'),
 }
 

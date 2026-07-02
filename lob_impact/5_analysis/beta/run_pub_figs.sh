@@ -39,8 +39,13 @@ fi
 echo "[$(date)] host $(hostname) | grid ${GRID} | stock ${STOCK} | daily ${DAILY}"
 
 cd "$IMPACT_DIR"
-echo ">>> Fig 5a: master curve (beta build-up)"
-python3.11 5_analysis/beta/master_curve.py --grid "$GRID" --stock "$STOCK" --shape beta       --models "$MODELS"
+BETA_NPZ="${HERE}/results/master_curve/master_curve_${STOCK}_beta.npz"
+if [ "${FORCE:-0}" = "1" ] || [ ! -f "$BETA_NPZ" ]; then
+  echo ">>> Fig 5a: master curve (beta build-up)"
+  python3.11 5_analysis/beta/master_curve.py --grid "$GRID" --stock "$STOCK" --shape beta       --models "$MODELS"
+else
+  echo ">>> Fig 5a: cached ($BETA_NPZ exists) — skipping grid read (FORCE=1 to redo)"
+fi
 echo ">>> Fig 5b: master curve (relaxation)"
 python3.11 5_analysis/beta/master_curve.py --grid "$GRID" --stock "$STOCK" --shape relaxation --models "$MODELS"
 echo ">>> Fig 6: beta(k) 3 views + hero impact cloud"
