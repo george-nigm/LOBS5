@@ -78,16 +78,20 @@ def sample_curves(side_dir):
         denom = cumexec - base                                            # exec vol since window start
         with np.errstate(divide='ignore', invalid='ignore'):
             w = np.where(valid & (denom > 0), child / denom, np.nan)
-        # per-sample window floor: eta at the END of each window (step before next insertion)
-        ends = np.clip(idx[1:] - 1, 0, L - 1)
-        sample_floors.append(np.nanmedian(w[ends]))
+        # window floor = eta at the END of each window (step just before the next insertion).
+        # Pool EVERY window-end value across all samples (robust; the old per-sample nanmedian
+        # collapsed to ~0 when short samples had a single insertion -> empty ends -> nan).
+        if len(idx) >= 2:
+            ends = np.clip(idx[1:] - 1, 0, L - 1)
+            fw = w[ends]
+            sample_floors.extend(fw[np.isfinite(fw)].tolist())
         win.append(w); cum.append(c)
     if not win:
         return None
     Lmin = min(len(x) for x in win)
     W = np.stack([x[:Lmin] for x in win]); C = np.stack([x[:Lmin] for x in cum])
-    return dict(win=np.nanmean(W, 0), cum=np.nanmean(C, 0),
-                floor=float(np.nanmedian(sample_floors)),
+    floor = float(np.median(sample_floors)) if sample_floors else np.nan
+    return dict(win=np.nanmean(W, 0), cum=np.nanmean(C, 0), floor=floor,
                 aggr=aggr[aggr < Lmin], n=W.shape[0], drop=dropped, L=Lmin)
 
 
@@ -115,8 +119,9 @@ def model_figure(grid, model, shape, out_dir):
         aggr = curves[0]['aggr']; aggr = aggr[aggr < Lmin]
         n = sum(c['n'] for c in curves); drop = sum(c['drop'] for c in curves)
         u = np.arange(Lmin)
-        # window floor: per-sample median (NOT read off the averaged curve, which blurs troughs)
+        # window floor: pooled median of per-window troughs (NOT read off the averaged curve)
         floor_med = float(np.nanmedian([c['floor'] for c in curves])) * 100
+        print(f'  {model}/{shape} {stock}: floor={floor_med:.2f}%  cum_final={cum[-1]:.2f}%  n={n}')
 
         axw.plot(u, win, color='#2F5DA3', lw=0.7)
         axw.axhline(TARGET, color='#2E7D52', ls='--', lw=1.2, label=f'η target {TARGET:.0f}%')
