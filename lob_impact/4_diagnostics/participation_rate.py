@@ -63,13 +63,11 @@ def sample_curves(side_dir):
         else:
             exec_w = np.where(is_exec, size, 0.0)
             meta_w = np.zeros(L); meta_w[idx] = size[idx]
-        # Each insertion is BY CONSTRUCTION one child market order -> force the insertion row to
-        # count as an execution (the metaorder child), so it is always in numerator & denominator.
-        # Without this, samples where the model didn't emit an exec exactly at idx[k] get child=0
-        # -> the whole window reads 0 and the per-window floor median collapses to ~0% (mean stays
-        # ~10% because a minority DO spike, which is why the sawtooth plot looked right but the
-        # floor annotation was wrong).
-        exec_w[idx] = np.maximum(exec_w[idx], meta_w[idx])
+        # child = the metaorder's ACTUALLY-LOGGED execution weight at the insertion row. We do NOT
+        # fabricate it: neural scenarios inject a market order that decodes to a type-4 execution at
+        # idx (child>0, measurable); replay scenarios (Historic/Heuristic/CST) inject an order that
+        # is logged as a submission/cancel (type 1/3), so child=0 there -> that window is N/A, not 0
+        # or a fabricated 50%. Participation is only defined where the child actually traded.
         cumexec = np.cumsum(exec_w)
         is_meta = np.zeros(L, bool); is_meta[idx] = True
         meta_cum = np.cumsum(meta_w)
@@ -84,7 +82,8 @@ def sample_curves(side_dir):
         base = np.where(start > 0, cumexec[np.clip(start - 1, 0, L - 1)], 0.0)
         denom = cumexec - base                                            # exec vol since window start
         with np.errstate(divide='ignore', invalid='ignore'):
-            w = np.where(valid & (denom > 0), child / denom, np.nan)
+            # child>0 required: windows whose injected order did not execute (replay) -> N/A, not 0
+            w = np.where(valid & (denom > 0) & (child > 0), child / denom, np.nan)
         # window floor = eta at the END of each window (step just before the next insertion).
         # Pool EVERY window-end value across all samples (robust; the old per-sample nanmedian
         # collapsed to ~0 when short samples had a single insertion -> empty ends -> nan).
@@ -126,14 +125,19 @@ def model_figure(grid, model, shape, out_dir):
         aggr = curves[0]['aggr']; aggr = aggr[aggr < Lmin]
         n = sum(c['n'] for c in curves); drop = sum(c['drop'] for c in curves)
         u = np.arange(Lmin)
-        # window floor: pooled median of per-window troughs (NOT read off the averaged curve)
+        # window floor: pooled median of per-window troughs (NOT read off the averaged curve).
+        # nan when the injected order never executes (replay) -> report N/A, do not plot a floor.
         floor_med = float(np.nanmedian([c['floor'] for c in curves])) * 100
-        print(f'  {model}/{shape} {stock}: floor={floor_med:.2f}%  cum_final={cum[-1]:.2f}%  n={n}')
+        floor_ok = np.isfinite(floor_med)
+        floor_str = f'{floor_med:.1f}%' if floor_ok else 'N/A (child not executed)'
+        print(f'  {model}/{shape} {stock}: floor={floor_str}  cum_final={cum[-1]:.2f}%  n={n}')
 
         axw.plot(u, win, color='#2F5DA3', lw=0.7)
         axw.axhline(TARGET, color='#2E7D52', ls='--', lw=1.2, label=f'η target {TARGET:.0f}%')
-        axw.axhline(floor_med, color='#C0392B', ls=':', lw=1.2,
-                    label=f'median floor {floor_med:.1f}%')
+        if floor_ok:
+            axw.axhline(floor_med, color='#C0392B', ls=':', lw=1.2, label=f'median floor {floor_med:.1f}%')
+        else:
+            axw.plot([], [], ' ', label='floor: N/A (child not executed)')
         axw.set_title(f'{stock} — windowed (n={n}{", −%d bad" % drop if drop else ""})', fontsize=10)
         axw.set_xlabel('step'); axw.set_ylabel('participation (%)'); axw.legend(fontsize=8)
         axw.set_ylim(0, 105)
