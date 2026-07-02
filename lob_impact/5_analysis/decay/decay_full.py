@@ -337,6 +337,10 @@ def _hurst_dfa(signs, max_lag=MAX_LAG):
             F2 += np.mean((seg - trend) ** 2)
         flucts.append(np.sqrt(F2 / n_seg))
         used.append(sc)
+    # drop degenerate scales whose fluctuation is 0 (else log(0)=-inf poisons polyfit -> nan)
+    flucts, used = np.asarray(flucts), np.asarray(used)
+    pos = flucts > 0
+    flucts, used = flucts[pos], used[pos]
     if len(flucts) < 3:
         return np.nan
     H, _ = np.polyfit(np.log(used), np.log(flucts), 1)
