@@ -34,6 +34,8 @@ def main():
     ap.add_argument('--shape', default='beta', choices=['beta', 'decay', 'relaxation'])
     ap.add_argument('--stock', default='EA')
     ap.add_argument('--title', default=None, help='override the short title; "" for none')
+    ap.add_argument('--loc', default='upper left', help='legend location (matplotlib loc string)')
+    ap.add_argument('--ncol', type=int, default=1, help='number of legend columns')
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
 
@@ -78,7 +80,7 @@ def main():
         args.title = f'{args.stock} — mid-price impact ({phase})'
     if args.title:
         ax.set_title(args.title)
-    legend_box(ax, loc='upper left', ncol=1)
+    legend_box(ax, loc=args.loc, ncol=args.ncol, columnspacing=1.1, handlelength=1.6)
     ax.margins(x=0)
 
     fig.tight_layout()
