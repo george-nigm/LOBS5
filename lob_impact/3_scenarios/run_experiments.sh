@@ -121,7 +121,9 @@ if [ "$MODE" = "smoke" ]; then
   MODEL_KEYS=("${MODEL_KEYS[0]}"); STOCKS=(EA)
   SHAPES=("${SHAPES[0]}"); DIRECTIONS=(buy)
   N_SAMPLES_OVERRIDE=64; SMOKE_N_INS=3; SMOKE_MB=5   # tiny: 3 insertions, mb=5 — just to check
-  SAVE_BASE="${HERE}/results/smoke_${RUN_TS}"        # throwaway, not the consolidated grid root
+  # throwaway, not the consolidated grid root; SMOKE_SAVE_BASE pins a shared path so that
+  # multi-job smoke tests (e.g. two SAMPLE_SLICE shards) merge instead of splitting by RUN_TS
+  SAVE_BASE="${SMOKE_SAVE_BASE:-${HERE}/results/smoke_${RUN_TS}}"
   echo ">>> SMOKE: ${MODEL_KEYS[0]} x EA x bet_composition x buy x mb=5, n_samples=64, num_insertions=3"
 elif [ "$MODE" = "full" ]; then
   N_SAMPLES_OVERRIDE="${N_SAMPLES:-}"        # env-overridable; empty => use the config's n_samples
