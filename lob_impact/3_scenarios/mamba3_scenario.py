@@ -424,16 +424,27 @@ def sample_aggressive_scenario(
         replace=_replace
     ).tolist()
 
-    # SAMPLE_SLICE: run only one batch (slice) of the deterministic partition, so N jobs fan out
-    # across GPUs and merge into one consolidated folder (slices are disjoint -> distinct real_ids).
+    # SAMPLE_SLICE: run one contiguous shard of the deterministic batch partition, so N jobs fan
+    # out across GPUs and merge into one consolidated folder. slice_k/n_slices shard the batch list
+    # via array_split; gid = batch_idx*batch_size+i stays global, so shards are disjoint by
+    # construction. Without n_slices, one slice = one batch (legacy behaviour).
     slice_k = cfg.get('sample_slice', None)
     if slice_k is not None:
         slice_k = int(slice_k)
-        assert 0 <= slice_k < len(sample_i), f'sample_slice {slice_k} out of range 0..{len(sample_i)-1}'
-        batches = [(slice_k, sample_i[slice_k])]
-        print(f'>>> SAMPLE_SLICE {slice_k}/{len(sample_i)} -> batch of {batch_size} samples')
+        n_slices = int(cfg.get('n_slices', len(sample_i)))
+        assert 0 < n_slices <= len(sample_i), f'n_slices {n_slices} out of range 1..{len(sample_i)}'
+        assert 0 <= slice_k < n_slices, f'sample_slice {slice_k} out of range 0..{n_slices-1}'
+        all_batches = list(enumerate(sample_i))
+        shard = onp.array_split(onp.arange(len(all_batches)), n_slices)[slice_k]
+        batches = [all_batches[j] for j in shard]
+        print(f'>>> SAMPLE_SLICE {slice_k}/{n_slices} -> batches {shard.tolist()} ({len(batches) * batch_size} samples)')
     else:
         batches = list(enumerate(sample_i))
+
+    # Whether the model "sees" the inserted metaorder (rolled through hidden state, post-insertion
+    # book + jump-inclusive p_change fed back). False reproduces the legacy invisible-MO behaviour.
+    metaorder_visible = bool(cfg.get('metaorder_visible', True))
+    print(f'metaorder_visible: {metaorder_visible}')
 
     # Initialize hidden state template (Mamba3 recipe).
     # Mirrors sample_new (inference_no_errcorr.py) ssm_type=='mamba3' branch.
@@ -528,12 +539,13 @@ def sample_aggressive_scenario(
         insertion_positions = jnp.where(insertion_schedule[:, 0] == 1)[0]
         print(f"  Insertion positions (0-indexed): {insertion_positions.tolist()}")
 
-        # Replicate for batch
-        insertion_schedule_batched = jnp.tile(insertion_schedule[None, :, :], (batch_size, 1, 1))
+        # NOTE: schedule is SHARED across the batch (in_axes=None in generate_batched) — keeps
+        # lax.cond a real branch under vmap instead of select_n running both branches every step.
 
         # === SINGLE-CALL GENERATION ===
-        # Use rng_ from pre-loop split (or from previous iteration's post-generation split)
-        rng_batch = jax.random.split(rng_, batch_size)
+        # fold_in on the GLOBAL batch_idx: every batch gets an independent stream AND a sliced run
+        # is bit-identical to the same batch of a monolithic run (slices no longer share one RNG).
+        rng_batch = jax.random.split(jax.random.fold_in(rng_, batch_idx), batch_size)
 
         # AOT compile on first call
         if generate_compiled is None:
@@ -561,8 +573,9 @@ def sample_aggressive_scenario(
                 False,                      # static (15) - debug_book
                 None,                       # non-static - b_seq_real (for debug)
                 None,                       # non-static - valid_mask_array (auto)
-                insertion_schedule_batched, # non-static, batched
+                insertion_schedule,         # non-static, SHARED across batch (in_axes=None)
                 chunk_size,                 # static (19) - chunk_size for conditioning
+                metaorder_visible,          # static (20) - model sees the metaorder
             )
             generate_lowered = generate_traced.lower()
             generate_compiled = generate_lowered.compile()
@@ -581,7 +594,7 @@ def sample_aggressive_scenario(
             init_time_batched,
             None,  # b_seq_real (debug)
             None,  # valid_mask_array (auto)
-            insertion_schedule_batched,
+            insertion_schedule,
         )
 
         # Filter out zero-filled placeholder rows (aggressive order placeholders where no insertion happened)
@@ -631,8 +644,8 @@ def sample_aggressive_scenario(
             # For now, no "real" data in aggressive scenario - we're generating counterfactual
             # Save empty placeholder or skip
 
-        # Split RNG for next iteration (matches sample_new line 1382)
-        rng, rng_ = jax.random.split(rng)
+        # NOTE: no per-iteration RNG split any more — rng_batch is derived from fold_in(rng_,
+        # batch_idx) above, which both decorrelates batches and makes slices reproducible.
 
         # Save aggressive indices. PER-DAY file (aggressive_indices_<date>.csv): in per-day mode each
         # day has its own insertion positions, so one shared file is wrong for all but one day (the

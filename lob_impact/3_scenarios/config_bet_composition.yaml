@@ -14,6 +14,7 @@ n_eval_msgs_dataset: 500  # dataset eval window (match run_inference for identic
 event_type: 4             # 4 = market order (execution)
 direction: 0              # OVERRIDDEN per run by --direction (0=buy, 1=sell)
 order_volume: 75          # shares per child order
+metaorder_visible: true   # model sees the inserted order (rolled through hidden, post-agg book, jump in p_change); false = legacy invisible-MO
 use_relative_volume: false
 order_volume_ratio: 1.0
 
