@@ -219,11 +219,16 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
     test_split = cfg.get('test_split', 0)
     event_type = cfg['event_type']
     direction = cfg['direction']
-    n_eval_msgs_dataset = cfg.get('n_eval_msgs_dataset', 500)
     order_volume = cfg['order_volume']
 
     # Total steps: (num_insertions + num_coolings) * n_gen_msgs historical msgs + num_insertions aggressive orders
     total_eval_msgs_needed = (num_insertions + num_coolings) * n_gen_msgs
+
+    # The replay consumes total_eval_msgs_needed REAL messages — the dataset window MUST cover
+    # them. The old fixed 500-msg window silently replayed its last message for the rest of the
+    # run (jnp out-of-bounds indexing clamps), invalidating everything past ~msg 500.
+    n_eval_msgs_dataset = max(int(cfg.get('n_eval_msgs_dataset', 0)), total_eval_msgs_needed)
+    print(f"n_eval_msgs_dataset = {n_eval_msgs_dataset} (needed {total_eval_msgs_needed})")
 
     # Initialize
     rng = jax.random.key(rng_seed)
@@ -262,7 +267,17 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
     (save_folder / 'data_gen').mkdir(exist_ok=True, parents=True)
     (save_folder / 'data_real').mkdir(exist_ok=True, parents=True)
 
-    # Sample indices
+    # Sample indices — historic replay is DETERMINISTIC per window: a duplicate window is a
+    # byte-identical output (and via gen_id_0 used to silently overwrite). Never sample with
+    # replacement; cap n_samples at the number of available windows instead.
+    assert len(ds) > 0, 'no windows available (day shorter than n_cond + eval window?)'
+    if n_samples > len(ds):
+        capped = (len(ds) // batch_size) * batch_size
+        if capped == 0:
+            batch_size = len(ds)
+            capped = len(ds)
+        print(f"[cap] only {len(ds)} windows available -> n_samples {n_samples} -> {capped} (batch_size {batch_size})")
+        n_samples = capped
     assert n_samples % batch_size == 0, f'n_samples ({n_samples}) must be divisible by batch_size ({batch_size})'
     rng, _ = jax.random.split(rng)
     rng, rng_ = jax.random.split(rng)
@@ -270,7 +285,7 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         rng_,
         jnp.arange(len(ds), dtype=jnp.int32),
         shape=(n_samples // batch_size, batch_size),
-        replace=(n_samples > len(ds)),  # >windows -> sample with replacement (reach 2048/side)
+        replace=False,
     ).tolist()
 
     # Build insertion schedule (positions in eval-message space)
@@ -301,6 +316,10 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         # Split conditioning and evaluation
         m_seq_raw_cond = msg_seq_raw[:, :n_cond_msgs, :]
         m_seq_raw_eval = msg_seq_raw[:, n_cond_msgs:, :]
+        # jnp OOB indexing CLAMPS silently — this assert is the only guard against replaying
+        # the window's last message for the rest of the run.
+        assert m_seq_raw_eval.shape[1] >= total_eval_msgs_needed, \
+            f'eval window {m_seq_raw_eval.shape[1]} < needed {total_eval_msgs_needed} — dataset windows too short'
         b_seq_pv_cond = onp.array(b_seq_pv[:, :n_cond_msgs + 1, 3:])
         init_time = b_seq_pv[:, 0, 1:3]
         init_time = jax.device_put(jnp.array(init_time), device)
@@ -321,8 +340,9 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
                 # Get last message for time reference
                 last_msg = all_msgs[-1] if all_msgs else m_seq_raw_cond[:, -1, :]
 
-                # Aggressive order gets n_msg_todo - 1 (descending counter)
-                order_ids = n_msg_todo - 1
+                # Aggressive order gets n_msg_todo - 1 (descending counter) + offset so the
+                # last insertion's id (which reaches 0) stays clear of sim sentinels (-1/-2/-99)
+                order_ids = n_msg_todo - 1 + 1000
 
                 # Create and process aggressive order
                 sim_msg, msg_decoded, level_consumed = create_aggressive_order_batched(
@@ -356,6 +376,9 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
         # Save for each sample in batch
         for i, sample_idx in enumerate(batch_i):
             date = ds.get_date(sample_idx)
+            # GLOBAL sample counter (mirrors s5_scenario): with replace=False duplicates cannot
+            # occur, but a unique gen_id makes any regression visible instead of overwritten.
+            gid = batch_idx * batch_size + i
 
             # Conditioning data
             msg_to_lobster_format(m_seq_raw_cond[i]).to_csv(
@@ -369,11 +392,11 @@ def run_historic_scenario(cfg: Dict[str, Any], save_folder: Path):
 
             # Generated data (historical + aggressive)
             msg_to_lobster_format(all_msgs_arr[i]).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
             book_to_lobster_format(all_books_arr[i]).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
 
