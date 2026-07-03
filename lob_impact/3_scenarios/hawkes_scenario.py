@@ -477,11 +477,16 @@ def run_hawkes_scenario(cfg: Dict[str, Any], save_folder: Path,
             # Extract per-sample JAX-LOB state
             sim_state_i = jax.tree.map(lambda x: x[i], sim_states)
 
+            # GLOBAL generation id — unique across batches AND workers. Windows are drawn with
+            # replacement (few windows/day), so keying files and the RNG on sample_idx alone made
+            # duplicate draws byte-identical AND overwrite each other via gen_id_0.
+            gid = (worker_id + batch_idx * num_workers) * batch_size + i
+
             # Get init time for this sample (fractional seconds)
             init_time_i = float(init_time[i, 0]) + float(init_time[i, 1]) / 1e9
 
-            # Per-sample numpy RNG (deterministic from seed + global sample id)
-            np_rng = onp.random.default_rng(int(rng_seed) * 1_000_003 + int(sample_idx))
+            # Per-sample numpy RNG (deterministic from seed + window + generation id)
+            np_rng = onp.random.default_rng([int(rng_seed), int(sample_idx), int(gid)])
             # Per-sample JAX RNG for cancel-id resolution inside the scan
             rng, rng_sample = jax.random.split(rng)
 
@@ -543,11 +548,11 @@ def run_hawkes_scenario(cfg: Dict[str, Any], save_folder: Path,
             # Save generated data
             date = ds.get_date(sample_idx)
             msg_to_lobster_format(all_msgs_arr).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
             book_to_lobster_format(all_books_arr).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
 

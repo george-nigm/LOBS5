@@ -134,14 +134,20 @@ SIM_CONFIG = JAXLOB_Configuration()
 
 
 def msg_to_jaxlob(msg: stoikov.Message, oid: jax.Array) -> jax.Array:
-    """Convert CST Message to JAX-LOB simulator message format (8 fields)."""
+    """Convert CST Message to JAX-LOB simulator message format (8 fields).
+
+    NOTE slot order: the simulator reads orderid from data[4] and traderid from data[5]
+    (JaxOrderBookArrays.cond_type_side). The original conversion had them swapped, so every
+    CST order hit the sim with orderid=0 and cancels matched the first live oid-0 order at
+    ANY price. Mirrors hawkes_scenario's (verified-correct) conversion.
+    """
     return jnp.array([
         msg.event_type,
         msg.direction,
         jnp.abs(msg.size),
         msg.price,
-        0,           # trader ID (not used)
-        oid,         # order ID
+        oid,         # slot 4 = order ID (read by the simulator)
+        -88,         # slot 5 = trader ID (sentinel, not used)
         msg.time,    # whole seconds
         msg.time % 1 * 1e9,  # fractional seconds to nanoseconds
     ], dtype=jnp.int32)
@@ -172,7 +178,7 @@ def update_oid(
         }
         idx = job.get_random_id_match(SIM_CONFIG, _rng, side_array, msg_dict)
         cancelled_oid = side_array[idx, 2]
-        msg = msg.at[5].set(cancelled_oid)
+        msg = msg.at[4].set(cancelled_oid)  # slot 4 = orderid (read by the simulator)
         return msg, rng
 
     def _get_oid_from_active(msg, rng, sim, sim_state):
@@ -183,7 +189,7 @@ def update_oid(
             _get_top_ask_order_oid,
             sim_state
         )
-        return msg.at[5].set(oid), rng
+        return msg.at[4].set(oid), rng  # slot 4 = orderid (read by the simulator)
 
     def _get_top_bid_order_oid(sim_state):
         idx = job._get_top_bid_order_idx(SIM_CONFIG, sim_state.bids).squeeze()
@@ -525,6 +531,11 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
 
         # 4. Process each sample individually (CST is fast enough — no need for vmap)
         for i, sample_idx in enumerate(batch_i):
+            # GLOBAL generation id — unique across batches AND workers. Windows are drawn with
+            # replacement (few windows/day); distinct draws have distinct RNG streams but used to
+            # overwrite each other via the fixed gen_id_0 filename.
+            gid = (worker_id + batch_idx * num_workers) * batch_size + i
+
             # Extract per-sample JAX-LOB state
             sim_state_i = jax.tree.map(lambda x: x[i], sim_states)
 
@@ -612,11 +623,11 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
             # Save generated data
             date = ds.get_date(sample_idx)
             msg_to_lobster_format(all_msgs_arr).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_message_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
             book_to_lobster_format(all_books_arr).to_csv(
-                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_0.csv',
+                save_folder / 'data_gen' / f'{stock}_{date}_orderbook_real_id_{sample_idx}_gen_id_{gid}.csv',
                 index=False, header=False
             )
 
