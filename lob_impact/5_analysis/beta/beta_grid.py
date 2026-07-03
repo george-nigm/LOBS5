@@ -96,12 +96,19 @@ def collect(side_dir, ticker, sign):
         mm = _read(mf)
         if mm.ndim != 2 or mm.shape[1] < 6:
             continue
+        # fail loudly on misaligned aggressive indices: every row must be an execution (event 4)
+        # with positive size (an empty book side records a non-positive-size no-op message)
+        ev, sz = mm[idx, 1], mm[idx, 3]
+        if not np.all(ev == 4) or np.any(sz <= 0):
+            print(f'  [WARN] skip {os.path.basename(mf)}: aggressive rows misaligned '
+                  f'({np.sum(ev != 4)} non-exec, {np.sum(sz <= 0)} size<=0)')
+            continue
         Q = np.cumsum(mm[idx, 3])
         for k, step in enumerate(idx):
-            I = sign * (mid[step] - ref) / ref          # SIGNED impact (can be <0); NO I>0 selection.
-            if np.isfinite(I) and Q[k] > 0:             # literature uses conditional MEAN <I> per Q/V bin,
-                rows.append((Q[k], I, day, k))          # which stays positive even with negatives mixed in.
-    return rows
+            I = sign * (mid[step] - ref) / ref          # SIGNED impact (can be <0); NO I>0 selection here.
+            if np.isfinite(I) and Q[k] > 0:             # NOTE: log(I/σ) downstream still drops I<=0 (NaN) —
+                rows.append((Q[k], I, day, k))          # per-point panels carry the E[log I | I>0] bias;
+    return rows                                         # beta_binned.py is the unbiased headline estimator.
 
 
 def ols_origin(x, y):

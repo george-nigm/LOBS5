@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 
 TICK = 100
 EXEC = 4  # event_type == execution
+SENTINEL = 2147483647  # empty book side: ask saved as +int32max, bid as -int32max
 
 
 def _read_csv(f):
@@ -35,9 +36,17 @@ def load_experiment(exp_dir):
         if a.ndim != 2 or a.shape[1] < 4:
             continue
         ask_p, ask_v, bid_p, bid_v = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
-        mids.append((ask_p + bid_p) / 2.0)
-        spreads.append((ask_p - bid_p) / TICK)
-        depths.append(ask_v + bid_v)
+        # sentinel mask (same as master_curve.py): one collapsed row would shift means by ~1e9
+        bad = (ask_p >= SENTINEL) | (bid_p >= SENTINEL) | (ask_p <= 0) | (bid_p <= 0)
+        mid = (ask_p + bid_p) / 2.0
+        spread = (ask_p - bid_p) / TICK
+        depth = ask_v + bid_v
+        mid[bad] = np.nan
+        spread[bad] = np.nan
+        depth[bad] = np.nan
+        mids.append(mid)
+        spreads.append(spread)
+        depths.append(depth)
         # participation: from the paired message file
         mf = ob.replace('orderbook', 'message')
         if os.path.exists(mf):
@@ -62,8 +71,8 @@ def diagnostics_figure(exp_dir, out_dir):
     u = np.arange(L)
 
     # (1) master curve: mid impact in ticks, relative to the pre-metaorder mid (step 0)
-    impact = (mids - mids[:, :1]) / TICK          # (n, L) in ticks
-    imp_mean, imp_std = impact.mean(0), impact.std(0)
+    impact = (mids - mids[:, :1]) / TICK          # (n, L) in ticks; NaN where the book collapsed
+    imp_mean, imp_std = np.nanmean(impact, 0), np.nanstd(impact, 0)
 
     name = os.path.relpath(exp_dir).split('/results/')[-1]
     fig, ax = plt.subplots(1, 3, figsize=(18, 5))
@@ -79,10 +88,10 @@ def diagnostics_figure(exp_dir, out_dir):
     ax[0].legend(fontsize=8)
 
     # (2) book update: spread + touch depth over time
-    ax[1].plot(u, d['spreads'].mean(0), color='#2E7D52', lw=2, label='spread (ticks)')
+    ax[1].plot(u, np.nanmean(d['spreads'], 0), color='#2E7D52', lw=2, label='spread (ticks)')
     ax[1].set_title('Book update'); ax[1].set_xlabel('step'); ax[1].set_ylabel('spread (ticks)')
     axb = ax[1].twinx()
-    axb.plot(u, d['depths'].mean(0), color='#E08E0B', lw=1.5, alpha=0.7, label='touch depth')
+    axb.plot(u, np.nanmean(d['depths'], 0), color='#E08E0B', lw=1.5, alpha=0.7, label='touch depth')
     axb.set_ylabel('touch depth (shares)', color='#E08E0B')
     for k in d['aggr']:
         ax[1].axvline(k, color='#C0392B', ls='--', lw=0.8, alpha=0.5)

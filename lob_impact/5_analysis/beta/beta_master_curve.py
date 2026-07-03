@@ -99,6 +99,13 @@ def collect_points(side_dir, ticker, daily, sign):
         if mm.ndim != 2 or mm.shape[1] < 6:
             continue
         meta_sz = mm[idx, 3]
+        # fail loudly on misaligned aggressive indices: every row must be an execution (event 4)
+        # with positive size (an empty book side records a non-positive-size no-op message)
+        ev = mm[idx, 1]
+        if not np.all(ev == 4) or np.any(meta_sz <= 0):
+            print(f'  [WARN] skip {os.path.basename(mf)}: aggressive rows misaligned '
+                  f'({np.sum(ev != 4)} non-exec, {np.sum(meta_sz <= 0)} size<=0)')
+            continue
         Q_cum = np.cumsum(meta_sz)
         for k, step in enumerate(idx):
             I = sign * (mid[step] - ref) / ref       # signed relative impact

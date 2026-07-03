@@ -81,6 +81,13 @@ def collect_raw(side_dir, ticker, sign):
         mm = _read(mf)
         if mm.ndim != 2 or mm.shape[1] < 6:
             continue
+        # fail loudly on misaligned aggressive indices: every row must be an execution (event 4)
+        # with positive size (an empty book side records a non-positive-size no-op message)
+        ev, sz = mm[idx, 1], mm[idx, 3]
+        if not np.all(ev == 4) or np.any(sz <= 0):
+            print(f'  [WARN] skip {os.path.basename(mf)}: aggressive rows misaligned '
+                  f'({np.sum(ev != 4)} non-exec, {np.sum(sz <= 0)} size<=0)')
+            continue
         Q = np.cumsum(mm[idx, 3])
         for k, step in enumerate(idx):
             I = sign * (mid[step] - ref) / ref
@@ -91,21 +98,33 @@ def collect_raw(side_dir, ticker, sign):
     return rows
 
 
-def fit(x, y):
+def fit(x, y, days=None):
     ok = np.isfinite(x) & np.isfinite(y)
     x, y = x[ok], y[ok]
+    if days is not None:
+        days = np.asarray(days, dtype=object)[ok]
     if len(x) < 10:
         return np.nan, np.nan, np.nan, len(x), (np.nan, np.nan)
     beta, alpha = np.polyfit(x, y, 1)
     yhat = beta * x + alpha
     r2 = 1 - np.sum((y - yhat) ** 2) / np.sum((y - y.mean()) ** 2)
-    # bootstrap CI on slope
+    # bootstrap CI on slope — CLUSTERED by day when day labels are available: the ~100
+    # insertions within a sample share ref/trajectory/day, so an i.i.d. point bootstrap
+    # understates the CI by ~an order of magnitude (N_eff ≈ n/points-per-day).
     bs = np.empty(N_BOOT)
     n = len(x)
     rs = np.random.RandomState(0)
-    for b in range(N_BOOT):
-        j = rs.randint(0, n, n)
-        bs[b] = np.polyfit(x[j], y[j], 1)[0]
+    uniq = np.unique(days) if days is not None else np.array([])
+    if len(uniq) >= 3:
+        groups = [np.flatnonzero(days == d) for d in uniq]
+        for b in range(N_BOOT):
+            pick = rs.randint(0, len(groups), len(groups))
+            j = np.concatenate([groups[g] for g in pick])
+            bs[b] = np.polyfit(x[j], y[j], 1)[0]
+    else:
+        for b in range(N_BOOT):
+            j = rs.randint(0, n, n)
+            bs[b] = np.polyfit(x[j], y[j], 1)[0]
     return float(beta), float(alpha), float(r2), n, (float(np.percentile(bs, 2.5)),
                                                      float(np.percentile(bs, 97.5)))
 
@@ -130,7 +149,7 @@ def plot_experiment(grid, exp, sig, out_dir):
     for ax, method in zip(axes.ravel()[:5], METHODS):
         sg = np.array([sig.get((ticker, d), {}).get(method, np.nan) for d in days], float)
         y = np.log(I / sg)
-        beta, alpha, r2, n, ci = fit(x, y)
+        beta, alpha, r2, n, ci = fit(x, y, days)
         res[method] = (beta, alpha, r2, n, ci)
         ax.scatter(x, y, s=3, alpha=0.10, color='#5B7FB5')
         if np.isfinite(beta):

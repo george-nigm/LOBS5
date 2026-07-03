@@ -16,7 +16,9 @@
 set -euo pipefail
 IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 HERE="${IMPACT_DIR}/5_analysis/beta"
-GRID="${GRID:-${IMPACT_DIR}/3_scenarios/results/grid}"
+GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"   # post-audit grid; GRID=... to point elsewhere
+STOCKS="${STOCKS:-EA NVDA AMD}"
+MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k,S5_4k}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "${HERE}/logs"
 
@@ -35,10 +37,15 @@ fi
 echo "[$(date)] host $(hostname) | grid ${GRID} | daily ${DAILY}"
 
 cd "$IMPACT_DIR"
-echo ">>> beta master curve (Parkinson, intercept estimator)"
+echo ">>> HEADLINE: beta binned (signed conditional bin-means, literature-standard δ; no I>0 selection)"
+for s in $STOCKS; do
+  python3.11 5_analysis/beta/beta_binned.py --grid "$GRID" --daily "$DAILY" --stock "$s" --models "$MODELS"
+  python3.11 5_analysis/beta/beta_binned.py --grid "$GRID" --daily "$DAILY" --stock "$s" --models "$MODELS" --method none
+done
+echo ">>> beta master curve (Parkinson, intercept estimator) [per-point: E[log I|I>0] biased — diagnostic only]"
 python3.11 5_analysis/beta/beta_master_curve.py --grid "$GRID" --daily "$DAILY"
-echo ">>> beta 5-method (5 sigma estimators + intercept, bootstrap CI)"
+echo ">>> beta 5-method (5 sigma estimators + intercept, day-clustered bootstrap CI) [per-point: biased — diagnostic only]"
 python3.11 5_analysis/beta/beta_5method.py --grid "$GRID" --daily "$DAILY"
-echo ">>> beta grid 3x5 (rows: all-points | by-k origin | by-k intercept; cols: 5 sigma)"
+echo ">>> beta grid 3x5 (rows: all-points | by-k origin | by-k intercept; cols: 5 sigma) [per-point: biased — diagnostic only]"
 python3.11 5_analysis/beta/beta_grid.py --grid "$GRID" --daily "$DAILY"
-echo "[$(date)] done -> 5_analysis/beta/results/{beta_master,beta_5method,beta_grid}/"
+echo "[$(date)] done -> 5_analysis/beta/results/{beta_binned,beta_master,beta_5method,beta_grid}/"

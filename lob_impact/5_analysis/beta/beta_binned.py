@@ -29,7 +29,7 @@ from beta_grid import collect
 from vol_estimators import daily_sigmas
 
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Hawkes': '#D4AC0D',
-          'CST': '#27AE60', 'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085'}
+          'CST': '#27AE60', 'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5_4k': '#8E44AD'}
 MIN_BINS = 5
 
 
