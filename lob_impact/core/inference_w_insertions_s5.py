@@ -78,6 +78,11 @@ SIZE_REF_i = 11
 TIMEs_REF_i = 12
 TIMEns_REF_i = 13
 
+# Generated ids count DOWN from n_msg_todo; insertion steps decrement twice, so without an
+# offset the tail ids underflow to 0..-num_insertions and collide with simulator sentinels
+# (-1 empty slot, INITID -2, NEGATIVE_RETURN_ID -99). Offset keeps them strictly positive.
+GEN_ORDER_ID_OFFSET = 1000
+
 l2_state_n = int(os.environ.get('L2_STATE_N', '10'))
 
 # ENCODED TOKEN INDICES
@@ -971,7 +976,7 @@ def _generate_msg(
     # Fully generated message.
     tok_seq_gen=jnp.concatenate([tok_seq_A,tok_seq_T,tok_seq_B])
     # order_id = id_gen.step()  # no order ID generator any more in v3 sim?
-    order_id = n_msg_todo
+    order_id = n_msg_todo + GEN_ORDER_ID_OFFSET
 
     sim_msg, msg_decoded = get_sim_msg(
         tok_seq_gen,  # the generated message
@@ -1045,7 +1050,7 @@ def _generate_msg(
             quantity = jnp.minimum(order_volume, avail)
 
             # Aggressive order gets NEXT order_id (same decreasing sequence)
-            aggressive_order_id = n_msg_todo_in - 1
+            aggressive_order_id = n_msg_todo_in - 1 + GEN_ORDER_ID_OFFSET
 
             aggressive_msg = construct_sim_msg(
                 event_type=insertion_schedule[current_step, 1],
@@ -1233,7 +1238,7 @@ def _generate_msg_1tok(
     sampled_global = sampled_global.at[time_s_start_i:time_ns_end_i].set(time_tokens)
     time_f = jnp.array([time_s, time_ns])
 
-    order_id = n_msg_todo
+    order_id = n_msg_todo + GEN_ORDER_ID_OFFSET
 
     # Decode and process through simulator (same as 24tok from here)
     sim_msg, msg_decoded = get_sim_msg(
