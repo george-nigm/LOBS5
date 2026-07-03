@@ -23,7 +23,8 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 PROJECT_DIR="${PROJECT_DIR:-$REPO_ROOT}"
 # U6GB project mirror (our own project, full group access — replaces the s5e world-read dependency)
 CKPT_BASE="${CKPT_BASE:-/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team_quant/AlphaTrade/experiments}"
-SAVE_BASE="${SAVE_BASE:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid}"   # STABLE consolidated root on LUSTRE (75TB, no quota)
+SAVE_BASE="${SAVE_BASE:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"   # STABLE consolidated root on LUSTRE (75TB, no quota)
+                                                  # v2 = post-audit regeneration (C1/M1/M2/CST/Hawkes fixes); v1 kept untouched
                                                   # home is VAST-NFS 101G-capped -> grid MUST live on Lustre (like Kang's data)
                                                   # -> analysis points at ONE path, not per-run dirs
 export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/Alphatrade:${PYTHONPATH:-}"
@@ -129,14 +130,14 @@ else
   echo "usage: $0 {smoke|full} [model_key ...]" >&2; exit 2
 fi
 
-# SAMPLE_SLICE="k/N": this job runs only slice k of N (one batch). Total n_samples = N * batch_size;
-# the scenario computes the deterministic partition and runs only batch k. N jobs fan out across GPUs
-# and merge into the consolidated path (slices are disjoint). Set submit_slices.sh for the fan-out.
-SLICE_K="${SLICE_K:-}"
+# SAMPLE_SLICE="k/N": this job runs slice k of N — a contiguous SHARD of the batch partition
+# (array_split inside the scenario). n_samples comes from the config/N_SAMPLES as usual; the
+# scenario derives the deterministic partition and runs only shard k. N jobs fan out across GPUs
+# and merge into the consolidated path (global gen_ids -> shards disjoint). See submit_slices.sh.
+SLICE_K="${SLICE_K:-}"; N_SLICES="${N_SLICES:-}"
 if [ -n "${SAMPLE_SLICE:-}" ]; then
   SLICE_K="${SAMPLE_SLICE%%/*}"; N_SLICES="${SAMPLE_SLICE##*/}"
-  N_SAMPLES_OVERRIDE=$(( N_SLICES * ${BATCH_SIZE:-64} ))     # total; only batch SLICE_K runs here
-  echo ">>> SLICE ${SLICE_K}/${N_SLICES} | batch_size ${BATCH_SIZE:-64} | total n_samples ${N_SAMPLES_OVERRIDE}"
+  echo ">>> SLICE ${SLICE_K}/${N_SLICES} (shard of batches; n_samples from config/N_SAMPLES)"
 fi
 echo ">>> run ${RUN_TS} | save_base ${SAVE_BASE}"
 
@@ -147,13 +148,18 @@ render_config() {
   local tmpl="$1" out="$2"
   TMPL="$tmpl" OUT="$out" STOCK="$STOCK" DATA_DIR="$DATA_DIR" CKPT="$CKPT" \
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
-  N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" \
+  N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" N_SLICES="$N_SLICES" \
   PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" CST_PARAMS="${CST_PARAMS:-}" HAWKES_PARAMS="${HAWKES_PARAMS:-}" N_COND="${N_COND:-}" BSZ="${BSZ:-}" \
+  METAORDER_VISIBLE="${METAORDER_VISIBLE:-}" \
   python3 - <<'PY'
 import os, yaml
 cfg = yaml.safe_load(open(os.environ["TMPL"]))
 if os.environ.get("SLICE_K", "") != "":
     cfg["sample_slice"] = int(os.environ["SLICE_K"])
+    if os.environ.get("N_SLICES", ""):
+        cfg["n_slices"] = int(os.environ["N_SLICES"])
+if os.environ.get("METAORDER_VISIBLE", "") != "":   # optional override (legacy comparison runs)
+    cfg["metaorder_visible"] = os.environ["METAORDER_VISIBLE"] not in ("0", "false", "False")
 cfg["stock"]          = os.environ["STOCK"]
 cfg["data_dir"]       = os.environ["DATA_DIR"]
 cfg["save_dir"]       = os.environ["SAVE_DIR"]

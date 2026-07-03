@@ -1,12 +1,17 @@
 #!/bin/bash
-# Fan out a grid across GPUs by SAMPLE SLICE: one job per (stock, slice), each computing one batch
-# (batch_size=64 samples). Total n_samples per experiment = n_slices * 64. All slices of an experiment
-# MERGE into the consolidated path results/grid/<stock>-<model>-<beta|relaxation>/<dir>/ (slices are
-# disjoint -> distinct real_ids), so the analysis still points at ONE root.
+# Fan out a grid across GPUs by SAMPLE SLICE: one job per (stock, slice). Each slice runs a
+# contiguous SHARD of the batch partition (array_split in the scenario); n_samples comes from the
+# config / N_SAMPLES env — slices no longer imply n_samples = n_slices*64. All slices of an
+# experiment MERGE into the consolidated path <SAVE_BASE>/<stock>-<model>-<beta|relaxation>/<dir>/
+# (global gen_ids -> disjoint), so the analysis still points at ONE root.
 #
-#   bash 3_scenarios/submit_slices.sh mamba3 32                 # 32 slices = 2048 samples, default stocks
-#   bash 3_scenarios/submit_slices.sh mamba3 4 "EA"            # 4 slices = 256 samples, EA only
-#   GRES='--gres=gpu:1' TIME=06:00:00 bash 3_scenarios/submit_slices.sh mamba3 8
+#   bash 3_scenarios/submit_slices.sh mamba3_4k 8               # 8 shards/job fleet, default stocks
+#   bash 3_scenarios/submit_slices.sh mamba3_4k 8 "EA"          # EA only
+#   GRES='--gres=gpu:1' TIME=08:00:00 PER_DAY=1 BSZ=8 ONLY_SHAPE=beta ONLY_DIR=buy \
+#     bash 3_scenarios/submit_slices.sh s5_4k 8 "EA"
+# Env passed through to run_experiments.sh (sbatch inherits): PER_DAY, N_PER_DAY, BSZ, N_SAMPLES,
+# ONLY_SHAPE, ONLY_DIR, SAVE_BASE, METAORDER_VISIBLE, ...
+# CPU models: pass GRES=' '.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL="${1:?usage: submit_slices.sh <model> <n_slices> [stocks]}"
@@ -24,5 +29,5 @@ for stock in $STOCKS; do
     echo "  ${MODEL} ${stock} slice ${k}/${N_SLICES} -> ${jid}"
   done
 done
-echo ">>> submitted ${n} jobs (${N_SLICES} slices x stocks) for ${MODEL}; n_samples/experiment = $((N_SLICES * 64))."
-echo ">>> all merge into results/grid/<stock>-${MODEL}-<tag>/<dir>/  — analysis: diagnostics.py --run_dir results/grid"
+echo ">>> submitted ${n} jobs (${N_SLICES} shards x stocks) for ${MODEL}; n_samples per experiment comes from the config/N_SAMPLES."
+echo ">>> all merge into <SAVE_BASE>/<stock>-${MODEL}-<tag>/<dir>/"
