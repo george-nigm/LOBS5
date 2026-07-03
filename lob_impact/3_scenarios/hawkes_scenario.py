@@ -134,7 +134,11 @@ def create_experiment_folder(base_dir: str) -> Path:
 # JAX-LOB message helpers
 # ============================================================================
 
-SIM_CONFIG = JAXLOB_Configuration()
+# MUST match the sim's own cancel_mode (CANCEL_UNIFORM_AND_LARGE=3): get_random_id_match only
+# applies the price-only "large" fallback when cfg.cancel_mode==3. With the default config
+# (INCLUDE_INITS) a cancel whose sampled size exceeds every resting order at that price fails
+# the strict (price AND qty) match -> idx=-1 -> garbage oid from the last array slot.
+SIM_CONFIG = JAXLOB_Configuration(cancel_mode=cst.CancelMode.CANCEL_UNIFORM_AND_LARGE.value)
 
 
 def hawkes_update_cancel_oid(
@@ -164,7 +168,9 @@ def hawkes_update_cancel_oid(
         rng, _rng = jax.random.split(rng)
         msg_dict = {"quantity": msg[2], "price": msg[3]}
         idx = job.get_random_id_match(SIM_CONFIG, _rng, side_array, msg_dict)
-        cancelled_oid = side_array[idx, 2]
+        # idx == -1 means NO order at that price: keep the synthetic oid (harmless no-op in the
+        # sim) instead of indexing slot -1 (wraps to the last array row -> random real order).
+        cancelled_oid = jnp.where(idx >= 0, side_array[idx, 2], msg[4])
         msg = msg.at[4].set(cancelled_oid)  # slot 4 = orderid (read by the simulator)
         return msg, rng
 
