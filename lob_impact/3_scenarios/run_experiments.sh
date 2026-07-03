@@ -81,7 +81,9 @@ if [ -z "${DATA_MOUNT:-}" ]; then
   echo "[$(date)] mounted: $(ls "$DATA_MOUNT" | wc -l) tickers"
 fi
 
-# --- Models: "label|script|ckpt_path|checkpoint_step|book_dim|n_cond" (script relative to 3_scenarios/) ---
+# --- Models: "label|script|ckpt_path|checkpoint_step|book_dim|n_cond|params_npz" (script relative to 3_scenarios/) ---
+# params_npz (7th field, optional): pre-converted host-numpy params bundle. The exp_H2 S5 ckpts were
+# saved on a 64-device mesh — orbax can't reshard them onto 1 GPU; s5_scenario grafts the npz instead.
 # Active models only. The old S5 scenarios (L500/24-tok, incompatible with the new L10/26-tok data)
 # live in 3_scenarios/to_implement/ and are not wired here.
 # n_cond (6th field, optional): conditioning window in messages. Empty => template default (500).
@@ -93,7 +95,7 @@ declare -A MODELS=(
   [hawkes]="Hawkes|hawkes_scenario.py|||503|"
   [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503|"
   [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
-  [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000"
+  [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000|/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_4k_j2504167_102965_params.npz"
   [mamba3_4k_diag500]="Mamba3_4kD|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|"
 )
 MODEL_KEYS=(historic mamba3)
@@ -152,7 +154,7 @@ render_config() {
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
   N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" N_SLICES="$N_SLICES" \
   PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" CST_PARAMS="${CST_PARAMS:-}" HAWKES_PARAMS="${HAWKES_PARAMS:-}" N_COND="${N_COND:-}" BSZ="${BSZ:-}" \
-  METAORDER_VISIBLE="${METAORDER_VISIBLE:-}" \
+  METAORDER_VISIBLE="${METAORDER_VISIBLE:-}" PARAMS_NPZ="${PARAMS_NPZ:-}" \
   python3 - <<'PY'
 import os, yaml
 cfg = yaml.safe_load(open(os.environ["TMPL"]))
@@ -162,6 +164,8 @@ if os.environ.get("SLICE_K", "") != "":
         cfg["n_slices"] = int(os.environ["N_SLICES"])
 if os.environ.get("METAORDER_VISIBLE", "") != "":   # optional override (legacy comparison runs)
     cfg["metaorder_visible"] = os.environ["METAORDER_VISIBLE"] not in ("0", "false", "False")
+if os.environ.get("PARAMS_NPZ", ""):                 # pre-converted S5 params (64-dev-mesh ckpt)
+    cfg["params_npz"] = os.environ["PARAMS_NPZ"]
 cfg["stock"]          = os.environ["STOCK"]
 cfg["data_dir"]       = os.environ["DATA_DIR"]
 cfg["save_dir"]       = os.environ["SAVE_DIR"]
@@ -196,7 +200,7 @@ PY
 }
 
 for model_key in "${MODEL_KEYS[@]}"; do
-  IFS='|' read -r LABEL SCRIPT CKPT CKPT_STEP BOOK_DIM N_COND <<< "${MODELS[$model_key]}"
+  IFS='|' read -r LABEL SCRIPT CKPT CKPT_STEP BOOK_DIM N_COND PARAMS_NPZ <<< "${MODELS[$model_key]}"
   abs_script="${HERE}/${SCRIPT}"
   # no checkpoint -> replay/parametric baseline -> force JAX onto CPU
   if [ -z "$CKPT" ]; then export JAX_PLATFORMS=cpu; else unset JAX_PLATFORMS; fi
