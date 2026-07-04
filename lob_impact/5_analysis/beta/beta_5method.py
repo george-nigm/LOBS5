@@ -51,7 +51,7 @@ def collect_raw(side_dir, ticker, sign):
                            recursive=True))
     aggr_by_day = _aggr_by_day(side_dir)
     if not obs or not aggr_by_day:
-        return np.empty((0, 3))
+        return []
     rows = []
     for ob in obs:
         m = DATE_RE.search(os.path.basename(ob))
@@ -93,8 +93,6 @@ def collect_raw(side_dir, ticker, sign):
             I = sign * (mid[step] - ref) / ref
             if np.isfinite(I) and I > 0 and Q[k] > 0:
                 rows.append((Q[k], I, day))
-    if not rows:
-        return np.empty((0, 3), dtype=object)
     return rows
 
 
