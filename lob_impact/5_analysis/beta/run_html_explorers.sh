@@ -38,15 +38,15 @@ echo "[$(date)] host $(hostname) | grid ${GRID} | stock ${STOCK} | models ${MODE
 
 cd "$IMPACT_DIR"
 echo ">>> impact_trajectory (beta)"
-python3.11 5_analysis/beta/impact_plotly_html.py --grid "$GRID" --stock "$STOCK" --shape beta \
+python 5_analysis/beta/impact_plotly_html.py --grid "$GRID" --stock "$STOCK" --shape beta \
     --models "$MODELS" --daily "$DAILY" --per_day_params "$PER_DAY"
 echo ">>> impact_trajectory (relaxation/decay)"
-python3.11 5_analysis/beta/impact_plotly_html.py --grid "$GRID" --stock "$STOCK" --shape relaxation \
+python 5_analysis/beta/impact_plotly_html.py --grid "$GRID" --stock "$STOCK" --shape relaxation \
     --models "$MODELS" --daily "$DAILY" --per_day_params "$PER_DAY"
 echo ">>> beta_day_explorer"
-python3.11 5_analysis/beta/beta_day_explorer.py --grid "$GRID" --stock "$STOCK" --daily "$DAILY" --models "$MODELS"
+python 5_analysis/beta/beta_day_explorer.py --grid "$GRID" --stock "$STOCK" --daily "$DAILY" --models "$MODELS"
 echo ">>> beta_k_explorer"
-python3.11 5_analysis/beta/beta_k_explorer.py --grid "$GRID" --stock "$STOCK" --daily "$DAILY" --models "$MODELS"
+python 5_analysis/beta/beta_k_explorer.py --grid "$GRID" --stock "$STOCK" --daily "$DAILY" --models "$MODELS"
 echo ">>> beta_explorer_multimodel"
-python3.11 5_analysis/beta/beta_explorer_multimodel.py --grid "$GRID" --stock "$STOCK" --daily "$DAILY" --models "$MODELS"
+python 5_analysis/beta/beta_explorer_multimodel.py --grid "$GRID" --stock "$STOCK" --daily "$DAILY" --models "$MODELS"
 echo "[$(date)] done -> results/{mid_impact,beta_day_explorer,beta_k_explorer,beta_explorer}/"
