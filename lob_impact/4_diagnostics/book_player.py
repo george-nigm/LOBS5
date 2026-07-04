@@ -60,6 +60,9 @@ def discover(grid):
             e = sorted(glob.glob(os.path.join(d, side, 'exp_*')))
             if e:
                 sides[side] = e[-1]
+            elif os.path.isdir(os.path.join(d, side, 'data_gen')):
+                # slice-merged exact-folder layout (4k fleets): no exp_* level
+                sides[side] = os.path.join(d, side)
         if sides:
             out[os.path.basename(d)] = sides
     return out
@@ -109,7 +112,11 @@ def load_sample(exp_dir, ticker, date, sid, ob_file):
     n = min(books.shape[0], msgs.shape[0])
     books, msgs = books[:n], msgs[:n]
     aggr = set()
-    af = os.path.join(exp_dir, 'aggressive_indices.csv')
+    # per-day grids: mb varies by day, so prefer the day-matched indices file over the
+    # summary aggressive_indices.csv (which only reflects the last generated day)
+    af = os.path.join(exp_dir, f'aggressive_indices_{date}.csv')
+    if not os.path.exists(af):
+        af = os.path.join(exp_dir, 'aggressive_indices.csv')
     if os.path.exists(af):
         a = np.loadtxt(af, ndmin=1).astype(int)
         aggr = {int(junction + i) for i in a if 0 <= junction + i < n}
