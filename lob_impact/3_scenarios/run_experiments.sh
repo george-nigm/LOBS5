@@ -118,7 +118,9 @@ declare -A STOCK_TICK=()        # e.g. ([EA]=100 [NVDA]=100 [AMD]=100)
 MODE="${1:-smoke}"; shift || true
 [ "$#" -gt 0 ] && MODEL_KEYS=("$@")
 
-SMOKE_N_INS=""; SMOKE_MB=""
+# env-overridable in FULL mode too (control runs, e.g. N_INS_OVERRIDE=1 MB_OVERRIDE=13000 for a
+# no-insertion drift control: single insertion at the very end = 13k clean generated messages).
+SMOKE_N_INS="${N_INS_OVERRIDE:-}"; SMOKE_MB="${MB_OVERRIDE:-}"
 if [ "$MODE" = "smoke" ]; then
   MODEL_KEYS=("${MODEL_KEYS[0]}"); STOCKS=(EA)
   SHAPES=("${SHAPES[0]}"); DIRECTIONS=(buy)
