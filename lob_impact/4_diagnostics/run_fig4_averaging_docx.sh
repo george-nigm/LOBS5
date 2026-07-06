@@ -3,9 +3,9 @@
 #SBATCH --account=brics.u6gb
 #SBATCH --partition=workq
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
-#SBATCH --time=00:10:00
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
+#SBATCH --time=00:40:00
 #SBATCH --output=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/4_diagnostics/logs/fig4doc_%j.out
 #
 # Explainer doc for the Fig 4 variable-length averaging (2 figures + docx).

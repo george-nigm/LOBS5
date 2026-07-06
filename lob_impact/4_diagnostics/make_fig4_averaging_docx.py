@@ -16,6 +16,10 @@ import matplotlib.pyplot as plt
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_triangle_docx import Doc  # noqa: E402
+from control_triangle_report import (read_csv_np, discover_exp, aggr_for,  # noqa: E402
+                                     book_mid_spread)
+import glob  # noqa: E402
+import re  # noqa: E402
 
 IMPACT = os.path.dirname(HERE)
 PER_DAY_CSV = os.path.join(IMPACT, '1_data_prep/results/per_day_params/per_day_params_EA.csv')
@@ -132,7 +136,89 @@ def fig_real(path):
     plt.close(fig)
 
 
-def build_docx(out_dir, out_path):
+def collect_raw_and_k(exp, n_max=4096, n_ins=100):
+    """Per-sample raw bps trajectories (event time) + the same sampled AT insertions k=0..n_ins."""
+    gens = sorted(glob.glob(os.path.join(exp, 'data_gen', '*orderbook*gen*.csv')))
+    step = max(len(gens) // n_max, 1)
+    raw, atk, mbs = [], [], []
+    for bf in gens[::step][:n_max]:
+        m = re.search(r'_(\d{4}-\d{2}-\d{2})_', os.path.basename(bf))
+        if not m:
+            continue
+        b = read_csv_np(bf)
+        mid, _ = book_mid_spread(b)
+        ai = aggr_for(exp, m.group(1), len(mid))
+        ai = ai[ai > 0]
+        if len(ai) < n_ins:
+            continue
+        ref = mid[ai[0] - 1]
+        if not np.isfinite(ref) or ref <= 0:
+            continue
+        I = (mid - ref) / ref * 1e4                       # bps, buy side (no sign games)
+        raw.append(I)
+        atk.append(np.concatenate([[0.0], I[ai[:n_ins]]]))   # k = 0..n_ins
+        mbs.append(int(np.diff(ai).min()) if len(ai) > 1 else 0)
+    return raw, np.array(atk), np.array(mbs)
+
+
+def fig_aggregation(path, exp, n_show=250):
+    """The recommended aggregation, visually: raw spaghetti (event time, ragged) ->
+    the same samples aligned on insertion index k -> trivial mean."""
+    raw, atk, mbs = collect_raw_and_k(exp)
+    n = len(raw)
+    rng = np.random.default_rng(3)
+    show = rng.choice(n, size=min(n_show, n), replace=False)
+    # highlight one short-, one median-, one long-m_b sample
+    order = np.argsort(mbs)
+    hi_idx = [order[0], order[len(order) // 2], order[-1]]
+    hi_col = [C_A, C_B, C_C]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.4, 4.8), dpi=200)
+    for ax in (ax1, ax2):
+        ax.grid(axis='x', visible=False)
+        ax.axhline(0, color=AXISC, lw=1.0, zorder=1)
+    for i in show:
+        t = np.arange(len(raw[i]))
+        ax1.plot(t[::20], raw[i][::20], color=INK, lw=0.4, alpha=0.05, zorder=2)
+    for i, col in zip(hi_idx, hi_col):
+        t = np.arange(len(raw[i]))
+        ax1.plot(t[::10], raw[i][::10], color=col, lw=1.5, zorder=3)
+        ax1.plot(len(raw[i]) - 1, raw[i][np.isfinite(raw[i])][-1], 'o', ms=5,
+                 color=col, zorder=4)
+        ax1.annotate(f'm_b={mbs[i]}', xy=(len(raw[i]), raw[i][np.isfinite(raw[i])][-1]),
+                     xytext=(len(raw[i]) - 900, raw[i][np.isfinite(raw[i])][-1] + 14),
+                     color=col, fontsize=8.5, fontweight='bold')
+    ax1.set_xlabel('message step  (event time)')
+    ax1.set_ylabel('signed mid move, bps')
+    ax1.set_title(f'No averaging: {len(show)} of n={n} raw trajectories — every sample '
+                  'its own length', fontsize=10.5, fontweight='bold', loc='left', color=INK)
+
+    ks = np.arange(atk.shape[1])
+    for i in show:
+        ax2.plot(ks, atk[i], color=INK, lw=0.4, alpha=0.05, zorder=2)
+    for i, col in zip(hi_idx, hi_col):
+        ax2.plot(ks, atk[i], color=col, lw=1.5, zorder=3)
+    mean = np.nanmean(atk, axis=0)
+    se = np.nanstd(atk, axis=0) / np.sqrt(len(atk))
+    ax2.fill_between(ks, mean - 2 * se, mean + 2 * se, color=CRIT, alpha=0.25,
+                     lw=0, zorder=4)
+    ax2.plot(ks, mean, color=CRIT, lw=2.4, zorder=5)
+    ax2.annotate(f'mean over n={n}  (±2 s.e.)', xy=(ks[-1], mean[-1]),
+                 xytext=(58, mean[-1] + 16), color=CRIT, fontsize=9.5, fontweight='bold')
+    ax2.set_xlabel('insertion index  k   (children executed — conventional units)')
+    ax2.set_title('Aligned on k: every sample has exactly 101 points — averaging is trivial',
+                  fontsize=10.5, fontweight='bold', loc='left', color=INK)
+    lo, hi = np.nanpercentile(np.concatenate([atk.ravel(), [0]]), [1, 99])
+    pad = 0.12 * (hi - lo)
+    ax1.set_ylim(lo - pad, hi + pad)
+    ax2.set_ylim(lo - pad, hi + pad)
+    fig.tight_layout()
+    fig.savefig(path, bbox_inches='tight')
+    plt.close(fig)
+    return n
+
+
+def build_docx(out_dir, out_path, n_agg=None):
     rows = list(csv.DictReader(open(PER_DAY_CSV)))
     mb = np.array([float(r['mb']) for r in rows])
     d = Doc()
@@ -190,7 +276,33 @@ def build_docx(out_dir, out_path):
         'in the per-event response R(m) beyond m ≈ 105 in the triangle reports. None of these '
         'are model behaviour; they are sample-set composition.')
 
-    d.h('4. Why not rescale time instead? We do — that is Figure 5', 1)
+    d.h('4. The recommended aggregation: insertion index k as conventional units', 1)
+    d.p([('The clean way out of the variable-length problem is to change the clock: sample every '
+          'trajectory AT its own insertions and use the insertion index k = 1…100 as the common '
+          'axis. ', True, False, None, None),
+         ('k is the number of children executed — discrete volume time in conventional units. '
+          'Insertion k happens at message step k·m_b(d) on day d, so in k-units every sample has '
+          'exactly 101 points (k = 0…100) BY CONSTRUCTION: no NaN padding, no alive-count cut, '
+          'no composition staircase, and every day contributes to every point of the curve. '
+          'Averaging becomes a plain column mean. The same trick handles the relaxation shape '
+          '(window index 1…110). What k-alignment gives up is the real message clock: '
+          'between-insertion dynamics and anything scheduled in raw messages (the √-law overlay '
+          'at actual steps, R(m)) still need event time — which is why both views exist.',
+          False, False, None, None)])
+    if n_agg:
+        d.image(os.path.join(out_dir, 'figC_aggregation.png'),
+                f'Figure C. The aggregation, visually (Mamba3, visible, buy, n={n_agg} samples; '
+                '250 shown). Left: raw trajectories in event time — every sample its own length, '
+                'three highlighted samples show the m_b spread. Right: the same samples aligned '
+                'on insertion index k — equal length by construction; the red curve is the plain '
+                'mean ± 2 s.e.')
+    d.p('One caveat k-alignment does not fix: averaging bps across days still mixes days of '
+        'different volatility, and samples within a day share the day. The follow-up step '
+        '(planned) is two-stage aggregation — mean within day, then across days — with '
+        'day-clustered errors; k-alignment is what makes that aggregation well-defined in the '
+        'first place.')
+
+    d.h('5. Why not rescale time instead? We do — that is Figure 5', 1)
     d.table([
         ['Time axis', 'Definition', 'Question it answers', 'Where used'],
         ['Event time (this doc)', 't = message step; average over samples alive at t',
@@ -211,7 +323,7 @@ def build_docx(out_dir, out_path):
         'versus a ~1 bps √-law expectation), Figure 5 carries the SHAPE result (convex, '
         'no relaxation). Neither is a different "correctness" of averaging.')
 
-    d.h('5. The √-law reference on Figure 4', 1)
+    d.h('6. The √-law reference on Figure 4', 1)
     d.p('The dashed reference is built from the same per-day calibration: for day d and child '
         'k, I_d(k) = σ_d · √(k·child_d / V_d); the curve shown is the across-day mean of '
         'I_d(k), placed at step k·mean(m_b). It inherits the per-day child sizes and daily '
@@ -219,7 +331,7 @@ def build_docx(out_dir, out_path):
         'schedule — the 0.9 bps it ends at is what a √-law market would show for this '
         'metaorder, which is the honest yardstick for the neural models’ tens of bps.')
 
-    d.h('6. Reproduction', 1)
+    d.h('7. Reproduction', 1)
     d.p('Averaging code: lob_impact/5_analysis/beta/mid_trajectory.py (estimator=tmean, '
         'trim=0.10, min_frac=0.5). This document: '
         'lob_impact/4_diagnostics/make_fig4_averaging_docx.py; Figure B reads the cached '
@@ -231,11 +343,22 @@ def build_docx(out_dir, out_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out_dir', required=True)
+    ap.add_argument('--grid', default='/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2',
+                    help='grid root for the raw-spaghetti figure (figC); "" to skip')
+    ap.add_argument('--model', default='Mamba3')
+    ap.add_argument('--stock', default='EA')
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
     fig_schematic(os.path.join(args.out_dir, 'figA_schematic.png'))
     fig_real(os.path.join(args.out_dir, 'figB_real.png'))
-    build_docx(args.out_dir, os.path.join(args.out_dir, 'Fig4_Averaging_Explained.docx'))
+    n_agg = None
+    if args.grid:
+        exp = discover_exp(os.path.join(args.grid, f'{args.stock}-{args.model}-beta', 'buy'))
+        if exp:
+            n_agg = fig_aggregation(os.path.join(args.out_dir, 'figC_aggregation.png'), exp)
+            print(f'figC: n={n_agg} samples')
+    build_docx(args.out_dir, os.path.join(args.out_dir, 'Fig4_Averaging_Explained.docx'),
+               n_agg=n_agg)
     print(f'ALL_DONE -> {args.out_dir}')
 
 
