@@ -154,6 +154,17 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
     return out
 
 
+def load_hist_spread(exp, n=64):
+    """Mean spread of the REAL conditioning streams (data_cond) — the historical anchor."""
+    books = sorted(glob.glob(os.path.join(exp, 'data_cond', '*orderbook*.csv')))
+    step = max(len(books) // n, 1)
+    vals = []
+    for bf in books[::step][:n]:
+        _, spr = book_mid_spread(read_csv_np(bf))
+        vals.append(np.nanmean(spr))
+    return float(np.nanmean(vals)) if vals else float('nan')
+
+
 def style_ax(ax):
     ax.grid(axis='x', visible=False)
     ax.axhline(0, color=AXISC, lw=1.0, zorder=1)
@@ -309,9 +320,11 @@ def fig_event_response(path, R, emp):
     plt.close(fig)
 
 
-def fig_spread(path, R):
+def fig_spread(path, R, hist_spread):
     fig, ax = plt.subplots(figsize=(9.4, 4.4), dpi=200)
     ax.grid(axis='x', visible=False)
+    if hist_spread == hist_spread:
+        ax.axhline(hist_spread, color=C_REAL, lw=1.8, ls=(0, (2, 2)), zorder=1)
     series = [('visible-buy', C_VIS, '-', 'Visible, buy'),
               ('visible-sell', C_VIS, (0, (5, 2)), 'Visible, sell'),
               ('invisible-buy', C_INV, '-', 'Invisible, buy'),
@@ -322,6 +335,9 @@ def fig_spread(path, R):
         r = R[key]
         ax.plot(GRID01 * 100, r['spr_mean'], color=col, ls=ls, lw=2.0, label=lab)
         labels.append((r['spr_mean'][-1], f"{lab}  {r['spr_mean'][-1]:.1f}", col))
+    if hist_spread == hist_spread:
+        labels.append((hist_spread, f'Real EA (historical)  {hist_spread:.1f}', C_REAL))
+        ax.plot([], [], color=C_REAL, lw=1.8, ls=(0, (2, 2)), label='Real EA (historical)')
     ax.set_xlim(0, 100)
     ax.set_ylim(bottom=0)
     end_labels(ax, labels)
@@ -369,6 +385,8 @@ def main():
               f"mech={R[key]['mech_mean']:+.1f} drift={R[key]['drift_mean']:+.1f}")
 
     emp = json.load(open(args.emp_json))
+    hist_spread = load_hist_spread(discover_exp(spec['visible-buy'][0]), args.n_samples)
+    print(f'historical (data_cond) mean spread: {hist_spread:.2f} ticks')
 
     vals = {
         'visible': f"{R['visible-buy']['final_mean']:+.0f} / {R['visible-sell']['final_mean']:+.0f} ticks",
@@ -379,9 +397,10 @@ def main():
     fig_trajectories(os.path.join(args.out_dir, 'fig2_trajectories.png'), R)
     fig_decomposition(os.path.join(args.out_dir, 'fig3_decomposition.png'), R)
     fig_event_response(os.path.join(args.out_dir, 'fig4_event_response.png'), R, emp)
-    fig_spread(os.path.join(args.out_dir, 'fig5_spread.png'), R)
+    fig_spread(os.path.join(args.out_dir, 'fig5_spread.png'), R, hist_spread)
 
-    num = {'empirical': emp, 'model': args.model, 'stock': args.stock}
+    num = {'empirical': emp, 'model': args.model, 'stock': args.stock,
+           'hist_spread': hist_spread}
     for k, r in R.items():
         num[k] = {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv)
                   for kk, vv in r.items()}

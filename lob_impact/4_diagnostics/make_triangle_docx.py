@@ -341,58 +341,107 @@ def build_report(fig_dir, out_path):
         '10% participation target is defined on trade count — in volume terms participation is '
         '~4–5%, which makes a square-root-law benchmark even smaller.')
 
-    d.h('6. Book health: is the long rollout to blame?', 1)
-    d.p(f'No. The spread tells the story cleanly (Figure 5): in the visible regime it degrades from '
-        f'~{vb["spread_first"]:.1f} to ~{vb["spread_last"]:.1f} ticks as the metaorder grinds on, '
-        f'but in the invisible ({ib["spread_first"]:.1f}→{ib["spread_last"]:.1f}) and no-insertion '
-        f'({no["spread_first"]:.1f}→{no["spread_last"]:.1f}) regimes it stays essentially flat over '
-        f'the same 13k messages. Generating far beyond the training window (25× for the 78M model) '
-        f'does not by itself break the book; the degradation is metaorder-induced. One side effect '
-        f'to keep in mind: visible L10 depth roughly doubles over long rollouts in the controls '
-        f'(the book slowly "fills up"), so depth-sensitive metrics need care.')
+    hs = N.get('hist_spread', float('nan'))
+    d.h('6. Validity gate V0: book health (a sanity check, not a criterion)', 1)
+    d.p([('Book health is deliberately a gate, not a headline criterion: ', True, False, None, None),
+         ('it certifies that long-horizon generation is trustworthy enough for the impact '
+          'measurements to mean anything, and nothing more. A model does not "win" by keeping a '
+          'tidy book — it merely qualifies for the real tests. The reference point is the real '
+          f'data itself: the historical EA streams have a mean spread of ~{hs:.1f} ticks '
+          '(dashed green line in Figure 5).', False, False, None, None)])
+    d.p(f'Against that anchor the story is clean: the no-insertion '
+        f'({no["spread_first"]:.1f}→{no["spread_last"]:.1f} ticks) and invisible '
+        f'({ib["spread_first"]:.1f}→{ib["spread_last"]:.1f}) runs hold essentially the historical '
+        f'level for all 13k messages — generating at 25× the training window does not by itself '
+        f'break the book. The visible run degrades from ~{vb["spread_first"]:.1f} to '
+        f'~{vb["spread_last"]:.1f} ticks, i.e. the degradation is metaorder-induced, part of the '
+        f'same overreaction as the price drift. Two housekeeping notes: L10 depth roughly doubles '
+        f'over long rollouts (the book slowly "fills up"), so depth-sensitive metrics need care; '
+        f'and a V0 failure does not invalidate a model’s impact numbers by itself — it flags that '
+        f'they must be read jointly with the book distortion.')
     d.image(os.path.join(fig_dir, 'fig5_spread.png'),
-            'Figure 5. Mean bid–ask spread along the rollout. Only the visible-metaorder regime '
-            'degrades; the controls stay flat, so rollout length alone is not the cause.')
+            'Figure 5. Mean bid–ask spread along the rollout vs the historical level (dashed '
+            'green). Controls hold the real-data level; only the visible-metaorder regime '
+            'degrades.')
 
-    d.h('7. Why δ≈1 follows from all of this', 1)
-    d.p('Our build-up fit regresses log cumulative impact on log executed volume within a single '
-        'metaorder, where volume after k children is Q(k) = k × (child size). If each child moves '
-        'the price by a constant amount (Figure 4: the marginal response is flat in k) and nothing '
-        'relaxes between children (Figure 2: no reversion), then impact is proportional to k, and '
-        'the fitted exponent is exactly 1. So δ≈1 should be read as a resilience diagnostic — '
-        '"the model has no relaxation" — not as a claim about the impact-vs-size law I(Q)~Q^δ, '
-        'which would require varying total metaorder size independently. This reframing matters '
-        'for the paper: the interesting, defensible statement is about the decomposition and the '
-        'missing resilience, not about an anomalous exponent.')
+    d.h('7. The framework: properties, definitions, worked example', 1)
+    d.p([('Each property below is a concrete statistic with a pass criterion, so the framework is '
+          'falsifiable and model-agnostic. To keep it abstract we walk one model through all of '
+          'them — the Hawkes baseline (numbers from the full-grid audit, 30 samples/side). ',
+          False, False, None, None),
+         ('The ordering is load-bearing: V0 gates, P1–P2 are controls, P3 is the property being '
+          'evaluated, P4–P5 only mean something once P3 holds.', True, False, None, None)])
+    d.table([
+        ['Property', 'Statistic (how measured)', 'Pass criterion', 'Hawkes (worked example)'],
+        ['V0 Validity (gate)',
+         'Crossed/sentinel book rows; history→generation boundary jump; spread & depth of the '
+         'NO-insertion run vs the historical level over the full horizon',
+         'Zero unlawful rows; jump ≈ 0; no trend absent intervention',
+         'Books lawful, but spread creeps 5.3→8.2 ticks even though the generator never sees the '
+         'metaorder — an intrinsic ratchet. V0 FLAG: fix before quoting impact.'],
+        ['P1 No unconditional drift',
+         'No-insertion run: mean signed final mid move ± s.e. over samples',
+         '|mean| ≲ 2 s.e. and ≪ the impact scale',
+         'Passes by construction: stationary intensities cannot drift.'],
+        ['P2 Blind ⇒ mechanics only',
+         'Invisible run: total impact minus the mechanical jumps at insertions, buy vs sell',
+         'Non-mechanical part ≈ P1 baseline and does NOT flip sign with trade direction',
+         'Passes vacuously: intensities never condition on the flow, so visible ≡ invisible.'],
+        ['P3 Directional response',
+         'Δ = visible − invisible final impact in the trade direction; antisymmetry buy vs sell',
+         'Δ > 0 and buy/sell antisymmetric (this is the property under evaluation)',
+         'FAILS: mech ~2 ticks after 100 children, drift direction-independent (±2) → Δ ≈ 0. '
+         'No learned reaction, no permanent impact.'],
+        ['P4 Per-event calibration',
+         'R_model(m) per child vs R_real(m) on real data at matched child size (Figure 4)',
+         'Ratio ≈ 1 at the saturation horizon',
+         'Under-responds: mechanical kick, then flat ≈ 0 vs real +0.56 ticks.'],
+        ['P5 Resilience (conditional on P3)',
+         '(a) R(m) saturates: R(131)−R(60) ≈ 0 within 2 s.e.; (b) inter-insertion reversion ≤ 0; '
+         '(c) Shape II relaxation ratio I_end/I_peak < 1 after execution stops',
+         'All three; real data: (a) holds, impact decays to a partial permanent level',
+         'Passes trivially (reversion +0.01 ≈ 0, R(m) flat) — but vacuously, since there is no '
+         'response to relax. P5 without P3 is meaningless.'],
+    ], widths=[1500, 2900, 2200, 2760])
+    d.p('Hawkes thus lands in one failure mode: trivially resilient but impact-blind (P3 fail, '
+        'P5 vacuous). The neural models are the exact mirror image: strong P3 (Sections 3–4), '
+        'overshooting P4 by ×2–3 (Section 5), failing P5 on all three statistics — no R(m) '
+        'saturation, positive inter-insertion drift (+1.1 ticks/window), Shape II relaxation '
+        'ratio ≈ 0.9–1.0 where real markets decay to a partial permanent level. The framework’s '
+        'value is that it separates these two failure modes cleanly: a usable simulator must pass '
+        'P3 AND P4–P5 simultaneously, and currently no model in our zoo does.')
 
-    d.h('8. Using this in the paper', 1)
+    d.h('8. What β/δ measures — and what it does not', 1)
+    d.p([('β/δ is a build-up exponent measured DURING execution, not a statement about the final '
+          'price or about temporary impact decaying into permanent. ', True, False, None, None),
+         ('Concretely: at each insertion k we take I(k) = signed mid move from the start of the '
+          'metaorder to insertion k, and Q(k) = cumulative executed volume (= k × child size '
+          'within a day); δ is the slope of log I on log Q pooled over k, samples and days. The '
+          'final mid enters only as the last point of the build-up curve; nothing after the last '
+          'child is used.', False, False, None, None)])
+    d.p('The temporary-vs-permanent question is a separate measurement — Shape II: 10 insertions '
+        'followed by 100 cooling windows, where execution stops and we watch I(t) relax. Its '
+        'headline statistic is the relaxation ratio I_end/I_peak (P5c above): real markets decay '
+        'to a partial permanent level (propagator-literature ballpark ~2/3 of peak); our neural '
+        'models sit at ≈0.9–1.0, i.e. nothing decays. The two measurements are linked by an '
+        'identity: if the per-child response is constant in k (P4, flat marginal response) and '
+        'nothing relaxes between children (P5b), then I(k) ∝ k and the fitted δ is exactly 1. '
+        'So δ is DETERMINED by P4+P5 — a resilience diagnostic, not the impact-vs-size law '
+        'I(Q)~Q^δ, which would require varying total metaorder size independently. This also '
+        'explains why all well-behaved generative models cluster near the same δ.')
+
+    d.h('9. Using this in the paper', 1)
     d.p([('This diagnostic is arguably more publishable than the raw impact curves. ', True, False, None, None),
          ('It gives the paper a falsifiable protocol: any generative LOB simulator claiming '
-          'realistic impact should pass the control triangle. Concretely:', False, False, None, None)])
-    d.bullet([('Impact provenance decomposition. ', True, False, None, None),
-              ('Report (mechanics, reaction, drift) per model: no-insertion drift must be ~0, '
-               'invisible must reduce to mechanics, and visible − invisible is the behavioural '
-               'response being evaluated.', False, False, None, None)])
-    d.bullet([('Event-response calibration. ', True, False, None, None),
-              ('Compare the model’s R(m) per child order against the same statistic on real '
-               'data (Figure 4 here) — a per-event, unit-consistent check that catches '
-               'overestimation long before any exponent fit.', False, False, None, None)])
-    d.bullet([('Resilience test. ', True, False, None, None),
-              ('Saturation/reversion of R(m) and inter-insertion reversion — the property our '
-               'models fail; stationary baselines (CST/Hawkes) pass it trivially but capture no '
-               'permanent impact at all, which frames the gap neural models must close.',
-               False, False, None, None)])
-    d.bullet([('δ reframed. ', True, False, None, None),
-              ('Present δ as the build-up exponent with δ=1 the zero-resilience fixed point; '
-               'this also explains why all well-behaved generative models cluster near the same '
-               'values.', False, False, None, None)])
-    d.p('Suggested placement: a "Where does the impact come from?" subsection in Results using '
-        'Figures 1–4 of this report (Figure 5 can go to the appendix), replacing or preceding the '
-        'current per-model impact curves. All figures are 200-dpi PNGs with a colorblind-safe '
-        'palette; regime colors are consistent across figures (blue = visible, teal = invisible, '
-        'yellow = no insertions, green = real data).')
+          'realistic impact should pass the control triangle (P1–P3) and the calibration/'
+          'resilience tests (P4–P5) as defined in Section 7. Suggested placement: a "Where does '
+          'the impact come from?" subsection in Results using Figures 1–4 (Figure 5 and the V0 '
+          'gate go to the appendix), with the Section 7 table as the evaluation rubric applied '
+          'to every model. All figures are 200-dpi PNGs with a colorblind-safe palette; regime '
+          'colors are consistent across figures (blue = visible, teal = invisible, yellow = no '
+          'insertions, green = real data).', False, False, None, None)])
 
-    d.h('9. Caveats', 1)
+    d.h('10. Caveats', 1)
     d.bullet('The invisible regime uses the legacy code branch, which conditions the model on the '
              'pre-insertion book while decoding prices against the post-insertion mid (a "decode '
              'ratchet"). In practice it produced no directional push, but the branch should be '
@@ -408,7 +457,7 @@ def build_report(fig_dir, out_path):
     d.bullet(f'Sample sizes: visible/invisible n={vb["n"]}/{ib["n"]} per side here; '
              f'no-insertion n={no["n"]}. Error bands in Figures 2 and 4 are ±2 s.e.')
 
-    d.h('10. Reproduction', 1)
+    d.h('11. Reproduction', 1)
     d.p([('Data: ', True, False, None, None),
          ('/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2/EA-Mamba3-beta (visible) and '
           '/lus/lfs1aip2/projects/u6gb/lob_impact_controls_v2/{invisible,noins} (controls; SLURM '
