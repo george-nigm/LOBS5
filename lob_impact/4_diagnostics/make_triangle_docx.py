@@ -271,12 +271,15 @@ def build_report(fig_dir, out_path):
         'the model simply generates 13,000 messages, which measures its unconditional drift and its '
         'stability at 25× the training sequence length.')
     d.image(os.path.join(fig_dir, 'fig1_regimes.png'),
-            'Figure 1. The control triangle: one experiment, two switches. Differencing the three '
-            'outcomes attributes the impact to mechanics, model reaction, or drift.')
+            f'Figure 1. The control triangle: one experiment, two switches. Differencing the three '
+            f'outcomes attributes the impact to mechanics, model reaction, or drift. Each box '
+            f'states the number of runs averaged.')
     d.table([
         ['Regime', 'Child MOs hit the book', 'Model sees them', 'Final impact (buy / sell, ticks)'],
-        ['Visible', 'yes', 'yes', f'{vb["final_mean"]:+.1f} / {vs["final_mean"]:+.1f}'],
-        ['Invisible', 'yes', 'no', f'{ib["final_mean"]:+.1f} / {isl["final_mean"]:+.1f}'],
+        ['Visible', 'yes', 'yes', f'{vb["final_mean"]:+.1f} / {vs["final_mean"]:+.1f}  '
+         f'(n={vb["n"]}/{vs["n"]})'],
+        ['Invisible', 'yes', 'no', f'{ib["final_mean"]:+.1f} / {isl["final_mean"]:+.1f}  '
+         f'(n={ib["n"]}/{isl["n"]})'],
         ['No insertions', 'no', 'no', f'{no["final_mean"]:+.1f} ± {no["final_se"]:.1f} (n={no["n"]})'],
     ])
     d.p([('The differencing logic: ', True, False, None, None),
@@ -299,7 +302,8 @@ def build_report(fig_dir, out_path):
         f'in all regimes (boundary jump ≤0.12 ticks; zero crossed or invalid book states across '
         f'the whole grid), so the divergence between the curves cannot be a bookkeeping artifact.')
     d.image(os.path.join(fig_dir, 'fig2_trajectories.png'),
-            'Figure 2. Cumulative mid move in the trade direction (mean ± 2 s.e.). Visible '
+            f'Figure 2. Cumulative mid move in the trade direction (mean ± 2 s.e.; n={vb["n"]} runs '
+            f'per curve). Visible '
             f'buy/sell build to {vb["final_mean"]:+.0f}/{vs["final_mean"]:+.0f} ticks; invisible '
             'and no-insertion runs are flat.')
 
@@ -316,7 +320,8 @@ def build_report(fig_dir, out_path):
           'attacked side. Between insertions the mid keeps rising (~+1.1 ticks per window) instead '
           'of reverting — the signature of momentum without resilience.', False, False, None, None)])
     d.image(os.path.join(fig_dir, 'fig3_decomposition.png'),
-            'Figure 3. Mechanical vs model-generated contribution per regime (trade direction). '
+            f'Figure 3. Mechanical vs model-generated contribution per regime (trade direction; bars '
+            f'are means over n={vb["n"]} runs each). '
             'In the invisible regime the model-generated part matches the no-insertion baseline.')
     d.p('A note on the invisible bars: the legacy invisible code path logs the book state before '
         'the insertion is applied, so its mechanical component is partially hidden in the saved '
@@ -334,7 +339,9 @@ def build_report(fig_dir, out_path):
         f'bound on causal impact, since organic order flow is autocorrelated. The invisible-regime '
         f'response is flat, confirming that the excess is driven entirely by what the model sees.')
     d.image(os.path.join(fig_dir, 'fig4_event_response.png'),
-            'Figure 4. Event response R(m) in ticks: model (visible / invisible) vs real EA data. '
+            f'Figure 4. Event response R(m) in ticks: model (visible / invisible; '
+            f'~{vb.get("resp_n_events", 0)} child events pooled from n={vb["n"]} runs per curve) '
+            f'vs real EA data ({emp["n_events"]} executions). '
             'The model overshoots and never saturates; real impact saturates within ~60 messages.')
     d.p('Two unit caveats worth carrying into any write-up: the children actually execute ~16 '
         'shares, not the configured 75 (the insertion clips at the top-of-queue order), and the '
@@ -360,7 +367,7 @@ def build_report(fig_dir, out_path):
         f'and a V0 failure does not invalidate a model’s impact numbers by itself — it flags that '
         f'they must be read jointly with the book distortion.')
     d.image(os.path.join(fig_dir, 'fig5_spread.png'),
-            'Figure 5. Mean bid–ask spread along the rollout vs the historical level (dashed '
+            f'Figure 5. Mean bid–ask spread along the rollout vs the historical level (dashed '
             'green). Controls hold the real-data level; only the visible-metaorder regime '
             'degrades.')
 

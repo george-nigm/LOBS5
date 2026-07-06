@@ -151,6 +151,7 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
                 r_mean[m] = v.mean()
                 r_se[m] = v.std() / np.sqrt(len(v))
         out['resp_mean'], out['resp_se'] = r_mean, r_se
+        out['resp_n_events'] = len(ev_resp[1])
     return out
 
 
@@ -218,8 +219,10 @@ def fig_schematic(path, vals):
                 va='center', style='italic')
         ax.add_patch(FancyBboxPatch((x + 0.10, 0.03), 0.68, 0.13,
                      boxstyle='round,pad=0.012', fc='white', ec=col, lw=2))
-        ax.text(x + 0.44, 0.095, val, ha='center', va='center', fontsize=11,
+        ax.text(x + 0.44, 0.115, val[0], ha='center', va='center', fontsize=11,
                 color=INK, fontweight='bold')
+        ax.text(x + 0.44, 0.055, val[1], ha='center', va='center', fontsize=8,
+                color=MUTED)
         ax.annotate('', xy=(x + 0.44, 0.17), xytext=(x + 0.44, 0.22),
                     arrowprops=dict(arrowstyle='-|>', color=MUTED, lw=1.4))
     fig.suptitle(f'{MODEL_LABEL}: three generation regimes — identical run, two switches flipped',
@@ -242,8 +245,8 @@ def fig_trajectories(path, R):
         r = R[key]
         ax.fill_between(GRID01 * 100, r['traj_mean'] - 2 * r['traj_se'],
                         r['traj_mean'] + 2 * r['traj_se'], color=col, alpha=0.13, lw=0)
-        ax.plot(GRID01 * 100, r['traj_mean'], color=col, ls=ls, lw=2.0, label=lab,
-                solid_capstyle='round')
+        ax.plot(GRID01 * 100, r['traj_mean'], color=col, ls=ls, lw=2.0,
+                label=f"{lab} (n={r['n']})", solid_capstyle='round')
         labels.append((r['traj_mean'][-1], f"{lab}  {r['traj_mean'][-1]:+.0f}", col))
     ax.set_xlim(0, 100)
     end_labels(ax, labels)
@@ -258,9 +261,10 @@ def fig_trajectories(path, R):
 
 
 def fig_decomposition(path, R):
-    labels = ['Visible, buy', 'Visible, sell', 'Invisible, buy', 'Invisible, sell',
-              'No insertions']
     keys = ['visible-buy', 'visible-sell', 'invisible-buy', 'invisible-sell', 'noins']
+    base = ['Visible, buy', 'Visible, sell', 'Invisible, buy', 'Invisible, sell',
+            'No insertions']
+    labels = [f"{b}\n(n={R[k]['n']})" for b, k in zip(base, keys)]
     mech = [R[k]['mech_mean'] for k in keys]
     drift = [R[k]['drift_mean'] for k in keys]
     y = np.arange(len(keys))[::-1]
@@ -296,7 +300,8 @@ def fig_event_response(path, R, emp):
         ok = ~np.isnan(r['resp_mean'])
         ax.fill_between(m[ok], (r['resp_mean'] - 2 * r['resp_se'])[ok],
                         (r['resp_mean'] + 2 * r['resp_se'])[ok], color=col, alpha=0.13, lw=0)
-        ax.plot(m[ok], r['resp_mean'][ok], color=col, lw=2.0, label=lab)
+        ax.plot(m[ok], r['resp_mean'][ok], color=col, lw=2.0,
+                label=f"{lab} — {r['resp_n_events']} child events, n={r['n']} runs")
         last = np.where(ok)[0][-1]
         ax.annotate(f"{lab}  {r['resp_mean'][last]:+.2f}", xy=(last, r['resp_mean'][last]),
                     xytext=(last + 1.5, r['resp_mean'][last]), color=col, fontsize=8.5,
@@ -333,7 +338,8 @@ def fig_spread(path, R, hist_spread):
     labels = []
     for key, col, ls, lab in series:
         r = R[key]
-        ax.plot(GRID01 * 100, r['spr_mean'], color=col, ls=ls, lw=2.0, label=lab)
+        ax.plot(GRID01 * 100, r['spr_mean'], color=col, ls=ls, lw=2.0,
+                label=f"{lab} (n={r['n']})")
         labels.append((r['spr_mean'][-1], f"{lab}  {r['spr_mean'][-1]:.1f}", col))
     if hist_spread == hist_spread:
         labels.append((hist_spread, f'Real EA (historical)  {hist_spread:.1f}', C_REAL))
@@ -389,9 +395,12 @@ def main():
     print(f'historical (data_cond) mean spread: {hist_spread:.2f} ticks')
 
     vals = {
-        'visible': f"{R['visible-buy']['final_mean']:+.0f} / {R['visible-sell']['final_mean']:+.0f} ticks",
-        'invisible': f"{R['invisible-buy']['final_mean']:+.0f} / {R['invisible-sell']['final_mean']:+.0f} ticks",
-        'noins': f"{R['noins']['final_mean']:+.0f} ticks",
+        'visible': (f"{R['visible-buy']['final_mean']:+.0f} / {R['visible-sell']['final_mean']:+.0f} ticks",
+                    f"mean over n={R['visible-buy']['n']}+{R['visible-sell']['n']} runs (buy+sell)"),
+        'invisible': (f"{R['invisible-buy']['final_mean']:+.0f} / {R['invisible-sell']['final_mean']:+.0f} ticks",
+                      f"mean over n={R['invisible-buy']['n']}+{R['invisible-sell']['n']} runs (buy+sell)"),
+        'noins': (f"{R['noins']['final_mean']:+.0f} ticks",
+                  f"mean over n={R['noins']['n']} runs"),
     }
     fig_schematic(os.path.join(args.out_dir, 'fig1_regimes.png'), vals)
     fig_trajectories(os.path.join(args.out_dir, 'fig2_trajectories.png'), R)
