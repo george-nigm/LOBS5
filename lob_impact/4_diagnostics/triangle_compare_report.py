@@ -65,6 +65,12 @@ def dir_avg(N, regime):
     return (N[f'{regime}-buy']['final_mean'] + N[f'{regime}-sell']['final_mean']) / 2
 
 
+def n_range(NN, models, keys):
+    ns = [NN[m][k]['n'] for m in models for k in keys if k in NN[m]]
+    lo, hi = min(ns), max(ns)
+    return f'n={lo}' if lo == hi else f'n={lo}–{hi}'
+
+
 def style_ax(ax, zero=True):
     ax.grid(axis='x', visible=False)
     if zero:
@@ -114,9 +120,10 @@ def fig_triangle_bars(path, NN, models):
             ax.text(v + np.sign(v) * 1.2 + 0.6, y, f'{v:+.1f}', va='center',
                     fontsize=8, color=INK2)
     ax.set_yticks(yticks, ylabels)
-    n0 = NN[models[0]]['visible-buy']['n']
-    ax.set_xlabel(f'Mid-price move in trade direction, ticks '
-                  f'(buy+sell average; n={n0} runs per side per model)')
+    ax.set_xlabel('Mid-price move in trade direction, ticks (buy+sell average; per curve: '
+                  f"visible {n_range(NN, models, ['visible-buy', 'visible-sell'])}, "
+                  f"invisible {n_range(NN, models, ['invisible-buy', 'invisible-sell'])}, "
+                  f"no-ins {n_range(NN, models, ['noins'])})")
     ax.set_title('The control triangle across models: impact needs the model to SEE the metaorder',
                  fontsize=11.5, fontweight='bold', loc='left', color=INK)
     ax.legend(loc='lower right', fontsize=8.5)
@@ -148,13 +155,13 @@ def fig_trajectories(path, NN, models):
             labels.append((float(np.mean(fin)),
                            f'{disp(m)}  {np.mean(fin):+.0f}', col))
         ax.set_xlim(0, 100)
-        ax.set_title(title, fontsize=10.5, fontweight='bold', color=INK, loc='left')
+        ax.set_title(f'{title}  ({n_range(NN, models, [k for k, _ in series])}/curve)',
+                     fontsize=10.5, fontweight='bold', color=INK, loc='left')
         ax.set_xlabel('Rollout progress, %')
         end_labels(ax, labels)
     axes[0].set_ylabel('Mid move in trade direction, ticks')
-    n0 = NN[models[0]]['visible-buy']['n']
-    fig.suptitle(f'Cumulative impact by regime — all models, shared axis '
-                 f'(solid = buy, dashed = sell; mean ± 2 s.e., n={n0} runs per curve)',
+    fig.suptitle('Cumulative impact by regime — all models, shared axis '
+                 '(solid = buy, dashed = sell; mean ± 2 s.e.)',
                  fontsize=11.5, fontweight='bold', color=INK, x=0.01, ha='left')
     fig.tight_layout(rect=(0, 0, 0.965, 0.94))
     fig.savefig(path, bbox_inches='tight')
@@ -180,10 +187,9 @@ def fig_decomposition(path, NN, models):
         ax.text(v + 1.6, yy, f'{v:+.1f}', va='center', fontsize=8.5, color=INK2)
     for yy, v in zip(y - h / 2 - 0.02, drift):
         ax.text(v + 1.6, yy, f'{v:+.1f}', va='center', fontsize=8.5, color=INK2)
-    n0 = NN[models[0]]['visible-buy']['n']
     ax.set_yticks(y, [disp(m) for m in models])
-    ax.set_xlabel(f'Contribution to visible-regime impact, ticks '
-                  f'(buy+sell trade-direction average; n={n0} runs per side)')
+    ax.set_xlabel('Contribution to visible-regime impact, ticks (buy+sell trade-direction '
+                  f"average; {n_range(NN, models, ['visible-buy', 'visible-sell'])} runs per side)")
     ax.set_title('Decomposition: mechanics is a footnote, the model reaction is the impact',
                  fontsize=11.5, fontweight='bold', loc='left', color=INK)
     ax.legend(loc='lower right', fontsize=8.5)
@@ -251,13 +257,13 @@ def fig_spread(path, NN, models, hist_spread):
                            f"{disp(m)}  {NN[m][series[0][0]]['spr_mean'][-1]:.1f}", col))
         ax.set_xlim(0, 100)
         ax.set_ylim(bottom=0)
-        ax.set_title(title, fontsize=10.5, fontweight='bold', color=INK, loc='left')
+        ax.set_title(f'{title}  ({n_range(NN, models, [k for k, _ in series])}/curve)',
+                     fontsize=10.5, fontweight='bold', color=INK, loc='left')
         ax.set_xlabel('Rollout progress, %')
         end_labels(ax, labels)
     axes[0].set_ylabel('Mean bid–ask spread, ticks')
-    n0 = NN[models[0]]['visible-buy']['n']
-    fig.suptitle(f'Book health: only the visible metaorder degrades the spread '
-                 f'(solid = buy, dashed = sell; n={n0} runs per curve; green dashes = historical level)',
+    fig.suptitle('Book health: only the visible metaorder degrades the spread '
+                 '(solid = buy, dashed = sell; green dashes = historical level)',
                  fontsize=11.5, fontweight='bold', color=INK, x=0.01, ha='left')
     fig.tight_layout(rect=(0, 0, 0.96, 0.93))
     fig.savefig(path, bbox_inches='tight')
@@ -328,9 +334,9 @@ def build_docx(out_dir, NN, models, emp, hist_spread, out_path):
         'a glance. First, the amplitude ordering: Mamba3 runs hottest, Mamba3-4k close behind, '
         'S5-4k at roughly half their level — but all three build steadily for the whole rollout '
         'with no saturation of the cumulative curve. Second, the buy/sell asymmetries do not '
-        'agree across models at n=64 ('
+        'agree across models ('
         + ', '.join(f'{disp(m)}: {m_hot[m]} hotter' for m in models) +
-        '), so the asymmetry is not yet a stable finding and needs the full-sample averaging. '
+        '), so any single asymmetry should be read jointly with its s.e. band. '
         'The invisible and no-insertion panels are flat for every model on this axis.')
     d.image(os.path.join(out_dir, 'fig2_trajectories.png'),
             'Figure 2. Mean cumulative impact, shared y-axis across regimes (mean ± 2 s.e.). '
@@ -421,9 +427,12 @@ def build_docx(out_dir, NN, models, emp, hist_spread, out_path):
           'gain. A model that combined the two would be close to passing.', False, False, None, None)])
 
     d.h('8. Caveats', 1)
-    d.bullet('n=64 runs per curve throughout — the buy/sell asymmetries and the Mamba3-4k '
-             'invisible-sell excursion are within what run-to-run noise produces at this n; '
-             'full-sample averaging (~2,000 runs per side) is the planned next step.')
+    d.bullet('Sample sizes per curve: visible '
+             + n_range(NN, models, ['visible-buy', 'visible-sell']) + ', invisible '
+             + n_range(NN, models, ['invisible-buy', 'invisible-sell']) + ', no-insertion '
+             + n_range(NN, models, ['noins']) + '. The controls are the statistically thinner '
+             'legs — read their excursions (e.g. Mamba3-4k invisible-sell) against the ±2 s.e. '
+             'bands in Figure 2.')
     d.bullet('The "Mamba3-4k" checkpoint re-saves 2k-finetuned weights (not genuinely '
              '4k-trained); label accordingly.')
     d.bullet('The invisible regime uses the legacy code branch (decode-ratchet caveat); it '

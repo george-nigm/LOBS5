@@ -50,7 +50,15 @@ plt.rcParams.update({
 })
 
 
+try:
+    import pandas as _pd
+except ImportError:
+    _pd = None
+
+
 def read_csv_np(f):
+    if _pd is not None:
+        return _pd.read_csv(f, header=None, dtype=float).to_numpy()
     return np.array([r for r in csv.reader(open(f)) if r], dtype=float)
 
 
@@ -89,7 +97,10 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
     gens = sorted(glob.glob(os.path.join(exp, 'data_gen', '*message*gen*.csv')))
     step = max(len(gens) // n_samples, 1)
     trajs, sprs, mechs, drifts, finals = [], [], [], [], []
-    ev_resp = [[] for _ in range(m_max + 1)]
+    # streaming accumulators for R(m): full-sample runs would not fit as lists
+    r_sum = np.zeros(m_max + 1)
+    r_sumsq = np.zeros(m_max + 1)
+    r_cnt = np.zeros(m_max + 1, dtype=np.int64)
     min_gap = 10 ** 9
     for mf in gens[::step][:n_samples]:
         bf = mf.replace('message', 'orderbook')
@@ -125,10 +136,13 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
                     continue
                 # stop before the NEXT insertion so its impact never leaks into R(m)
                 hi = min(i - 1 + m_max, nx - 1, L - 1)
-                for m in range(1, hi - (i - 1) + 1):
-                    v = mid[i - 1 + m]
-                    if not np.isnan(v):
-                        ev_resp[m].append(sign * (v - base) / TICK)
+                seg = sign * (mid[i:hi + 1] - base) / TICK        # values at m = 1..len(seg)
+                ok = ~np.isnan(seg)
+                mm = np.arange(1, len(seg) + 1)[ok]
+                v = seg[ok]
+                r_sum[mm] += v
+                r_sumsq[mm] += v * v
+                r_cnt[mm] += 1
         end = mid[-1] if not np.isnan(mid[-1]) else np.nanmean(mid[-20:])
         finals.append(sign * (end - mid[0]) / TICK)
     trajs, sprs = np.array(trajs), np.array(sprs)
@@ -143,15 +157,15 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
         'min_gap': min_gap if min_gap < 10 ** 9 else None,
     }
     if with_insertions:
-        r_mean = np.full(m_max + 1, np.nan)
-        r_se = np.full(m_max + 1, np.nan)
-        for m in range(1, m_max + 1):
-            v = np.asarray(ev_resp[m])
-            if len(v) > 10:
-                r_mean[m] = v.mean()
-                r_se[m] = v.std() / np.sqrt(len(v))
+        cnt = np.maximum(r_cnt, 1)
+        mean = r_sum / cnt
+        var = np.maximum(r_sumsq / cnt - mean ** 2, 0.0)
+        enough = r_cnt > 10
+        r_mean = np.where(enough, mean, np.nan)
+        r_se = np.where(enough, np.sqrt(var / cnt), np.nan)
+        r_mean[0] = r_se[0] = np.nan
         out['resp_mean'], out['resp_se'] = r_mean, r_se
-        out['resp_n_events'] = len(ev_resp[1])
+        out['resp_n_events'] = int(r_cnt[1])
     return out
 
 
