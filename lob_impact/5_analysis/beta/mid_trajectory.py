@@ -85,7 +85,7 @@ def propagator_curve(peak, T, x_steps, beta, Lmax):
 
 
 def collect_traj(side_dir, sign):
-    """list of per-sample signed-relative mid trajectories (bps), + the insertion-step array."""
+    """list of (signed-relative mid trajectory in bps, aggr indices, mb_d) + a sample aggr array."""
     obs = sorted(glob.glob(os.path.join(side_dir, '**', 'data_gen', '*orderbook*gen*.csv'), recursive=True))
     aggr_by_day = _aggr_by_day(side_dir)
     trajs, any_aggr = [], None
@@ -106,10 +106,29 @@ def collect_traj(side_dir, sign):
         ref = mid[aggr[0] - 1]
         if not np.isfinite(ref) or ref <= 0:
             continue
-        trajs.append(sign * (mid - ref) / ref * 1e4)   # bps
+        mb = int(np.diff(aggr).min()) if len(aggr) > 1 else 0
+        trajs.append((sign * (mid - ref) / ref * 1e4, aggr, mb))   # bps
         if any_aggr is None:
             any_aggr = aggr
     return trajs, any_aggr
+
+
+def at_boundaries(I, aggr, mb, n_ins, n_cool):
+    """Sample a trajectory at executed-volume boundaries: insertions k=1..n_ins, then
+    cooling-window ends j=1..n_cool (spaced mb). Returns nb+1 values, index 0 = 0."""
+    nb = n_ins + n_cool
+    vals = np.full(nb + 1, np.nan)
+    vals[0] = 0.0
+    if len(aggr) < 1:
+        return vals
+    idx = list(aggr[:n_ins])
+    last = aggr[min(n_ins, len(aggr)) - 1]
+    if n_cool and mb > 0:
+        idx += [int(last + j * mb) for j in range(1, n_cool + 1)]
+    for j, ix in enumerate(idx, start=1):
+        if ix < len(I):
+            vals[j] = I[ix]
+    return vals
 
 
 def main():
@@ -131,7 +150,11 @@ def main():
     args = ap.parse_args()
 
     models = [m for m in args.models.split(',') if m]
+    n_ins_k = 100 if args.shape == 'beta' else 10             # k-clock geometry
+    n_cool_k = 0 if args.shape == 'beta' else 100
+    nb = n_ins_k + n_cool_k
     fig, ax = plt.subplots(figsize=(11, 5.8))
+    figk, axk = plt.subplots(figsize=(11, 5.8))
     ins_steps = None
     Lmax = 0
     cache = {}
@@ -139,9 +162,12 @@ def main():
         exp = f'{args.stock}-{model}-{args.shape}'
         tb, ab = collect_traj(os.path.join(args.grid, exp, 'buy'), +1)
         ts, asl = collect_traj(os.path.join(args.grid, exp, 'sell'), -1)
-        trajs = tb + ts
-        if not trajs:
+        items = tb + ts
+        if not items:
             print(f'{exp}: no data'); continue
+        trajs = [x[0] for x in items]
+        K = np.vstack([at_boundaries(I, aggr, mb, n_ins_k, n_cool_k)
+                       for I, aggr, mb in items])
         Lm = max(len(t) for t in trajs)                       # PAD to longest (was: truncate to shortest = bug)
         M = np.full((len(trajs), Lm), np.nan)
         for i, t in enumerate(trajs):
@@ -180,6 +206,17 @@ def main():
         ends = np.array([t[np.isfinite(t)][-1] if np.isfinite(t).any() else np.nan for t in trajs])
         p = np.nanpercentile(ends, [1, 50, 99])
         print(f'{exp}: n={len(trajs)}, Lkeep={Lkeep}, end={end:.2f} bps | per-sample end p1/p50/p99 = {p[0]:.1f}/{p[1]:.1f}/{p[2]:.1f}')
+        # --- k-clock (executed-volume) aggregation: equal length by construction, plain mean ---
+        kcnt = np.sum(np.isfinite(K), axis=0)
+        kmean = np.nanmean(K, axis=0)
+        kse = np.nanstd(K, axis=0) / np.sqrt(np.maximum(1, kcnt))
+        ks = np.arange(nb + 1)
+        axk.plot(ks, kmean, '-', color=c, lw=1.7,
+                 label=f'{model} (end: {kmean[-1]:.1f} bps, n={len(items)})')
+        axk.fill_between(ks, kmean - 1.96 * kse, kmean + 1.96 * kse, color=c, alpha=0.10)
+        cache[f'{model}_k_mean'] = kmean
+        cache[f'{model}_k_se'] = kse
+        print(f'  k-clock: end={kmean[-1]:.2f}±{kse[-1]:.2f} bps (k={nb})')
 
     if ins_steps is not None and Lmax:
         for s in ins_steps[ins_steps < Lmax]:
@@ -198,6 +235,12 @@ def main():
                     label=f'{lbl}, end {ys[keep][-1]:.2f} bps')
             cache['sqrt_x'] = xs; cache['sqrt_y'] = ys
             print(f'√-law: end={ys[keep][-1]:.3f} bps (per-day child, σ={args.sigma_method}, Y={args.Y:g})')
+            # same reference on the k-clock: x = k directly (per-day mean, no mb involved)
+            xk = np.arange(1, n_ins_k + 1, dtype=float)
+            yk = ys[:n_ins_k].copy()
+            if args.shape != 'beta':
+                xk = np.append(xk, float(nb)); yk = np.append(yk, yk[-1])
+            axk.plot(xk, yk, '--', color='k', lw=2.0, label=f'{lbl}, end {yk[-1]:.2f} bps')
             # propagator (Bouchaud transient impact): rise to peak then power-law decay — DECAY shape only
             if args.shape != 'beta' and n_ins >= 1:
                 peak = float(ys[n_ins - 1]); T = float(xs[n_ins - 1])
@@ -206,6 +249,10 @@ def main():
                         label=f'propagator β={args.beta_prop:g} (peak {peak:.2f}→{py[-1]:.2f} bps)')
                 cache['prop_x'] = px; cache['prop_y'] = py
                 print(f'propagator: peak={peak:.3f} @T={T:.0f}, end={py[-1]:.3f} bps (β={args.beta_prop:g})')
+                pxk, pyk = propagator_curve(float(yk[n_ins_k - 1]), float(n_ins_k), None,
+                                            args.beta_prop, nb)
+                axk.plot(pxk, pyk, ':', color='#8E44AD', lw=2.2,
+                         label=f'propagator β={args.beta_prop:g} (peak {yk[n_ins_k - 1]:.2f}→{pyk[-1]:.2f} bps)')
 
     if Lmax:
         ax.set_xlim(0, Lmax)
@@ -220,6 +267,24 @@ def main():
                                    'results', 'mid_impact', f'mid_trajectory_{args.stock}.png')
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.tight_layout(); fig.savefig(out, dpi=150)
+
+    # --- the k-clock figure ---
+    if args.shape != 'beta':
+        axk.axvline(n_ins_k, color='k', lw=0.8, ls=':', alpha=0.6)
+    axk.axhline(0, color='k', lw=0.6)
+    axk.set_xlim(0, nb)
+    axk.set_xlabel('insertion / cooling-window index  k  (children executed — executed-volume units)'
+                   if args.shape != 'beta' else
+                   'insertion index  k  (children executed — executed-volume units)')
+    axk.set_ylabel('mean signed mid-price change  (bps)   buy + (−1)·sell')
+    axk.set_title(f'{args.stock} — mid-price impact in executed-volume units, by model'
+                  + ('  [dotted vline = execution end]' if args.shape != 'beta' else ''))
+    axk.legend(loc='upper left', fontsize=9)
+    axk.grid(True, alpha=0.3)
+    outk = os.path.splitext(out)[0] + '_k.png'
+    figk.tight_layout(); figk.savefig(outk, dpi=150)
+    print(f'saved -> {outk}')
+
     np.savez(os.path.splitext(out)[0] + '.npz', **cache)   # cache mean curves for instant re-plot
     print(f'saved -> {out}')
 

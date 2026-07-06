@@ -4,10 +4,10 @@ MASTER CURVE of market impact — the literature object that lives between the r
 and the β exponent (Bacry+ 2015 "life cycle of investor orders"; Gomes-Waelbroeck; Bouchaud-Bonart-
 Donier-Gould 2018).
 
-For every sample (metaorder) we take the SIGNED relative mid impact path I(step) and rescale TIME by the
-metaorder's own execution duration:  v = step / T_exec ,  where T_exec = step of the LAST aggressive
-insertion (end of execution).  So v=1 marks "execution finished".  We then AVERAGE I across samples on a
-common v-grid and normalise by the average impact at v=1:
+For every sample (metaorder) we take the SIGNED relative mid impact sampled AT executed-volume
+boundaries (insertions k=1..n_ins, then cooling windows) and use v = k/n_ins — exact boundary
+sampling, no interpolation, equal length by construction. v=1 marks "execution finished".
+We AVERAGE I across samples per v-point and normalise by the average impact at v=1:
 
       master(v) = ⟨I(v)⟩ / ⟨I(v=1)⟩
 
@@ -45,17 +45,20 @@ def _aggr_by_day(side_dir):
     return out
 
 
-def collect_paths(side_dir, sign, vgrid):
-    """Per sample: SIGNED impact path interpolated onto the shared v-grid (v = step / T_exec)."""
+def collect_paths(side_dir, sign, n_ins, n_cool):
+    """Per sample: SIGNED impact sampled AT executed-volume boundaries — insertions k=1..n_ins,
+    then cooling-window ends j=1..n_cool (spaced the day's mb). Equal length by construction
+    (v = k/n_ins on the shared grid, v=1 = execution end): no interpolation, no length mixing."""
     ab = _aggr_by_day(side_dir)
     obs = sorted(glob.glob(os.path.join(side_dir, '**', 'data_gen', '*orderbook*gen*.csv'), recursive=True))
+    nb = n_ins + n_cool
     out = []
     for ob in obs:
         m = DATE_RE.search(os.path.basename(ob))
         if not m:
             continue
         aggr = ab.get(m.group(1))
-        if aggr is None or len(aggr) < 1 or aggr[0] < 1:
+        if aggr is None or len(aggr) < 2 or aggr[0] < 1:
             continue
         a = _read(ob)
         if a.ndim != 2 or a.shape[1] < 4:
@@ -66,16 +69,20 @@ def collect_paths(side_dir, sign, vgrid):
         ref = mid[aggr[0] - 1]
         if not np.isfinite(ref) or ref <= 0:
             continue
-        T = int(aggr[-1])                       # last insertion = end of execution -> v=1
-        if T < 2 or T >= len(mid):
-            continue
-        steps = np.arange(len(mid), dtype=float)
-        v = steps / T
         I = sign * (mid - ref) / ref * 1e4      # bps
-        ok = np.isfinite(I)
-        if ok.sum() < 5:
+        mb = int(np.diff(aggr).min())
+        vals = np.full(nb + 1, np.nan)
+        vals[0] = 0.0
+        idx = list(aggr[:n_ins])
+        last = aggr[min(n_ins, len(aggr)) - 1]
+        if n_cool and mb > 0:
+            idx += [int(last + j * mb) for j in range(1, n_cool + 1)]
+        for j, ix in enumerate(idx, start=1):
+            if ix < len(I):
+                vals[j] = I[ix]
+        if np.isfinite(vals[1:]).sum() < 5:
             continue
-        out.append(np.interp(vgrid, v[ok], I[ok], left=np.nan, right=np.nan))
+        out.append(vals)
     return out
 
 
@@ -88,9 +95,10 @@ def main():
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
     models = [m for m in args.models.split(',') if m]
-    vmax = 1.05 if args.shape == 'beta' else 11.0
-    vgrid = np.linspace(0.0, vmax, 400)
-    i1 = int(np.argmin(np.abs(vgrid - 1.0)))    # index of v=1 (execution end)
+    n_ins = 100 if args.shape == 'beta' else 10
+    n_cool = 0 if args.shape == 'beta' else 100
+    vgrid = np.arange(n_ins + n_cool + 1) / n_ins   # v = k/n_ins; exact boundary sampling
+    i1 = n_ins                                       # index of v=1 (execution end)
 
     build_up = (args.shape == 'beta')
     fig, ax = plt.subplots(figsize=(7.2, 4.4))
@@ -98,8 +106,10 @@ def main():
     cache = {'vgrid': vgrid}
     sig_masters = []
     for m in models:
-        paths = collect_paths(os.path.join(args.grid, f'{args.stock}-{m}-{args.shape}', 'buy'), +1, vgrid) + \
-                collect_paths(os.path.join(args.grid, f'{args.stock}-{m}-{args.shape}', 'sell'), -1, vgrid)
+        paths = collect_paths(os.path.join(args.grid, f'{args.stock}-{m}-{args.shape}', 'buy'),
+                              +1, n_ins, n_cool) + \
+                collect_paths(os.path.join(args.grid, f'{args.stock}-{m}-{args.shape}', 'sell'),
+                              -1, n_ins, n_cool)
         if not paths:
             print(f'{m}: no data'); continue
         M = np.vstack(paths)
