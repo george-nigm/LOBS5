@@ -44,10 +44,14 @@ def disp(model):
 
 
 def latest_numbers(results_dir, model):
-    cands = sorted(glob.glob(os.path.join(results_dir, f'triangle_{model}_*', 'numbers.json')))
+    # exact-model match: 'triangle_Mamba3_*' must NOT swallow 'triangle_Mamba3_4k_*'
+    pat = re.compile(rf'triangle_{re.escape(model)}_\d{{8}}-\d{{6}}$')
+    cands = sorted(d for d in glob.glob(os.path.join(results_dir, f'triangle_{model}_*'))
+                   if pat.search(os.path.basename(d))
+                   and os.path.exists(os.path.join(d, 'numbers.json')))
     if not cands:
         raise SystemExit(f'no triangle numbers.json for {model} under {results_dir}')
-    return cands[-1]
+    return os.path.join(cands[-1], 'numbers.json')
 
 
 def arr(reg, key):
