@@ -107,10 +107,12 @@ def main():
         cnt = np.sum(np.isfinite(M), axis=0)
         mean[cnt < max(30, 0.3 * len(paths))] = np.nan
         peak = mean[i1]
-        # master(v) divides by ⟨I(1)⟩: for impact-blind models that denominator is pure noise
-        # (framework P3 fail) and the normalised curve is meaningless -> significance gate.
+        # master(v) divides by ⟨I(1)⟩: meaningful only for a POSITIVE, significant denominator.
+        # Impact-blind models (framework P3 fail) have ⟨I(1)⟩ ~ noise -> noise/noise curve;
+        # a negative peak (adverse drift, e.g. CST) would silently flip the curve. Gate both:
+        # such models keep a legend entry with their ⟨I(1)⟩ but draw no curve.
         peak_se = float(np.nanstd(M[:, i1]) / max(np.sqrt(cnt[i1]), 1.0))
-        sig = bool(np.isfinite(peak) and abs(peak) >= 3 * peak_se and abs(peak) > 1e-9)
+        sig = bool(np.isfinite(peak) and peak >= 3 * peak_se and peak > 1e-9)
         if not np.isfinite(peak) or abs(peak) < 1e-9:
             print(f'{m}: peak~0, skipping normalise'); continue
         master = mean / peak
@@ -121,9 +123,10 @@ def main():
                     label=f"{st['label']} (n={n})", zorder=3)
             sig_masters.append(master)
         else:
-            ax.plot(vgrid, master, color=st['color'], ls=st['ls'], lw=1.0, alpha=0.25,
-                    label=f"{st['label']} (n={n}; ⟨I(1)⟩={peak:.2f}±{peak_se:.2f} bps ≈ 0)",
-                    zorder=1)
+            note = 'adverse' if peak < -3 * peak_se else '≈ 0'
+            ax.plot([], [], color=st['color'], ls=st['ls'], lw=1.0, alpha=0.4,
+                    label=f"{st['label']} (n={n}; ⟨I(1)⟩={peak:.2f}±{peak_se:.2f} bps "
+                          f"{note} — not normalisable)")
         cache[f'{m}_master'] = master
         cache[f'{m}_peak'] = peak
         cache[f'{m}_peak_se'] = peak_se
