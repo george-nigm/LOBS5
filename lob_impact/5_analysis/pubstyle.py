@@ -81,9 +81,9 @@ def apply():
     rc['axes.titlesize'] = 13
     rc['axes.titleweight'] = 'bold'
     rc['legend.fontsize'] = 9.5
-    # --- bordered legend (square corners, opaque, like the old paper) ---
+    # --- bordered legend (square corners, semi-transparent so curves under it stay visible) ---
     rc['legend.frameon'] = True
-    rc['legend.framealpha'] = 1.0
+    rc['legend.framealpha'] = 0.72
     rc['legend.edgecolor'] = '#1a1a1a'
     rc['legend.fancybox'] = False
     rc['legend.borderpad'] = 0.5
