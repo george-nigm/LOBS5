@@ -47,15 +47,16 @@ def fig_schematic(path):
                                    height_ratios=[2.1, 1.0])
     ax1.grid(axis='x', visible=False)
     Ls = []
-    for lab, mb, col in days:
+    y_ann = [-18, -9, -18]
+    for (lab, mb, col), ya in zip(days, y_ann):
         L = n_ins * mb
         Ls.append(L)
         t = np.arange(L)
         y = 40 * np.sqrt(t / L) + np.cumsum(rng.normal(0, 0.55, L)) * 0.35
         ax1.plot(t, y, color=col, lw=1.6, label=lab)
         ax1.axvline(L, color=col, lw=1.0, ls=(0, (2, 2)), alpha=0.8)
-        ax1.annotate(f'{lab.split()[0]} {lab.split()[1]} ends\n(100·m_b = {L:,})',
-                     xy=(L, 4), xytext=(L - 2600, -14), color=col, fontsize=8,
+        ax1.annotate(f'{lab.split()[0]} {lab.split()[1]} ends (100·m_b = {L:,})',
+                     xy=(L, ya), xytext=(L - 3400, ya), color=col, fontsize=8,
                      fontweight='bold')
         for k in range(10, n_ins + 1, 10):     # sparse insertion ticks at k·mb (day-specific!)
             ax1.axvline(k * mb, color=col, lw=0.5, alpha=0.18)
@@ -100,10 +101,10 @@ def fig_real(path):
     ax1.hist(mb, bins=12, color=C_A, edgecolor='white')
     ax1.set_xlabel('per-day m_b (messages between children)')
     ax1.set_ylabel('trading days')
-    ax1.set_title(f'EA, Jan 2026: m_b varies {mb.min():.0f}–{mb.max():.0f} across '
-                  f'{len(mb)} days\n→ build-up rollout length 100·m_b varies '
-                  f'{100 * mb.min() / 1000:.1f}k–{100 * mb.max() / 1000:.1f}k msgs',
-                  fontsize=10, fontweight='bold', loc='left', color=INK)
+    ax1.set_title(f'EA: m_b {mb.min():.0f}–{mb.max():.0f} over {len(mb)} days\n'
+                  f'→ rollout 100·m_b = {100 * mb.min() / 1000:.1f}k–'
+                  f'{100 * mb.max() / 1000:.1f}k msgs',
+                  fontsize=9.5, fontweight='bold', loc='left', color=INK)
 
     z = np.load(FIG4_NPZ)
     cnt = z['Mamba3_cnt']
@@ -124,8 +125,8 @@ def fig_real(path):
                  xy=(0.55, 0.6), xycoords='axes fraction', color=INK2, fontsize=8.5)
     ax2.set_xlabel('message step  t')
     ax2.set_ylabel('samples alive  cnt(t)')
-    ax2.set_title(f'Actual Fig 4 staircase (Mamba3, n={n} samples pooled buy+sell)',
-                  fontsize=10, fontweight='bold', loc='left', color=INK)
+    ax2.set_title(f'\nActual Fig 4 alive-count staircase (Mamba3, n={n} pooled buy+sell)',
+                  fontsize=9.5, fontweight='bold', loc='left', color=INK)
     fig.tight_layout()
     fig.savefig(path, bbox_inches='tight')
     plt.close(fig)
