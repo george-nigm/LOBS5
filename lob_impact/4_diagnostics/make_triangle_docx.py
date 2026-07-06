@@ -211,9 +211,17 @@ class Doc:
 
 
 # ---------------------------------------------------------------------------
-def build_report(fig_dir, out_path):
+MODEL_META = {  # grid label -> (display label, conditioning length)
+    'Mamba3': ('Mamba3-78M', 500),
+    'Mamba3_4k': ('Mamba3-4k (2k-finetuned checkpoint)', 4000),
+    'S5_4k': ('S5-4k', 4000),
+}
+
+
+def build_report(fig_dir, out_path, model='Mamba3'):
     N = json.load(open(os.path.join(fig_dir, 'numbers.json')))
     emp = N['empirical']
+    label, n_cond = MODEL_META.get(model, (model, 500))
 
     def f(key, field, d=1):
         return f"{N[key][field]:+.{d}f}"
@@ -225,11 +233,22 @@ def build_report(fig_dir, out_path):
     resp = vb.get('resp_mean') or []
     r_model_100 = next((resp[m] for m in range(min(100, len(resp) - 1), 0, -1)
                         if resp[m] == resp[m]), float('nan'))
+    overshoot = r_model_100 / r_sat if r_sat else float('nan')
+    # buy/sell average in trade direction cancels any COMMON generator drift
+    # (drift D enters +D on buy, -D on sell), isolating the directional response.
+    vis_dir = (vb['final_mean'] + vs['final_mean']) / 2
+    inv_dir = (ib['final_mean'] + isl['final_mean']) / 2
+    pct_inv = 100 * inv_dir / vis_dir if vis_dir else float('nan')
+    hot = 'sell' if vs['final_mean'] > vb['final_mean'] else 'buy'
+    asym = abs(vs['final_mean'] - vb['final_mean']) / max(abs(vb['final_mean']),
+                                                          abs(vs['final_mean']), 1e-9)
+    mech_pct = 100 * vb['mech_mean'] / vb['final_mean'] if vb['final_mean'] else float('nan')
+    drift_per_win = vb['drift_mean'] / 99  # 100 insertions -> 99 between-windows
     d = Doc()
 
     d.p([('Where Does the Simulated Market Impact Come From?', True, False, None, 40)],
         style='Title', space_after=40)
-    d.p([('A control-triangle diagnostic — EA · Mamba3-78M · Shape I (100 child market orders) '
+    d.p([(f'A control-triangle diagnostic — EA · {label} · Shape I (100 child market orders) '
           '· grid_v2 · 2026-07-06', False, True, '52514E', 20)], space_after=240)
 
     d.h('1. Summary', 1)
@@ -244,32 +263,36 @@ def build_report(fig_dir, out_path):
          ('. Turn off only the model’s visibility of the metaorder — the book still gets '
           'eaten by every child order — and the impact collapses to ', False, False, None, None),
          (f'{ib["final_mean"]:+.0f} / {isl["final_mean"]:+.0f} ticks', True, False, '199E70', None),
-         (', statistically indistinguishable from zero and from the no-insertion drift baseline of ',
-          False, False, None, None),
+         ('. Averaging buy and sell in the trade direction (which cancels any common generator '
+          'drift) leaves an invisible-regime directional response of ', False, False, None, None),
+         (f'{inv_dir:+.1f} ticks — {pct_inv:.0f}% of the visible {vis_dir:+.0f}', True, False,
+          '199E70', None),
+         (' — on the scale of the no-insertion drift baseline of ', False, False, None, None),
          (f'{no["final_mean"]:+.0f} ticks', True, False, 'C98500', None),
-         ('. Essentially 100% of the simulated impact is therefore the model’s learned '
+         (f'. Essentially all ({max(0.0, 100 - max(pct_inv, 0)):.0f}%+) of the simulated impact '
+          'is therefore the model’s learned '
           'directional reaction to seeing the child orders in the order flow — not book mechanics, '
           'not an unconditional drift of the generator, and not degradation over the long rollout.',
           False, False, None, None)])
     d.p([('The reaction itself is miscalibrated in one specific way: after each ~16-share child '
-          'order the model keeps pushing the price with no saturation and no reversion, while real '
+          'order the model keeps pushing the price with little or no saturation, while real '
           f'EA data shows the response saturating at {r_sat:+.2f} ticks within ~60 messages. '
-          'Per event the model overshoots by ×2–3; accumulated over 100 children this compounds '
-          'to roughly an order of magnitude above a square-root-law expectation. The model has '
+          f'Per event the model overshoots by ×{overshoot:.1f}; accumulated over 100 children '
+          'this compounds to far above a square-root-law expectation. The model has '
           'learned order-flow momentum but not market resilience — which also makes the measured '
           'build-up exponent δ≈1 a mathematical necessity rather than an empirical discovery.',
           False, False, None, None)])
 
     d.h('2. The three regimes', 1)
-    d.p('All three runs share everything: the same Mamba3-78M checkpoint, the same trading days and '
-        '500-message historical conditioning, the same insertion machinery, and rollouts of '
+    d.p(f'All three runs share everything: the same {label} checkpoint, the same trading days and '
+        f'{n_cond}-message historical conditioning, the same insertion machinery, and rollouts of '
         '~12.7–13k generated messages. Only two switches differ. In the visible regime each child '
         'market order is executed against the simulated book AND encoded into the token stream the '
         'model conditions on. In the invisible regime the child orders still hit the book (the '
         'liquidity really disappears, the mid really jumps), but the model’s context is rolled '
         'forward as if they never happened. In the no-insertion regime nothing is injected at all — '
         'the model simply generates 13,000 messages, which measures its unconditional drift and its '
-        'stability at 25× the training sequence length.')
+        f'stability at ~{13000 // n_cond}× the conditioning window.')
     d.image(os.path.join(fig_dir, 'fig1_regimes.png'),
             f'Figure 1. The control triangle: one experiment, two switches. Differencing the three '
             f'outcomes attributes the impact to mechanics, model reaction, or drift. Each box '
@@ -290,15 +313,18 @@ def build_report(fig_dir, out_path):
           False, False, None, None)])
 
     d.h('3. What actually happens along the rollout', 1)
+    asym_note = (f' — the {hot} side runs noticeably hotter, a buy/sell asymmetry worth '
+                 f'reporting on its own' if asym > 0.2 else
+                 ' — buy and sell are roughly symmetric')
     d.p(f'Figure 2 overlays the mean mid-price trajectory of all five runs on a common axis '
         f'(mean ± 2 s.e. bands). Both visible curves build up steadily in the direction of the '
-        f'observed flow, and only they do: buy pushes the mid up by {vb["final_mean"]:+.0f} ticks '
-        f'and sell pushes it down by an (adverse) {vs["final_mean"]:+.0f} ticks — the sell side '
-        f'runs noticeably hotter, a buy/sell asymmetry worth reporting on its own. The controls '
-        f'stay flat around zero for the entire rollout, and the small values they end at do NOT '
-        f'flip sign with the trade direction (invisible: {ib["final_mean"]:+.1f} buy vs '
-        f'{isl["final_mean"]:+.1f} sell in trade-direction units), i.e. they are a common tiny '
-        f'bias, not a directional response. The transition from history to generation is seamless '
+        f'observed flow, and only they do: buy moves the mid {vb["final_mean"]:+.0f} ticks '
+        f'and sell {vs["final_mean"]:+.0f} ticks in the trade direction{asym_note}. The controls '
+        f'stay near zero for the entire rollout: their buy/sell average in trade-direction units '
+        f'(which cancels common generator drift) is {inv_dir:+.1f} ticks '
+        f'(invisible: {ib["final_mean"]:+.1f} buy / {isl["final_mean"]:+.1f} sell), i.e. mostly a '
+        f'common small bias shared with the no-insertion run, not a directional response. '
+        f'The transition from history to generation is seamless '
         f'in all regimes (boundary jump ≤0.12 ticks; zero crossed or invalid book states across '
         f'the whole grid), so the divergence between the curves cannot be a bookkeeping artifact.')
     d.image(os.path.join(fig_dir, 'fig2_trajectories.png'),
@@ -314,10 +340,11 @@ def build_report(fig_dir, out_path):
           False, False, None, None),
          ('model-generated', True, False, 'EB6834', None),
          (' part is everything the model writes between insertions. Mechanics contribute '
-          f'{vb["mech_mean"]:+.1f} ticks (buy) — about 10% of the total. The other '
+          f'{vb["mech_mean"]:+.1f} ticks (buy) — about {mech_pct:.0f}% of the total. The other '
           f'{vb["drift_mean"]:+.1f} ticks are messages the model chose to generate after watching '
           'the child orders: quotes walking away, same-side follow-on flow, cancellations on the '
-          'attacked side. Between insertions the mid keeps rising (~+1.1 ticks per window) instead '
+          f'attacked side. Between insertions the mid keeps moving with the trade '
+          f'({drift_per_win:+.2f} ticks per window on the buy side) instead '
           'of reverting — the signature of momentum without resilience.', False, False, None, None)])
     d.image(os.path.join(fig_dir, 'fig3_decomposition.png'),
             f'Figure 3. Mechanical vs model-generated contribution per regime (trade direction; bars '
@@ -333,8 +360,8 @@ def build_report(fig_dir, out_path):
         f'stream ({emp["n_events"]} real executions from the conditioning data). Real EA responses '
         f'rise to about {emp.get("R_30", 0):+.2f} ticks after 30 messages and saturate at '
         f'{r_sat:+.2f} ticks — transient impact decays into a small permanent component. The '
-        f'visible-regime model response keeps climbing to ~{r_model_100:.1f} ticks at m=100 with no '
-        f'saturation anywhere in the window, ×2–3 above the real-data curve — and the real-data '
+        f'visible-regime model response climbs to ~{r_model_100:.1f} ticks at m=100, '
+        f'×{overshoot:.1f} above the real-data curve — and the real-data '
         f'number is itself an upper '
         f'bound on causal impact, since organic order flow is autocorrelated. The invisible-regime '
         f'response is flat, confirming that the excess is driven entirely by what the model sees.')
@@ -359,7 +386,8 @@ def build_report(fig_dir, out_path):
     d.p(f'Against that anchor the story is clean: the no-insertion '
         f'({no["spread_first"]:.1f}→{no["spread_last"]:.1f} ticks) and invisible '
         f'({ib["spread_first"]:.1f}→{ib["spread_last"]:.1f}) runs hold essentially the historical '
-        f'level for all 13k messages — generating at 25× the training window does not by itself '
+        f'level for all 13k messages — generating at ~{13000 // n_cond}× the conditioning window '
+        f'does not by itself '
         f'break the book. The visible run degrades from ~{vb["spread_first"]:.1f} to '
         f'~{vb["spread_last"]:.1f} ticks, i.e. the degradation is metaorder-induced, part of the '
         f'same overreaction as the price drift. Two housekeeping notes: L10 depth roughly doubles '
@@ -466,9 +494,9 @@ def build_report(fig_dir, out_path):
 
     d.h('11. Reproduction', 1)
     d.p([('Data: ', True, False, None, None),
-         ('/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2/EA-Mamba3-beta (visible) and '
-          '/lus/lfs1aip2/projects/u6gb/lob_impact_controls_v2/{invisible,noins} (controls; SLURM '
-          'jobs 5506410 / 5506413, generated with METAORDER_VISIBLE=0 and N_INS_OVERRIDE=1 '
+         (f'/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2/EA-{model}-beta (visible) and '
+          f'/lus/lfs1aip2/projects/u6gb/lob_impact_controls_v2/{{invisible,noins}}/EA-{model}-beta '
+          '(controls, generated with the METAORDER_VISIBLE=0 and N_INS_OVERRIDE=1 '
           'MB_OVERRIDE=13000 knobs of lob_impact/3_scenarios/run_experiments.sh). ',
           False, False, None, None),
          ('Analysis: ', True, False, None, None),
@@ -484,5 +512,6 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--fig_dir', required=True)
     ap.add_argument('--out', required=True)
+    ap.add_argument('--model', default='Mamba3', help='grid model label (see MODEL_META)')
     a = ap.parse_args()
-    build_report(a.fig_dir, a.out)
+    build_report(a.fig_dir, a.out, a.model)

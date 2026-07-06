@@ -26,9 +26,6 @@ set -u
 cd "$IMPACT_DIR"
 echo "[$(date)] host $(hostname) | model=$MODEL | n_samples=$NS | out=$OUT"
 python -u 4_diagnostics/control_triangle_report.py --model "$MODEL" --n_samples "$NS" --out_dir "$OUT"
-# the prose report is written for the Mamba3 headline run; other models get figures+numbers only
-if [ "$MODEL" = "Mamba3" ]; then
-  python -u 4_diagnostics/make_triangle_docx.py --fig_dir "$OUT" \
-      --out "$OUT/Control_Triangle_Report.docx"
-fi
+python -u 4_diagnostics/make_triangle_docx.py --fig_dir "$OUT" --model "$MODEL" \
+    --out "$OUT/Control_Triangle_Report_${MODEL}.docx"
 echo "[$(date)] TRIANGLE_DONE -> $OUT"
