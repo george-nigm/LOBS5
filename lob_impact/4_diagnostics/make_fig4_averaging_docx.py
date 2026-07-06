@@ -47,7 +47,7 @@ def fig_schematic(path):
                                    height_ratios=[2.1, 1.0])
     ax1.grid(axis='x', visible=False)
     Ls = []
-    y_ann = [-18, -9, -18]
+    y_ann = [-18, -9, -13.5]
     for (lab, mb, col), ya in zip(days, y_ann):
         L = n_ins * mb
         Ls.append(L)
@@ -55,9 +55,9 @@ def fig_schematic(path):
         y = 40 * np.sqrt(t / L) + np.cumsum(rng.normal(0, 0.55, L)) * 0.35
         ax1.plot(t, y, color=col, lw=1.6, label=lab)
         ax1.axvline(L, color=col, lw=1.0, ls=(0, (2, 2)), alpha=0.8)
-        ax1.annotate(f'{lab.split()[0]} {lab.split()[1]} ends (100·m_b = {L:,})',
-                     xy=(L, ya), xytext=(L - 3400, ya), color=col, fontsize=8,
-                     fontweight='bold')
+        ax1.annotate(f'{lab.split()[0]} {lab.split()[1]} ends (100·m_b = {L:,}) ',
+                     xy=(L, ya), xytext=(L - 120, ya), color=col, fontsize=8,
+                     fontweight='bold', ha='right', va='center')
         for k in range(10, n_ins + 1, 10):     # sparse insertion ticks at k·mb (day-specific!)
             ax1.axvline(k * mb, color=col, lw=0.5, alpha=0.18)
     ax1.set_ylabel('signed mid move (schematic)')
