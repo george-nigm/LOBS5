@@ -117,11 +117,13 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
                                    mid[ai[1:] - 1] - mid[ai[:-1]]])
             mechs.append(sign * mech)
             drifts.append(sign * np.nansum(segs) / TICK)
-            for i in ai:
+            nxt = np.append(ai[1:], L)
+            for i, nx in zip(ai, nxt):
                 base = mid[i - 1]
                 if np.isnan(base):
                     continue
-                hi = min(i - 1 + m_max, L - 1)
+                # stop before the NEXT insertion so its impact never leaks into R(m)
+                hi = min(i - 1 + m_max, nx - 1, L - 1)
                 for m in range(1, hi - (i - 1) + 1):
                     v = mid[i - 1 + m]
                     if not np.isnan(v):
@@ -154,6 +156,26 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
 def style_ax(ax):
     ax.grid(axis='x', visible=False)
     ax.axhline(0, color=AXISC, lw=1.0, zorder=1)
+
+
+def end_labels(ax, items, min_sep_frac=0.045):
+    """Right-edge direct labels without collisions. items: [(y, text, color)]."""
+    lo, hi = ax.get_ylim()
+    sep = (hi - lo) * min_sep_frac
+    order = sorted(range(len(items)), key=lambda k: items[k][0])
+    ys = [items[k][0] for k in order]
+    for j in range(1, len(ys)):          # push up
+        ys[j] = max(ys[j], ys[j - 1] + sep)
+    over = ys[-1] - max(hi, items[order[-1]][0])
+    if over > 0:                          # keep inside the axis
+        ys = [y - over for y in ys]
+        for j in range(len(ys) - 2, -1, -1):
+            ys[j] = min(ys[j], ys[j + 1] - sep)
+    for k, y in zip(order, ys):
+        _, text, col = items[k]
+        ax.annotate(text, xy=(1.005, y), xycoords=('axes fraction', 'data'),
+                    color=col, fontsize=8.5, fontweight='bold', va='center',
+                    annotation_clip=False)
 
 
 def fig_schematic(path, vals):
@@ -203,16 +225,16 @@ def fig_trajectories(path, R):
               ('invisible-buy', C_INV, '-', 'Invisible, buy'),
               ('invisible-sell', C_INV, (0, (5, 2)), 'Invisible, sell'),
               ('noins', C_NOI, '-', 'No insertions')]
+    labels = []
     for key, col, ls, lab in series:
         r = R[key]
         ax.fill_between(GRID01 * 100, r['traj_mean'] - 2 * r['traj_se'],
                         r['traj_mean'] + 2 * r['traj_se'], color=col, alpha=0.13, lw=0)
         ax.plot(GRID01 * 100, r['traj_mean'], color=col, ls=ls, lw=2.0, label=lab,
                 solid_capstyle='round')
-        ax.annotate(f"{lab}  {r['traj_mean'][-1]:+.0f}", xy=(100, r['traj_mean'][-1]),
-                    xytext=(101.2, r['traj_mean'][-1]), color=col, fontsize=8.5,
-                    fontweight='bold', va='center', annotation_clip=False)
+        labels.append((r['traj_mean'][-1], f"{lab}  {r['traj_mean'][-1]:+.0f}", col))
     ax.set_xlim(0, 100)
+    end_labels(ax, labels)
     ax.set_xlabel('Rollout progress, %   (visible/invisible: ≈ child order 1 → 100)')
     ax.set_ylabel('Mid-price move in trade direction, ticks')
     ax.set_title('Cumulative impact: only the regime where the model SEES the metaorder moves',
@@ -294,14 +316,14 @@ def fig_spread(path, R):
               ('invisible-buy', C_INV, '-', 'Invisible, buy'),
               ('invisible-sell', C_INV, (0, (5, 2)), 'Invisible, sell'),
               ('noins', C_NOI, '-', 'No insertions')]
+    labels = []
     for key, col, ls, lab in series:
         r = R[key]
         ax.plot(GRID01 * 100, r['spr_mean'], color=col, ls=ls, lw=2.0, label=lab)
-        ax.annotate(f"{lab}  {r['spr_mean'][-1]:.1f}", xy=(100, r['spr_mean'][-1]),
-                    xytext=(101.2, r['spr_mean'][-1]), color=col, fontsize=8.5,
-                    fontweight='bold', va='center', annotation_clip=False)
+        labels.append((r['spr_mean'][-1], f"{lab}  {r['spr_mean'][-1]:.1f}", col))
     ax.set_xlim(0, 100)
     ax.set_ylim(bottom=0)
+    end_labels(ax, labels)
     ax.set_xlabel('Rollout progress, %')
     ax.set_ylabel('Mean bid–ask spread, ticks')
     ax.set_title('Book health: the spread blow-up is metaorder-induced, not a long-rollout artifact',

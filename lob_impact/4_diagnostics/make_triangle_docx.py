@@ -222,6 +222,9 @@ def build_report(fig_dir, out_path):
     ib, isl = N['invisible-buy'], N['invisible-sell']
     no = N['noins']
     r_sat = emp.get('R_131', emp.get('R_100'))
+    resp = vb.get('resp_mean') or []
+    r_model_100 = next((resp[m] for m in range(min(100, len(resp) - 1), 0, -1)
+                        if resp[m] == resp[m]), float('nan'))
     d = Doc()
 
     d.p([('Where Does the Simulated Market Impact Come From?', True, False, None, 40)],
@@ -251,7 +254,7 @@ def build_report(fig_dir, out_path):
     d.p([('The reaction itself is miscalibrated in one specific way: after each ~16-share child '
           'order the model keeps pushing the price with no saturation and no reversion, while real '
           f'EA data shows the response saturating at {r_sat:+.2f} ticks within ~60 messages. '
-          'Per event the model overshoots by ×2.4–3.4; accumulated over 100 children this compounds '
+          'Per event the model overshoots by ×2–3; accumulated over 100 children this compounds '
           'to roughly an order of magnitude above a square-root-law expectation. The model has '
           'learned order-flow momentum but not market resilience — which also makes the measured '
           'build-up exponent δ≈1 a mathematical necessity rather than an empirical discovery.',
@@ -284,19 +287,21 @@ def build_report(fig_dir, out_path):
           False, False, None, None)])
 
     d.h('3. What actually happens along the rollout', 1)
-    d.p('Figure 2 overlays the mean mid-price trajectory of all five runs on a common axis '
-        '(mean ± 2 s.e. bands). The two visible curves build up steadily and almost perfectly '
-        'mirror each other — the response is tied to the direction of the flow the model observes, '
-        'which rules out price-level artifacts. Both control regimes stay flat around zero for the '
-        'entire rollout: the small negative values they end at have the same sign for buy and sell, '
-        'i.e. they are a common (tiny) downward bias, not a directional response. The transition '
-        'from history to generation is seamless in all regimes (boundary jump ≤0.12 ticks; zero '
-        'crossed or invalid book states across the whole grid), so the divergence between the '
-        'curves cannot be a bookkeeping artifact.')
+    d.p(f'Figure 2 overlays the mean mid-price trajectory of all five runs on a common axis '
+        f'(mean ± 2 s.e. bands). Both visible curves build up steadily in the direction of the '
+        f'observed flow, and only they do: buy pushes the mid up by {vb["final_mean"]:+.0f} ticks '
+        f'and sell pushes it down by an (adverse) {vs["final_mean"]:+.0f} ticks — the sell side '
+        f'runs noticeably hotter, a buy/sell asymmetry worth reporting on its own. The controls '
+        f'stay flat around zero for the entire rollout, and the small values they end at do NOT '
+        f'flip sign with the trade direction (invisible: {ib["final_mean"]:+.1f} buy vs '
+        f'{isl["final_mean"]:+.1f} sell in trade-direction units), i.e. they are a common tiny '
+        f'bias, not a directional response. The transition from history to generation is seamless '
+        f'in all regimes (boundary jump ≤0.12 ticks; zero crossed or invalid book states across '
+        f'the whole grid), so the divergence between the curves cannot be a bookkeeping artifact.')
     d.image(os.path.join(fig_dir, 'fig2_trajectories.png'),
-            'Figure 2. Cumulative mid move in the trade direction. Visible buy/sell mirror to '
-            f'{vb["final_mean"]:+.0f}/{vs["final_mean"]:+.0f} ticks; invisible and no-insertion '
-            'runs are flat.')
+            'Figure 2. Cumulative mid move in the trade direction (mean ± 2 s.e.). Visible '
+            f'buy/sell build to {vb["final_mean"]:+.0f}/{vs["final_mean"]:+.0f} ticks; invisible '
+            'and no-insertion runs are flat.')
 
     d.h('4. Decomposing the visible impact: mechanics vs model reaction', 1)
     d.p([('Within the visible regime we can split every trajectory exactly: the ', False, False, None, None),
@@ -323,8 +328,9 @@ def build_report(fig_dir, out_path):
         f'stream ({emp["n_events"]} real executions from the conditioning data). Real EA responses '
         f'rise to about {emp.get("R_30", 0):+.2f} ticks after 30 messages and saturate at '
         f'{r_sat:+.2f} ticks — transient impact decays into a small permanent component. The '
-        f'visible-regime model response climbs to 1.2–1.7 ticks with no saturation anywhere in the '
-        f'window, ×2.4–3.4 above the real-data curve — and the real-data number is itself an upper '
+        f'visible-regime model response keeps climbing to ~{r_model_100:.1f} ticks at m=100 with no '
+        f'saturation anywhere in the window, ×2–3 above the real-data curve — and the real-data '
+        f'number is itself an upper '
         f'bound on causal impact, since organic order flow is autocorrelated. The invisible-regime '
         f'response is flat, confirming that the excess is driven entirely by what the model sees.')
     d.image(os.path.join(fig_dir, 'fig4_event_response.png'),
