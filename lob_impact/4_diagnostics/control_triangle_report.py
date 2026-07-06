@@ -29,6 +29,7 @@ from matplotlib.patches import FancyBboxPatch
 TICK = 100
 SENT = 2147483647
 GRID01 = np.linspace(0.0, 1.0, 241)
+MODEL_LABEL = 'Mamba3'
 
 # --- palette (validated reference set, fixed slot order; light surface) ---
 C_VIS, C_INV, C_NOI = '#2a78d6', '#1baf7a', '#eda100'   # regimes: blue / aqua / yellow
@@ -210,7 +211,7 @@ def fig_schematic(path, vals):
                 color=INK, fontweight='bold')
         ax.annotate('', xy=(x + 0.44, 0.17), xytext=(x + 0.44, 0.22),
                     arrowprops=dict(arrowstyle='-|>', color=MUTED, lw=1.4))
-    fig.suptitle('Three generation regimes — identical run, two switches flipped',
+    fig.suptitle(f'{MODEL_LABEL}: three generation regimes — identical run, two switches flipped',
                  fontsize=12, fontweight='bold', color=INK, y=1.00)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(path, bbox_inches='tight')
@@ -237,7 +238,7 @@ def fig_trajectories(path, R):
     end_labels(ax, labels)
     ax.set_xlabel('Rollout progress, %   (visible/invisible: ≈ child order 1 → 100)')
     ax.set_ylabel('Mid-price move in trade direction, ticks')
-    ax.set_title('Cumulative impact: only the regime where the model SEES the metaorder moves',
+    ax.set_title(f'{MODEL_LABEL} — cumulative impact by regime (does the model need to SEE the metaorder?)',
                  fontsize=11.5, fontweight='bold', loc='left', color=INK)
     ax.legend(loc='upper left', fontsize=8.5, ncols=2)
     fig.tight_layout()
@@ -264,7 +265,7 @@ def fig_decomposition(path, R):
         ax.text(v + np.sign(v) * 1.5 + 0.5, yy, f'{v:+.1f}', va='center', fontsize=8.5, color=INK2)
     ax.set_yticks(y, labels)
     ax.set_xlabel('Contribution to total mid move (trade direction), ticks')
-    ax.set_title('Decomposition: ~90% of visible-regime impact is model-generated drift, not mechanics',
+    ax.set_title(f'{MODEL_LABEL} — decomposition: mechanical book-eating vs model-generated drift',
                  fontsize=11.5, fontweight='bold', loc='left', color=INK)
     ax.legend(loc='lower right', fontsize=8.5)
     fig.tight_layout()
@@ -300,7 +301,7 @@ def fig_event_response(path, R, emp):
     ax.set_xlim(0, 135)
     ax.set_xlabel('Messages after the execution event  m')
     ax.set_ylabel('Mean mid response R(m), ticks')
-    ax.set_title('Per-event response: the model reacts 2–3× stronger than real data and never saturates',
+    ax.set_title(f'{MODEL_LABEL} — per-event response R(m) vs real-data anchor',
                  fontsize=11.5, fontweight='bold', loc='left', color=INK)
     ax.legend(loc='upper left', fontsize=8.5)
     fig.tight_layout()
@@ -326,7 +327,7 @@ def fig_spread(path, R):
     end_labels(ax, labels)
     ax.set_xlabel('Rollout progress, %')
     ax.set_ylabel('Mean bid–ask spread, ticks')
-    ax.set_title('Book health: the spread blow-up is metaorder-induced, not a long-rollout artifact',
+    ax.set_title(f'{MODEL_LABEL} — book health: mean spread along the rollout by regime',
                  fontsize=11.5, fontweight='bold', loc='left', color=INK)
     ax.legend(loc='upper left', fontsize=8.5, ncols=2)
     fig.tight_layout()
@@ -341,16 +342,21 @@ def main():
     ap.add_argument('--emp_json', default=os.path.join(os.path.dirname(__file__),
                     'results/empresp_20260705-142822/empirical_response.json'))
     ap.add_argument('--n_samples', type=int, default=64)
+    ap.add_argument('--model', default='Mamba3', help='grid model label (Mamba3, Mamba3_4k, S5_4k)')
+    ap.add_argument('--stock', default='EA')
     ap.add_argument('--out_dir', required=True)
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
+    global MODEL_LABEL
+    MODEL_LABEL = args.model
+    scen = f'{args.stock}-{args.model}-beta'
     spec = {
-        'visible-buy': (os.path.join(args.grid, 'EA-Mamba3-beta', 'buy'), +1, True),
-        'visible-sell': (os.path.join(args.grid, 'EA-Mamba3-beta', 'sell'), -1, True),
-        'invisible-buy': (os.path.join(args.controls, 'invisible', 'EA-Mamba3-beta', 'buy'), +1, True),
-        'invisible-sell': (os.path.join(args.controls, 'invisible', 'EA-Mamba3-beta', 'sell'), -1, True),
-        'noins': (os.path.join(args.controls, 'noins', 'EA-Mamba3-beta', 'buy'), +1, False),
+        'visible-buy': (os.path.join(args.grid, scen, 'buy'), +1, True),
+        'visible-sell': (os.path.join(args.grid, scen, 'sell'), -1, True),
+        'invisible-buy': (os.path.join(args.controls, 'invisible', scen, 'buy'), +1, True),
+        'invisible-sell': (os.path.join(args.controls, 'invisible', scen, 'sell'), -1, True),
+        'noins': (os.path.join(args.controls, 'noins', scen, 'buy'), +1, False),
     }
     R = {}
     for key, (d, sign, ins) in spec.items():
@@ -375,7 +381,7 @@ def main():
     fig_event_response(os.path.join(args.out_dir, 'fig4_event_response.png'), R, emp)
     fig_spread(os.path.join(args.out_dir, 'fig5_spread.png'), R)
 
-    num = {'empirical': emp}
+    num = {'empirical': emp, 'model': args.model, 'stock': args.stock}
     for k, r in R.items():
         num[k] = {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv)
                   for kk, vv in r.items()}

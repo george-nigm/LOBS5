@@ -13,8 +13,9 @@
 set -euo pipefail
 IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 NS="${NS:-64}"
+MODEL="${MODEL:-Mamba3}"          # grid model label: Mamba3 | Mamba3_4k | S5_4k
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-OUT="${IMPACT_DIR}/4_diagnostics/results/triangle_${RUN_TS}"
+OUT="${IMPACT_DIR}/4_diagnostics/results/triangle_${MODEL}_${RUN_TS}"
 mkdir -p "${IMPACT_DIR}/4_diagnostics/logs" "$OUT"
 
 set +u
@@ -23,8 +24,11 @@ conda activate "${CONDA_ENV:-lobs5}"
 set -u
 
 cd "$IMPACT_DIR"
-echo "[$(date)] host $(hostname) | n_samples=$NS | out=$OUT"
-python -u 4_diagnostics/control_triangle_report.py --n_samples "$NS" --out_dir "$OUT"
-python -u 4_diagnostics/make_triangle_docx.py --fig_dir "$OUT" \
-    --out "$OUT/Control_Triangle_Report.docx"
+echo "[$(date)] host $(hostname) | model=$MODEL | n_samples=$NS | out=$OUT"
+python -u 4_diagnostics/control_triangle_report.py --model "$MODEL" --n_samples "$NS" --out_dir "$OUT"
+# the prose report is written for the Mamba3 headline run; other models get figures+numbers only
+if [ "$MODEL" = "Mamba3" ]; then
+  python -u 4_diagnostics/make_triangle_docx.py --fig_dir "$OUT" \
+      --out "$OUT/Control_Triangle_Report.docx"
+fi
 echo "[$(date)] TRIANGLE_DONE -> $OUT"
