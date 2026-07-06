@@ -11,7 +11,7 @@
 # Regenerate the grid-dependent paper figures on a COMPUTE node (never login — Lustre glob):
 #   Fig 4: mid-price trajectory with ALL 6 models (beta + decay)  -> mid_trajectory.py (+ npz)
 #   Fig 6 (body): beta(k) 3 views + cloud with sigma=1 (--method none) -> beta_vs_k_3views.py
-# The sigma=parkinson Fig 6 (appendix) already exists; not recomputed here.
+# ONLY_PARKINSON=1: skip Fig 4 + sigma=1 and recompute just the appendix sigma=parkinson Fig 6.
 set -uo pipefail
 IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 B="${IMPACT_DIR}/5_analysis/beta"
@@ -25,6 +25,14 @@ export JAX_PLATFORMS=cpu
 mkdir -p "${B}/logs"
 cd "$B"
 echo "[$(date)] host $(hostname) | grid ${GRID} | stock ${STOCK} | models ${MODELS}"
+
+if [ "${ONLY_PARKINSON:-0}" = "1" ]; then
+  echo ">>> Fig 6 (appendix): beta(k) 3 views + cloud, sigma=parkinson"
+  $PY beta_vs_k_3views.py --grid "$GRID" --daily "$DAILY" --stock "$STOCK" --models "$MODELS" \
+      --method parkinson --out "$B/results/beta_vs_k_3views/beta_vs_k_3views_${STOCK}_parkinson.png"
+  echo "[$(date)] DONE -> beta_vs_k_3views_${STOCK}_parkinson.{png,npz}"
+  exit 0
+fi
 
 echo ">>> Fig 4a: mid-price trajectory (beta build-up, 6 models)"
 $PY mid_trajectory.py --grid "$GRID" --stock "$STOCK" --shape beta --models "$MODELS" \
