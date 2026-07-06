@@ -137,10 +137,11 @@ def fig_real(path):
 
 
 def collect_raw_and_k(exp, n_max=4096, n_ins=100):
-    """Per-sample raw bps trajectories (event time) + the same sampled AT insertions k=0..n_ins."""
+    """Per-sample raw bps trajectories (event time) + the same sampled AT insertions k=0..n_ins.
+    Returns (raw list, atk [n, n_ins+1], mbs [n], dates [n])."""
     gens = sorted(glob.glob(os.path.join(exp, 'data_gen', '*orderbook*gen*.csv')))
     step = max(len(gens) // n_max, 1)
-    raw, atk, mbs = [], [], []
+    raw, atk, mbs, dates = [], [], [], []
     for bf in gens[::step][:n_max]:
         m = re.search(r'_(\d{4}-\d{2}-\d{2})_', os.path.basename(bf))
         if not m:
@@ -158,13 +159,14 @@ def collect_raw_and_k(exp, n_max=4096, n_ins=100):
         raw.append(I)
         atk.append(np.concatenate([[0.0], I[ai[:n_ins]]]))   # k = 0..n_ins
         mbs.append(int(np.diff(ai).min()) if len(ai) > 1 else 0)
-    return raw, np.array(atk), np.array(mbs)
+        dates.append(m.group(1))
+    return raw, np.array(atk), np.array(mbs), np.array(dates)
 
 
 def fig_aggregation(path, exp, n_show=250):
     """The recommended aggregation, visually: raw spaghetti (event time, ragged) ->
     the same samples aligned on insertion index k -> trivial mean."""
-    raw, atk, mbs = collect_raw_and_k(exp)
+    raw, atk, mbs, _dates = collect_raw_and_k(exp)
     n = len(raw)
     rng = np.random.default_rng(3)
     show = rng.choice(n, size=min(n_show, n), replace=False)
