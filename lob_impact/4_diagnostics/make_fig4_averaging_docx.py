@@ -180,18 +180,19 @@ def fig_aggregation(path, exp, n_show=250):
     for i in show:
         t = np.arange(len(raw[i]))
         ax1.plot(t[::20], raw[i][::20], color=INK, lw=0.4, alpha=0.05, zorder=2)
-    for i, col in zip(hi_idx, hi_col):
+    offs = [(-900, 14), (300, -4), (-900, 14)]
+    for (i, col), (dx, dy) in zip(zip(hi_idx, hi_col), offs):
         t = np.arange(len(raw[i]))
+        end = raw[i][np.isfinite(raw[i])][-1]
         ax1.plot(t[::10], raw[i][::10], color=col, lw=1.5, zorder=3)
-        ax1.plot(len(raw[i]) - 1, raw[i][np.isfinite(raw[i])][-1], 'o', ms=5,
-                 color=col, zorder=4)
-        ax1.annotate(f'm_b={mbs[i]}', xy=(len(raw[i]), raw[i][np.isfinite(raw[i])][-1]),
-                     xytext=(len(raw[i]) - 900, raw[i][np.isfinite(raw[i])][-1] + 14),
+        ax1.plot(len(raw[i]) - 1, end, 'o', ms=5, color=col, zorder=4)
+        ax1.annotate(f'm_b={mbs[i]}', xy=(len(raw[i]), end),
+                     xytext=(len(raw[i]) + dx, end + dy),
                      color=col, fontsize=8.5, fontweight='bold')
     ax1.set_xlabel('message step  (event time)')
     ax1.set_ylabel('signed mid move, bps')
-    ax1.set_title(f'No averaging: {len(show)} of n={n} raw trajectories — every sample '
-                  'its own length', fontsize=10.5, fontweight='bold', loc='left', color=INK)
+    ax1.set_title(f'No averaging: {len(show)} of n={n} raw trajectories',
+                  fontsize=10.5, fontweight='bold', loc='left', color=INK)
 
     ks = np.arange(atk.shape[1])
     for i in show:
@@ -206,7 +207,7 @@ def fig_aggregation(path, exp, n_show=250):
     ax2.annotate(f'mean over n={n}  (±2 s.e.)', xy=(ks[-1], mean[-1]),
                  xytext=(58, mean[-1] + 16), color=CRIT, fontsize=9.5, fontweight='bold')
     ax2.set_xlabel('insertion index  k   (children executed — conventional units)')
-    ax2.set_title('Aligned on k: every sample has exactly 101 points — averaging is trivial',
+    ax2.set_title('Aligned on k: equal length by construction',
                   fontsize=10.5, fontweight='bold', loc='left', color=INK)
     lo, hi = np.nanpercentile(np.concatenate([atk.ravel(), [0]]), [1, 99])
     pad = 0.12 * (hi - lo)
