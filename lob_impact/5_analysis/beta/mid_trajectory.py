@@ -126,6 +126,8 @@ def at_boundaries(I, aggr, mb, n_ins, n_cool):
     if n_cool and mb > 0:
         idx += [int(last + j * mb) for j in range(1, n_cool + 1)]
     for j, ix in enumerate(idx, start=1):
+        if ix >= len(I) and mb > 0 and ix - (len(I) - 1) <= mb:
+            ix = len(I) - 1          # final window boundary lands exactly at the array end
         if ix < len(I):
             vals[j] = I[ix]
     return vals
