@@ -96,6 +96,7 @@ def main():
     fig, ax = plt.subplots(figsize=(7.2, 4.4))
     print(f'=== {args.stock} {args.shape} master curve ===')
     cache = {'vgrid': vgrid}
+    sig_masters = []
     for m in models:
         paths = collect_paths(os.path.join(args.grid, f'{args.stock}-{m}-{args.shape}', 'buy'), +1, vgrid) + \
                 collect_paths(os.path.join(args.grid, f'{args.stock}-{m}-{args.shape}', 'sell'), -1, vgrid)
@@ -106,14 +107,37 @@ def main():
         cnt = np.sum(np.isfinite(M), axis=0)
         mean[cnt < max(30, 0.3 * len(paths))] = np.nan
         peak = mean[i1]
+        # master(v) divides by ⟨I(1)⟩: for impact-blind models that denominator is pure noise
+        # (framework P3 fail) and the normalised curve is meaningless -> significance gate.
+        peak_se = float(np.nanstd(M[:, i1]) / max(np.sqrt(cnt[i1]), 1.0))
+        sig = bool(np.isfinite(peak) and abs(peak) >= 3 * peak_se and abs(peak) > 1e-9)
         if not np.isfinite(peak) or abs(peak) < 1e-9:
             print(f'{m}: peak~0, skipping normalise'); continue
         master = mean / peak
         st = style(m)
-        ax.plot(vgrid, master, color=st['color'], ls=st['ls'], lw=1.8, label=st['label'], zorder=3)
+        n = len(paths)
+        if sig:
+            ax.plot(vgrid, master, color=st['color'], ls=st['ls'], lw=1.8,
+                    label=f"{st['label']} (n={n})", zorder=3)
+            sig_masters.append(master)
+        else:
+            ax.plot(vgrid, master, color=st['color'], ls=st['ls'], lw=1.0, alpha=0.25,
+                    label=f"{st['label']} (n={n}; ⟨I(1)⟩={peak:.2f}±{peak_se:.2f} bps ≈ 0)",
+                    zorder=1)
         cache[f'{m}_master'] = master
-        print(f'  {m:10s}: n={len(paths)}, peak⟨I(v=1)⟩={peak:.3f} bps, '
+        cache[f'{m}_peak'] = peak
+        cache[f'{m}_peak_se'] = peak_se
+        cache[f'{m}_n'] = n
+        cache[f'{m}_sig'] = sig
+        print(f'  {m:10s}: n={n}, peak⟨I(v=1)⟩={peak:.3f}±{peak_se:.3f} bps '
+              f'{"SIG" if sig else "NOT significant (curve greyed)"}, '
               f'end/peak={master[np.isfinite(master)][-1]:.2f}')
+    # y-limits from SIGNIFICANT curves only, so noise/noise baselines can't blow up the axis
+    if sig_masters:
+        smax = np.nanmax([np.nanmax(s) for s in sig_masters])
+        smin = np.nanmin([np.nanmin(s) for s in sig_masters])
+        pad = 0.15 * max(smax - smin, 1.0)
+        ax.set_ylim(min(smin, 0) - pad, max(smax, 1.0) + pad)
 
     # references
     rs = ref_style('sqrt')
