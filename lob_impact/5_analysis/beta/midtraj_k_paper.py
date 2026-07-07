@@ -19,7 +19,7 @@ from pubstyle import apply, style, ref_style, legend_box, savefig_pub   # noqa: 
 from mid_trajectory import propagator_curve                            # noqa: E402
 apply()
 
-MODELS = ['Historic', 'Heuristic', 'Hawkes', 'CST', 'Propagator', 'Mamba3', 'Mamba3_4k', 'S5_4k', 'GDN']
+MODELS = ['Historic', 'Heuristic', 'Hawkes', 'CST', 'NMZI', 'Propagator', 'Mamba3', 'Mamba3_4k', 'S5_4k', 'GDN']
 
 
 def main():

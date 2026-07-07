@@ -21,7 +21,7 @@ IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 HERE="${IMPACT_DIR}/5_analysis/beta"
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
 STOCK="${STOCK:-EA}"
-MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Propagator,Mamba3,Mamba3_4k,S5_4k,GDN}"
+MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,NMZI,Propagator,Mamba3,Mamba3_4k,S5_4k,GDN}"
 mkdir -p "${HERE}/logs"
 
 set +u

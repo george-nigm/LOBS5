@@ -12,7 +12,7 @@
 set -uo pipefail
 B=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
-MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Propagator,Mamba3,Mamba3_4k,S5_4k,GDN}"
+MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,NMZI,Propagator,Mamba3,Mamba3_4k,S5_4k,GDN}"
 PY=/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python
 export JAX_PLATFORMS=cpu
 cd "$B"
