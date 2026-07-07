@@ -31,7 +31,7 @@ MODEL_STYLE = {
     'Mamba3_4k': dict(color='#16A085', ls='-',  label='Mamba-3-4k'),
     'S5':        dict(color='#5C6BC0', ls='-',  label='LobS5'),   # original GOOG-only LOBS5 (twilight-sound-77); indigo, distinct from Mamba-3 blue
     'S5_4k':     dict(color='#E67E22', ls='-',  label='S5-4k'),
-    'S5_150M':   dict(color='#F06292', ls='--', label='S5-150M'),  # H1 scaling-law best; dashed to split from GDN magenta
+    'S5_120M':   dict(color='#F06292', ls='--', label='S5-120M'),  # H1 scaling-law best (120M counted); dashed to split from GDN magenta
     'GDN':       dict(color='#D81B60', ls='-',  label='GDN'),   # magenta: keeps clear of the purple propagator ref
 }
 
