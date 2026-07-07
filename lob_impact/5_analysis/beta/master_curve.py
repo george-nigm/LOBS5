@@ -162,6 +162,11 @@ def main():
     ax.axvline(1.0, color='#9a9a9a', lw=1.0, ls=':', zorder=2)
     ax.axhline(1.0, color='#9a9a9a', lw=0.7, zorder=2)
     if not build_up:
+        from mid_trajectory import propagator_curve
+        ps = ref_style('propagator')
+        px, py = propagator_curve(1.0, 1.0, None, 0.5, float(vgrid[-1]))
+        ax.plot(px, py, color=ps['color'], ls=ps['ls'], lw=ps['lw'],
+                label=rf'propagator decay $\beta=0.5$  ($1\to{py[-1]:.2f}$)', zorder=4)
         rt = ref_style('twothirds')
         ax.axhline(2 / 3, color=rt['color'], ls=rt['ls'], lw=rt['lw'], alpha=0.8,
                    label=r'permanent $\approx \frac{2}{3}$', zorder=2)
