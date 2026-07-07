@@ -170,19 +170,20 @@ def fig7(shape):
         n = int(d[f'{m}_n']); pk = float(d[f'{m}_peak']); pse = float(d[f'{m}_peak_se'])
         nm = f"{s['label']} (n={n}, I(1)={pk:.2f}±{pse:.2f} bps{'' if sig else ' — NOISE/NOISE'})"
         fig.add_trace(go.Scatter(x=vgrid, y=d[f'{m}_master'], name=nm,
-                                 line=dict(color=s['color'], width=2.2 if sig else 1.2),
-                                 visible=True if sig else 'legendonly', legendgroup=m))
+                                 line=dict(color=s['color'], width=2.2 if sig else 1.1),
+                                 opacity=1.0 if sig else 0.55, legendgroup=m))
     vb = np.linspace(0.01, 1.0, 60)
     fig.add_trace(go.Scatter(x=vb, y=vb ** 0.5, name='sqrt-law build-up v^0.5',
                              line=dict(color='black', width=2.4, dash='dash')))
     if shape != 'beta':
-        px, py = propagator_curve(1.0, 1.0, None, 0.5, float(vgrid[-1]))
-        fig.add_trace(go.Scatter(x=px, y=py, name='propagator decay (1 -> 0.15)',
-                                 line=dict(color='#8E44AD', width=2.2, dash='dot')))
-        fig.add_hline(y=2 / 3, line=dict(color='#8E44AD', width=1.4, dash='dash'))
+        px, prop = propagator_curve(1.0, 1.0, None, 0.5, float(vgrid[-1]))
+        fig.add_trace(go.Scatter(x=px, y=2 / 3 + prop / 3,
+                                 name='theory: relax to permanent ~2/3 of peak',
+                                 line=dict(color='#8E44AD', width=2.2, dash='dash')))
     fig.add_vline(x=1.0, line=dict(color='#9a9a9a', width=1, dash='dot'))
     fig.add_hline(y=1.0, line=dict(color='#9a9a9a', width=0.7))
-    layout(fig, f'EA — impact master curve ({shape}); non-normalisable models hidden (click legend)',
+    layout(fig, f'EA — impact master curve ({shape}); all models drawn '
+                '(NOISE/NOISE = noise-level denominator, curve not interpretable)',
            'v = fraction of metaorder executed', 'master(v) = <I(v)>/<I(1)>')
     save(fig, f'fig6_master_{shape}.html')
 
