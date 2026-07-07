@@ -500,8 +500,8 @@ def sample_aggressive_scenario(
         insertion_positions = jnp.where(insertion_schedule[:, 0] == 1)[0]
         print(f"  Insertion positions (0-indexed): {insertion_positions.tolist()}")
 
-        # Replicate for batch
-        insertion_schedule_batched = jnp.tile(insertion_schedule[None, :, :], (batch_size, 1, 1))
+        # v2 core API: insertion_schedule is SHARED/unbatched (in_axes None) — do NOT tile;
+        # tiling turns lax.cond into select_n and doubles the generation cost.
 
         # === SINGLE-CALL GENERATION ===
         # Use rng_ from pre-loop split (or from previous iteration's post-generation split)
@@ -529,8 +529,9 @@ def sample_aggressive_scenario(
                 init_time_batched,          # non-static, batched
                 False,                      # static (15) - debug_book
                 None,                       # non-static - b_seq_real (for debug)
-                insertion_schedule_batched, # non-static, batched
+                insertion_schedule,         # non-static, SHARED (unbatched, in_axes None)
                 chunk_size,                 # static (18) - chunk_size for conditioning
+                bool(cfg.get('metaorder_visible', True)),  # static (19) - v2: model sees the metaorder
             )
             generate_lowered = generate_traced.lower()
             generate_compiled = generate_lowered.compile()
@@ -547,7 +548,7 @@ def sample_aggressive_scenario(
             init_hidden_batched,
             init_time_batched,
             None,  # b_seq_real (debug)
-            insertion_schedule_batched,
+            insertion_schedule,
         )
 
         # Filter out zero-filled placeholder rows (aggressive order placeholders where no insertion happened)

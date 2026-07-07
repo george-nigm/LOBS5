@@ -1,0 +1,30 @@
+# twilight-sound-77 (original LOBS5-v2 S5, GOOG-2022-trained) on GOOG 2023_Jan (its own
+# held-out month, old L500/24tok pipeline via repo-root lob/). Rendered defaults = Shape I;
+# the launcher overrides num_insertions/num_coolings/n_gen_msgs/direction/n_samples per run.
+n_gen_msgs: 729            # GOOG mb (eta=10%); per-day mode overrides from per_day_params CSV
+num_insertions: 100
+num_coolings: 0
+n_cond_msgs: 500
+n_eval_msgs_dataset: 500
+
+event_type: 4
+direction: 0
+order_volume: 22           # GOOG daily-median MO (Jan-2026 calib; 2023 value TBD per-day)
+metaorder_visible: true
+
+n_samples: 64
+batch_size: 8
+rng_seed: 42
+chunk_size: 5
+
+stock: "GOOG"
+data_dir: "/lus/lfs1aip2/projects/public/u6gb/projects_public_s5e_quant_team_quant/AlphaTrade/LOBS5/flair06_data/GOOG/2023_Jan"
+ckpt_path: "/lus/lfs1aip2/projects/u6gb/lobs5_legacy_ckpts/twilight-sound-77_s42sujip"
+checkpoint_step: 23
+save_dir: "/lus/lfs1aip2/projects/u6gb/lob_impact_legacy/GOOG-LobS5-beta/buy"
+
+tick_size: 100
+sample_top_n: -1
+n_vol_series: 500
+book_dim: 503
+test_split: 0
