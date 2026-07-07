@@ -29,6 +29,7 @@ MODEL_STYLE = {
     'Mamba3_4k': dict(color='#16A085', ls='-',  label='Mamba-3-4k'),
     'S5':        dict(color='#E67E22', ls='-',  label='LobS5'),
     'S5_4k':     dict(color='#E67E22', ls='-',  label='S5-4k'),
+    'GDN':       dict(color='#D81B60', ls='-',  label='GDN'),   # magenta: keeps clear of the purple propagator ref
 }
 
 # reference-curve styles (theory overlays)
