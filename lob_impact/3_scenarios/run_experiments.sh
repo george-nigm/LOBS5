@@ -97,6 +97,9 @@ declare -A MODELS=(
   [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
   [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000|/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_4k_j2504167_102965_params.npz"
   [mamba3_4k_diag500]="Mamba3_4kD|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|"
+  # GDN-78M (gated-deltanet, 26tok, matched scale to mamba3): same scenario script — metadata has
+  # no ssm_type key => resolves to 'gdn' (new-codebase convention); vetted in extract_ssd_closedloop.batch
+  [gdn]="GDN|mamba3_scenario.py|${CKPT_BASE}/exp_Q1_GDN_scaling/checkpoints/j3421242_w82z4hwy_3421242|36930|503|"
 )
 MODEL_KEYS=(historic mamba3)
 read -ra STOCKS <<< "${STOCKS:-EA NVDA AMD}"        # env-overridable: STOCKS="EA" for per-stock jobs

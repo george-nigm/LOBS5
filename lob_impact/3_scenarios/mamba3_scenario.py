@@ -350,10 +350,14 @@ def sample_aggressive_scenario(
     # recipe builds rope-angle state with the FULL n_heads (32). Without this the conditioning roll dies
     # with "add got incompatible shapes (32,32) vs (8,32)". Mamba3 weights are tp-interchangeable.
     args.tp_size = 1
+    # New-codebase convention (init_train.py / sample_new): metadata WITHOUT ssm_type => GDN
+    # (GDN runs carry gdn_* fields but no ssm_type key; Mamba3 runs declare ssm_type='mamba3').
+    ssm_type = getattr(args, 'ssm_type', 'gdn')
+    print(f"ssm_type: {ssm_type}")
 
-    # Install legacy-norm shim for mamba3 BEFORE building the model.
+    # Install legacy-norm shim for mamba3 BEFORE building the model (no-op for other archs).
     from mamba3_legacy_norm import maybe_install_mamba3_legacy_norm
-    maybe_install_mamba3_legacy_norm('mamba3')
+    maybe_install_mamba3_legacy_norm(ssm_type)
 
     new_train_state, model_cls = init_train_state(
         args,
@@ -446,24 +450,41 @@ def sample_aggressive_scenario(
     metaorder_visible = bool(cfg.get('metaorder_visible', True))
     print(f'metaorder_visible: {metaorder_visible}')
 
-    # Initialize hidden state template (Mamba3 recipe).
-    # Mirrors sample_new (inference_no_errcorr.py) ssm_type=='mamba3' branch.
-    m3_n_heads = (args.mamba3_expand * args.d_model) // args.mamba3_headdim
-    init_hidden = model.initialize_carry(
-        1,
-        hidden_size=0,
-        ssm_type='mamba3',
-        n_message_layers=args.n_message_layers,
-        n_book_pre_layers=args.n_book_pre_layers,
-        n_book_post_layers=args.n_book_post_layers,
-        n_fused_layers=args.n_layers,
-        h_size_ema=args.d_model,
-        n_heads=m3_n_heads,
-        headdim=args.mamba3_headdim,
-        d_state=args.mamba3_d_state,
-        num_rope_angles=int(args.mamba3_d_state * args.mamba3_rope_fraction) // 2,
-        d_book=503,
-    )
+    # Initialize hidden state template — mirrors sample_new (inference_no_errcorr.py) per-arch branches.
+    if ssm_type == 'mamba3':
+        m3_n_heads = (args.mamba3_expand * args.d_model) // args.mamba3_headdim
+        init_hidden = model.initialize_carry(
+            1,
+            hidden_size=0,
+            ssm_type='mamba3',
+            n_message_layers=args.n_message_layers,
+            n_book_pre_layers=args.n_book_pre_layers,
+            n_book_post_layers=args.n_book_post_layers,
+            n_fused_layers=args.n_layers,
+            h_size_ema=args.d_model,
+            n_heads=m3_n_heads,
+            headdim=args.mamba3_headdim,
+            d_state=args.mamba3_d_state,
+            num_rope_angles=int(args.mamba3_d_state * args.mamba3_rope_fraction) // 2,
+            d_book=503,
+        )
+    else:   # gdn (gated-deltanet): carry keyed by heads/head_dim/head_v_dim, no rope state
+        gdn_hd = getattr(args, 'gdn_head_dim', 128)
+        gdn_nh = getattr(args, 'gdn_num_heads', None) or max(1, args.d_model // gdn_hd)
+        gdn_hvd = gdn_hd * getattr(args, 'gdn_expand_v', 2)
+        init_hidden = model.initialize_carry(
+            1,
+            hidden_size=0,
+            n_message_layers=args.n_message_layers,
+            n_book_pre_layers=args.n_book_pre_layers,
+            n_book_post_layers=args.n_book_post_layers,
+            n_fused_layers=args.n_layers,
+            h_size_ema=args.d_model,
+            num_heads=gdn_nh,
+            head_dim=gdn_hd,
+            head_v_dim=gdn_hvd,
+            d_book=503,
+        )
 
     # Replicate for batch
     init_hidden_batched = jax.tree_util.tree_map(
