@@ -99,7 +99,7 @@ def fig5():
                                  error_y=dict(type='data', array=se)))
     layout(fig, 'EA — response to a single child order R(m)',
            'messages after the execution event m', 'mean mid response R(m) (ticks)')
-    save(fig, 'fig5_event_response.html')
+    save(fig, 'fig4_event_response.html')
 
 
 # ---------------- Fig 6: midtraj (k-clock + event-time) ----------------
@@ -133,7 +133,7 @@ def fig6(shape):
           else 'boundary index k (insertions 1-10, then cooling windows)')
     layout(fig, f'EA — mid-price impact on the executed-volume clock ({shape})',
            xt, 'mean signed mid-price change (bps)')
-    save(fig, f'fig6_midtraj_{shape}.html')
+    save(fig, f'fig5_midtraj_{shape}.html')
 
     # event-time variant (raw message clock — lengths differ across days)
     fig2 = go.Figure()
@@ -153,7 +153,7 @@ def fig6(shape):
                                   line=dict(color='#8E44AD', width=2.2, dash='dot')))
     layout(fig2, f'EA — mid-price impact in EVENT TIME ({shape}; composition artifacts visible)',
            'message step (generation time)', 'mean signed mid-price change (bps)')
-    save(fig2, f'fig6_midtraj_{shape}_eventtime.html')
+    save(fig2, f'fig5_midtraj_{shape}_eventtime.html')
 
 
 # ---------------- Fig 7: master curves ----------------
@@ -184,7 +184,7 @@ def fig7(shape):
     fig.add_hline(y=1.0, line=dict(color='#9a9a9a', width=0.7))
     layout(fig, f'EA — impact master curve ({shape}); non-normalisable models hidden (click legend)',
            'v = fraction of metaorder executed', 'master(v) = <I(v)>/<I(1)>')
-    save(fig, f'fig7_master_{shape}.html')
+    save(fig, f'fig6_master_{shape}.html')
 
 
 # ---------------- Fig 8: beta(k) three views ----------------
