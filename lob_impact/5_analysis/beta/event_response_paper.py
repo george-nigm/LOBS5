@@ -27,6 +27,9 @@ def main():
     ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k')
     ap.add_argument('--results_dir', default=os.path.join(B, '..', '..',
                                                           '4_diagnostics', 'results'))
+    ap.add_argument('--baselines', default=os.path.join(B, '..', '..', '4_diagnostics',
+                                                        'results', 'baseline_resp.json'),
+                    help='cached R(m) for the impact-blind baselines (baseline_resp.py); "" to skip')
     ap.add_argument('--out', default=os.path.join(B, 'results', 'aggregation',
                                                   'event_response_EA.png'))
     args = ap.parse_args()
@@ -51,6 +54,19 @@ def main():
                       f"n={r['n']} runs)", zorder=3)
         ends.append((float(rm[ok][-1]), st['label'], st['color']))
 
+    # impact-blind baselines: thin muted lines hugging zero (replay/stationary models cannot
+    # react to the inserted child order) — the P3 discrimination in one glance
+    if args.baselines and os.path.isfile(args.baselines):
+        BL = json.load(open(args.baselines))
+        for m, r in BL.items():
+            rm = np.array(r['resp_mean'], float)
+            x = np.arange(len(rm))
+            ok = np.isfinite(rm)
+            st = style(m)
+            ax.plot(x[ok], rm[ok], color=st['color'], ls=st['ls'], lw=1.1, alpha=0.75,
+                    label=f"{st['label']} ({r['resp_n_events'] // 1000}k events) — no response",
+                    zorder=2)
+
     hs = sorted(int(k.split('_')[1]) for k in emp if re.fullmatch(r'R_\d+', k))
     rv = [emp[f'R_{h}'] for h in hs]
     se = [emp.get(f'R_{h}_se', 0) for h in hs]
@@ -65,7 +81,8 @@ def main():
     ends.append((rv[-1], 'real EA', C_REAL))
 
     ax.set_xlim(0, 135)
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=-0.1)     # keep the ≈0 baselines visible (they dip a few hundredths negative)
+    ax.axhline(0, color='#9a9a9a', lw=0.7, zorder=1)
     ax.set_xlabel(r'messages after the execution event  $m$')
     ax.set_ylabel(r'mean mid response $R(m)$  (ticks)')
     ax.set_title('EA — response to a single child order vs real data')
