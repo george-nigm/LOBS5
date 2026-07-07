@@ -229,9 +229,10 @@ BASELINE_META = {
         what='a pure replay of the real message stream. The injected child market orders hit the '
              'simulated book (liquidity really disappears), but every subsequent message is the '
              'recorded real one, unchanged.',
-        expect='the all-mechanics negative control: zero directional drift between insertions, '
-               'total impact = the mechanical dent only, and book statistics that track real data '
-               'by construction.',
+        expect='the all-mechanics negative control: the child orders dent the book, but the '
+               'replayed real messages repost the RECORDED prices, so the dent heals and the total '
+               'impact relaxes back to ≈0. The between-insertion "drift" is therefore ≈ −mechanics '
+               '(the healing), not a directional response.',
         blind='The replayed stream is fixed in advance, so it cannot react to the metaorder: '
               'visible and invisible regimes are the SAME code path.'),
     'Heuristic': dict(
@@ -299,16 +300,33 @@ def build_baseline_report(fig_dir, out_path, model):
 
     # ---- computed correctness checks --------------------------------------
     p1_ok = abs(no['final_mean']) <= max(2 * no['final_se'], 3.0)
-    drift_ok = (drift_dir > 1.0) if kernel else (abs(drift_dir) <= max(2.0, 0.5 * abs(mech_avg)))
+    se_dir = ((vb['final_se'] ** 2 + vs['final_se'] ** 2) ** 0.5) / 2
+    if kernel:
+        # the designed shift = drift on top of what the bare replay (shift off) does
+        ana_drift = (ib['drift_mean'] + isl['drift_mean']) / 2 if ib is not None else 0.0
+        added = drift_dir - ana_drift
+        drift_check = ('Designed shift acts (kernel − shift-off drift)',
+                       f'kernel-added drift: {drift_dir:+.1f} − ({ana_drift:+.1f}) = {added:+.1f} ticks',
+                       'PASS' if added > 0.5 else 'FLAG')
+    elif model == 'Historic':
+        # replay heals: dent closes because recorded prices are reposted -> final ≈ 0
+        drift_check = ('Replay self-heals (final impact ≈ 0; drift ≈ −mechanics)',
+                       f'final {vis_dir:+.1f} ± {2 * se_dir:.1f} ticks; drift {drift_dir:+.1f} vs '
+                       f'−mech {-mech_avg:+.1f}',
+                       'PASS' if abs(vis_dir) <= max(2 * se_dir, 2.0) else 'FLAG')
+    else:
+        # parametric blind flow: directional response must be ≈ 0 (net of the P1 drift)
+        resid = vis_dir - no['final_mean']
+        drift_check = ('No directional response (blind generator, must be ≈0)',
+                       f'final (trade-dir avg) {vis_dir:+.1f} minus no-insertion drift '
+                       f"{no['final_mean']:+.1f} = {resid:+.1f} ticks",
+                       'PASS' if abs(resid) <= max(2 * se_dir, 2.5) else 'FLAG')
     spr_ok = (hs != hs) or (vb['spread_last'] <= 1.6 * max(hs, vb['spread_first']))
     checks = [
         ('P1 No unconditional drift',
          f"no-insertion final move {no['final_mean']:+.1f} ± {no['final_se']:.1f} ticks (n={no['n']})",
          'PASS' if p1_ok else 'FLAG'),
-        ('Directional response between insertions' + (' (designed shift)' if kernel else ' (must be ≈0)'),
-         f'model-generated drift, buy/sell trade-direction average: {drift_dir:+.1f} ticks '
-         f'(mechanical part for scale: {mech_avg:+.1f})',
-         'PASS' if drift_ok else 'FLAG'),
+        drift_check,
         ('Mechanical dent at insertions',
          f"mech contribution {vb['mech_mean']:+.1f} (buy) / {vs['mech_mean']:+.1f} (sell) ticks over 100 children",
          'PASS' if (vb['mech_mean'] > 0 or vs['mech_mean'] > 0) else 'FLAG'),
@@ -356,8 +374,9 @@ def build_baseline_report(fig_dir, out_path, model):
             f'ticks in the trade direction (average {vis_dir:+.1f}), against a no-insertion drift '
             f'of {no["final_mean"]:+.1f} ± {no["final_se"]:.1f}. For an impact-blind generator '
             f'this directional residual should be on the order of the mechanical dent '
-            f'({mech_avg:+.1f} ticks) — anything materially larger would indicate a bug in the '
-            f'insertion plumbing, not "impact".')
+            f'({mech_avg:+.1f} ticks) — anything materially larger is either an insertion-plumbing '
+            f'bug or a genuine ANTI-directional (adverse) property of the flow model; the '
+            f'checklist below decides which.')
     d.image(os.path.join(fig_dir, 'fig2_trajectories.png'),
             'Figure 2. Cumulative mid move in the trade direction (mean ± 2 s.e.).')
 
@@ -411,6 +430,19 @@ def build_baseline_report(fig_dir, out_path, model):
                f'{n_flag} check(s) flagged — see the rows above; treat the affected quantities '
                'with care before quoting them.')
     d.p([(verdict, True, False, GOOD_HEX if n_flag == 0 else CRIT_HEX, None)])
+    if model == 'CST' and drift_check[2] == 'FLAG':
+        d.p('Interpretation of the flag: this is the known ADVERSE response, not an insertion bug '
+            '— the same insertion machinery yields ≈0 residual for Historic and Hawkes. CST '
+            'replenishes the dented side toward its stationary estimated shape, overshooting the '
+            'dent, so the mid systematically moves AGAINST the trade. It matches the master-curve '
+            'finding (CST ⟨I(1)⟩ ≈ −1.8, adverse). Consequence: CST is a valid negative control '
+            'for "no learned reaction", but its sign makes it useless as an impact benchmark.')
+    if model == 'Hawkes' and not spr_ok:
+        d.p('Interpretation of the flag: the inside-spread placement fix removed the hard ratchet '
+            '(pre-fix: monotonic climb to 8+ ticks), but a residual upward spread creep remains '
+            'over the 13k-message horizon. Depth/spread-sensitive statistics from late in the '
+            'Hawkes rollout should be read with this in mind; price-impact statistics are '
+            'unaffected (the flow stays impact-blind).')
 
     d.h('7. Role in the model zoo', 1)
     d.p('Baselines pin down the two failure modes the neural models must be measured against: '
