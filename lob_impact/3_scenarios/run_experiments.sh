@@ -100,6 +100,9 @@ declare -A MODELS=(
   [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503|"
   [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
   [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000|/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_4k_j2504167_102965_params.npz"
+  # S5-150M "best model" of the H1 scaling law (d_model=1536, 12 layers, 500-msg context, 24tok);
+  # same 64-dev-mesh ckpt problem as exp_H2 -> pre-converted npz (convert_s5_ckpt.py, job 5562660)
+  [s5_150m]="S5_150M|s5_scenario.py|${CKPT_BASE}/exp_H1-scaling-law/checkpoints/j2514440_bkotgtm5_2514440|135458|503||/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_150m_j2514440_135458_params.npz"
   [mamba3_4k_diag500]="Mamba3_4kD|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|"
   # GDN-78M (gated-deltanet, 26tok, matched scale to mamba3): same scenario script — metadata has
   # no ssm_type key => resolves to 'gdn' (new-codebase convention); vetted in extract_ssd_closedloop.batch

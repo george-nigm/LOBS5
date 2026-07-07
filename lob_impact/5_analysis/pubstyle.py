@@ -29,8 +29,9 @@ MODEL_STYLE = {
     'NMZI':      dict(color='#0E7C7B', ls='-',  label='NMZI'),   # positive control (Ravagnani-Lillo ZI + sign feedback)
     'Mamba3':    dict(color='#2F5DA3', ls='-',  label='Mamba-3'),
     'Mamba3_4k': dict(color='#16A085', ls='-',  label='Mamba-3-4k'),
-    'S5':        dict(color='#E67E22', ls='-',  label='LobS5'),
+    'S5':        dict(color='#5C6BC0', ls='-',  label='LobS5'),   # original GOOG-only LOBS5 (twilight-sound-77); indigo, distinct from Mamba-3 blue
     'S5_4k':     dict(color='#E67E22', ls='-',  label='S5-4k'),
+    'S5_150M':   dict(color='#F06292', ls='--', label='S5-150M'),  # H1 scaling-law best; dashed to split from GDN magenta
     'GDN':       dict(color='#D81B60', ls='-',  label='GDN'),   # magenta: keeps clear of the purple propagator ref
 }
 
