@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=48G
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta/logs/fig456_%j.out
 #
 # Regenerate the grid-dependent paper figures on a COMPUTE node (never login — Lustre glob):
@@ -15,9 +15,9 @@
 set -uo pipefail
 IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 B="${IMPACT_DIR}/5_analysis/beta"
-GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid}"
+GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
 STOCK="${STOCK:-EA}"
-MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k}"
+MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Propagator,Mamba3,Mamba3_4k,S5_4k,GDN}"
 DAILY="${DAILY:-${IMPACT_DIR}/2_daily_stats/results/daily_20260618-215656/daily_h_l_all.csv}"
 PER_DAY="${PER_DAY:-${IMPACT_DIR}/1_data_prep/results/per_day_params/per_day_params_${STOCK}.csv}"
 PY=/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python
