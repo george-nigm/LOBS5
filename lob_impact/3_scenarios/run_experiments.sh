@@ -92,6 +92,8 @@ declare -A MODELS=(
   [historic]="Historic|historic_scenario.py|||503|"
   [heuristic]="Heuristic|heuristic_scenario.py|||503|"
   [cst]="CST|cst_scenario.py|||503|"
+  # NMZI (Ravagnani-Lillo): CST + logistic LO-sign feedback on the EWMA past return — positive control
+  [nmzi]="NMZI|nmzi_scenario.py|||503|"
   # theory-correct POSITIVE control: replay + transient (propagator) price shift, w(l)=2/3+1/3*l^-0.5
   [propagator]="Propagator|propagator_scenario.py|||503|"
   [hawkes]="Hawkes|hawkes_scenario.py|||503|"
@@ -246,6 +248,7 @@ for model_key in "${MODEL_KEYS[@]}"; do
         # CST/Hawkes are parametric: feed per-stock estimated params (<model>_params/<...>_<STOCK>.pkl)
         CST_PARAMS=""; HAWKES_PARAMS=""
         [ "$LABEL" = "CST" ]    && CST_PARAMS="${HERE}/cst_params/cst_params_${STOCK}.pkl"
+        [ "$LABEL" = "NMZI" ]   && CST_PARAMS="${HERE}/cst_params/cst_params_${STOCK}.pkl"  # same rates; sign model differs
         [ "$LABEL" = "Hawkes" ] && HAWKES_PARAMS="${HERE}/hawkes_params/hawkes_params_${STOCK}.pkl"
         scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
         SAVE_DIR="${SAVE_BASE}/${scen}/${dir}"

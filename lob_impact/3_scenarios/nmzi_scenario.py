@@ -1,16 +1,36 @@
 #!/usr/bin/env python
 """
-CST Model Aggressive Scenario: Parametric LOB Generation with Aggressive Order Injection
+NMZI (Non-Markovian Zero Intelligence) Aggressive Scenario — Ravagnani & Lillo
+(Physica A 681:131056, arXiv:2503.05254) grafted onto our CST machinery.
 
-Uses the Continuous Stoikov-Talreja (CST) parametric model as a baseline alternative
-to the S5 neural model. CST generates LOB messages by sampling from exponential
-inter-arrival times and categorical event distributions (power-law LO placement,
-Poisson MO arrivals, depth-dependent cancellations).
+Identical to the CST scenario EXCEPT for one mechanism (the paper's entire contribution):
+the SIGN of each limit order is not symmetric but Bernoulli with
 
-Unlike S5, CST has no hidden state — the book state IS the full model state.
+    P(next LO is a SELL) = 1 / (1 + exp(-kappa * R_t))
 
-Output format matches S5 scenario (1.aggressive_scenario_s5.py) so existing
-analysis notebooks (100-110) work with both.
+where R_t is the exponentially weighted past mid-price return, updated in EVENT time:
+
+    R_t = gamma * R_{t-1} + (mid_t - mid_{t-1}),      gamma = exp(-beta_ewma)
+
+(price units = LOBSTER integer prices, as in the authors' public code). Market orders and
+cancellations keep their CST distributions — only LO signs react to the price trend.
+Positive R (recent price rise) => more sell LOs => stabilising, mean-reverting flow. This
+single feedback makes NMZI a POSITIVE control: concave impact build-up during a metaorder
+and reversion to a permanent plateau afterwards — phenomenology stationary CST cannot show.
+
+Deviation from the paper: the authors build on Santa Fe / uniform-rate ZI; we keep our
+empirically calibrated CST rates (per-depth lo_lambda / co_theta) so that CST vs NMZI is a
+clean ablation of the sign mechanism alone. In the rate representation the Bernoulli sign
+is implemented by reweighting the two LO rate blocks: ask-side (sell) LO rates *= 2*p_sell,
+bid-side (buy) *= 2*(1-p_sell) — total LO intensity is unchanged and, conditional on "next
+event is an LO", the sign is exactly Bernoulli(p_sell). Defaults kappa=1e-3, beta_ewma=1e-3
+are the authors' code defaults (config keys: nmzi_kappa, nmzi_ewma_beta).
+
+The metaorder enters R_t only through the mid-price moves it causes (mechanical dents +
+block resyncs to the authoritative JAX-LOB book): NMZI is price-reactive but flow-blind —
+it never observes the aggressive orders themselves.
+
+Output format matches the S5/CST scenarios so all analysis code works unchanged.
 """
 
 import argparse
@@ -316,23 +336,43 @@ def create_aggressive_order(
     return sim_msg, msg_decoded
 
 
-def make_cst_scan_fn(n_levels: int, sim: OrderBook):
+def make_nmzi_scan_fn(n_levels: int, sim: OrderBook, num_ticks: int,
+                      kappa: float, gamma: float):
     """
-    Returns a JAX-scannable step function for one CST generation block.
+    Returns a JAX-scannable step function for one NMZI generation block.
 
-    Carry: (sim_state, cst_book, n_msg_todo, base_rates, params, rng)
+    Carry: (sim_state, cst_book, n_msg_todo, base_rates, params, rng, r_ewma, prev_mid)
     Output per step: (l2_book_flat, lobster_msg_decoded)
+
+    NMZI vs CST: before each step the two LO rate blocks are reweighted by the logistic
+    sell-probability p_sell = sigmoid(kappa * r_ewma); after the step r_ewma is updated
+    in event time with the CST-book mid change (gamma = exp(-beta_ewma)).
+    num_ticks/kappa/gamma are Python constants closed over (static under jit).
 
     n_msg_todo is a descending counter used as order_id (same as S5/historic/heuristic).
     """
     def _step_fn(carry, _):
-        sim_state, cst_book, n_msg_todo, base_rates, params, rng = carry
+        sim_state, cst_book, n_msg_todo, base_rates, params, rng, r_ewma, prev_mid = carry
 
         # order_id = n_msg_todo (descending, same as S5)
         order_id = n_msg_todo
 
-        # 1. CST step: generate one message
-        cst_book, message, rng = stoikov.step_book(cst_book, base_rates, params, rng)
+        # 0. NMZI sign modulation: base_rates layout is [lo_ask(n), lo_bid(n), mo, mo, co...];
+        # ask-side LOs are SELLs. Reweight so P(LO is sell | LO) = p_sell, total LO rate unchanged.
+        p_sell = jax.nn.sigmoid(kappa * r_ewma)
+        rates_nmzi = jnp.concatenate([
+            base_rates[:num_ticks] * 2.0 * p_sell,
+            base_rates[num_ticks:2 * num_ticks] * 2.0 * (1.0 - p_sell),
+            base_rates[2 * num_ticks:],
+        ])
+
+        # 1. CST step (with NMZI-modulated rates): generate one message
+        cst_book, message, rng = stoikov.step_book(cst_book, rates_nmzi, params, rng)
+
+        # 1b. Update the exponentially weighted mid return (event-time, LOBSTER price units)
+        mid_now = (cst_book.best_ask + cst_book.best_bid).astype(jnp.float32) / 2.0
+        r_ewma = gamma * r_ewma + (mid_now - prev_mid)
+        prev_mid = mid_now
 
         # 2. Convert to JAX-LOB format
         msg_jaxlob = msg_to_jaxlob(message, order_id)
@@ -384,7 +424,7 @@ def make_cst_scan_fn(n_levels: int, sim: OrderBook):
         ], dtype=jnp.int32)
 
         n_msg_todo = n_msg_todo - 1
-        new_carry = (sim_state, cst_book, n_msg_todo, base_rates, params, rng)
+        new_carry = (sim_state, cst_book, n_msg_todo, base_rates, params, rng, r_ewma, prev_mid)
         return new_carry, (l2_book, msg_decoded)
 
     return _step_fn
@@ -394,17 +434,17 @@ def make_cst_scan_fn(n_levels: int, sim: OrderBook):
 # Main scenario function
 # ============================================================================
 
-def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
-                     worker_id: int = 0, num_workers: int = 1):
+def run_nmzi_scenario(cfg: Dict[str, Any], save_folder: Path,
+                      worker_id: int = 0, num_workers: int = 1):
     """
-    Main function for CST aggressive scenario.
+    Main function for NMZI aggressive scenario.
 
     Flow:
-    1. Load CST params and compute base rates
+    1. Load CST params, compute base rates, read NMZI logistic-sign params
     2. Load dataset and sample indices
     3. Split batches across workers (deterministic — same RNG everywhere)
     4. Initialize JAX-LOB simulator with conditioning messages
-    5. For each sample: run CST generation blocks with aggressive order injections
+    5. For each sample: run NMZI generation blocks with aggressive order injections
     6. Save results in LOBSTER CSV format
     """
     # Unpack config
@@ -425,6 +465,13 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
     n_eval_msgs_dataset = cfg.get('n_eval_msgs_dataset', 500)
     order_volume = cfg['order_volume']
     params_file = cfg['params_file']
+
+    # NMZI logistic-sign parameters (authors' code defaults; R in LOBSTER price units)
+    nmzi_kappa = float(cfg.get('nmzi_kappa', 1e-3))
+    nmzi_ewma_beta = float(cfg.get('nmzi_ewma_beta', 1e-3))
+    nmzi_gamma = float(onp.exp(-nmzi_ewma_beta))
+    print(f"NMZI sign model: P(sell LO) = sigmoid({nmzi_kappa} * R), "
+          f"R_t = {nmzi_gamma:.6f} * R_(t-1) + dmid (event time, beta={nmzi_ewma_beta})")
 
     total_blocks = num_insertions + num_coolings
 
@@ -499,7 +546,8 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
     print(f"Total messages per sample: {pos}")
 
     # Create scannable step function (JIT-compiled)
-    step_fn = make_cst_scan_fn(n_levels, sim)
+    step_fn = make_nmzi_scan_fn(n_levels, sim, cst_params.num_ticks,
+                                nmzi_kappa, nmzi_gamma)
 
     # 3. Process batches
     for batch_idx, batch_i in enumerate(tqdm(sample_i, desc="Batches")):
@@ -554,6 +602,12 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
             # Initialize CST Book from L2 state
             cst_book = stoikov.init_book(l2_flat, cst_params, init_time_i)
 
+            # NMZI state: EWMA return starts at 0, prev_mid anchored at the
+            # post-conditioning mid. Carried across ALL blocks (and through the
+            # aggressive insertions/resyncs, whose mid jumps enter R at the next step).
+            r_ewma = jnp.float32(0.0)
+            prev_mid = (cst_book.best_ask + cst_book.best_bid).astype(jnp.float32) / 2.0
+
             # Per-sample RNG
             rng, rng_sample = jax.random.split(rng)
 
@@ -578,12 +632,13 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
                 l2_resync = sim.get_L2_state(sim_state_i, RESYNC_LEVELS)
                 cst_book = stoikov.init_book(l2_resync, cst_params, cst_book.time)
 
-                # Run one block of CST generation
-                carry = (sim_state_i, cst_book, n_msg_todo, base_rates, cst_params, rng_sample)
+                # Run one block of NMZI generation
+                carry = (sim_state_i, cst_book, n_msg_todo, base_rates, cst_params,
+                         rng_sample, r_ewma, prev_mid)
                 carry, (l2_books_block, msgs_block) = jax.lax.scan(
                     step_fn, carry, None, length=n_gen_msgs,
                 )
-                sim_state_i, cst_book, n_msg_todo, _, _, rng_sample = carry
+                sim_state_i, cst_book, n_msg_todo, _, _, rng_sample, r_ewma, prev_mid = carry
 
                 all_msgs.append(msgs_block)
                 all_books.append(l2_books_block)
@@ -655,7 +710,7 @@ def run_cst_scenario(cfg: Dict[str, Any], save_folder: Path,
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="CST Model Aggressive Scenario")
+    parser = argparse.ArgumentParser(description="NMZI (Non-Markovian ZI) Aggressive Scenario")
     parser.add_argument(
         '--config', '-c',
         type=str,
@@ -709,7 +764,7 @@ def main():
     sys.stderr = logger
 
     print(f"\n{'='*60}")
-    print(f"CST Model Aggressive Scenario Experiment")
+    print(f"NMZI Aggressive Scenario Experiment")
     print(f"Worker {worker_id}/{num_workers}")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
@@ -746,9 +801,9 @@ def main():
                 cfg_d['n_samples'] = n_samples_per_day
                 cfg_d.pop('per_day_params', None)
                 print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
-                run_cst_scenario(cfg_d, save_folder, worker_id=worker_id, num_workers=num_workers)
+                run_nmzi_scenario(cfg_d, save_folder, worker_id=worker_id, num_workers=num_workers)
         else:
-            run_cst_scenario(cfg, save_folder, worker_id=worker_id, num_workers=num_workers)
+            run_nmzi_scenario(cfg, save_folder, worker_id=worker_id, num_workers=num_workers)
 
         print(f"\n{'='*60}")
         print(f"Worker {worker_id} completed!")
