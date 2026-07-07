@@ -25,6 +25,7 @@ MODEL_STYLE = {
     'Heuristic': dict(color='#7F8C8D', ls='-',  label='Heuristic'),
     'Hawkes':    dict(color='#D4A017', ls='-',  label='Hawkes'),
     'CST':       dict(color='#27AE60', ls='-',  label='CST'),
+    'Propagator': dict(color='#8B4513', ls='-', label='Propagator (TIM)'),   # positive control
     'Mamba3':    dict(color='#2F5DA3', ls='-',  label='Mamba-3'),
     'Mamba3_4k': dict(color='#16A085', ls='-',  label='Mamba-3-4k'),
     'S5':        dict(color='#E67E22', ls='-',  label='LobS5'),

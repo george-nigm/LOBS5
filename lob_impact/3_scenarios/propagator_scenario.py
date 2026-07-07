@@ -1,12 +1,19 @@
 #!/usr/bin/env python
 """
-Heuristic Scenario: Historical Replay + deterministic price shift on consumed liquidity.
+Propagator (TIM) Scenario: Historical Replay + TRANSIENT price shift with a decaying kernel.
 
-Same as the historic scenario (replay LOBSTER messages, inject aggressive orders at regular
-intervals, no model loading) BUT with a price-shift correction: each time an aggressive order
-fully consumes the best level, a per-sample `shift_ticks` counter increments and every subsequent
-historical message has its price shifted by tick_size * shift_ticks (UP for buy, DOWN for sell)
-to compensate for the consumed liquidity. This is the "Heuristic" baseline of the impact study.
+Same replay mechanics as the heuristic scenario, but instead of a PERMANENT one-tick shift per
+consumed best level, every aggressive order that fully consumes the best level contributes a
+one-tick kick that DECAYS with message lag l:
+
+    w(l) = perm + (1 - perm) * l**(-beta)          (w(1) = 1,  w(inf) = perm)
+
+so subsequent historical prices are shifted by round(sum_i kick_i * w(t - t_i)) ticks (UP for
+buy, DOWN for sell). With beta = 0.5 and perm = 2/3 (Bouchaud propagator + fair-pricing
+permanent fraction) this is the impact study's THEORY-CORRECT POSITIVE CONTROL: by construction
+it builds impact concavely (sqrt-law shape) and relaxes toward ~2/3 of peak after execution
+stops — the phenomenology the impact-blind baselines cannot produce and the neural generators
+are tested against.  Config: prop_beta (default 0.5), prop_perm (default 2/3).
 
 Output: LOBSTER CSV files in data_cond/ and data_gen/ folders.
 """
@@ -220,9 +227,9 @@ def shift_prices(msg: jnp.ndarray, shift_amount: jnp.ndarray, direction: int) ->
     return msg
 
 
-def run_heuristic_scenario(cfg: Dict[str, Any], save_folder: Path):
+def run_propagator_scenario(cfg: Dict[str, Any], save_folder: Path):
     """
-    Main function for heuristic scenario.
+    Main function for the propagator (TIM) scenario.
 
     Replays historical messages through simulator, injecting aggressive
     orders at regular intervals. No model — pure historical replay.
@@ -244,6 +251,9 @@ def run_heuristic_scenario(cfg: Dict[str, Any], save_folder: Path):
     event_type = cfg['event_type']
     direction = cfg['direction']
     order_volume = cfg['order_volume']
+    prop_beta = float(cfg.get('prop_beta', 0.5))
+    prop_perm = float(cfg.get('prop_perm', 2.0 / 3.0))
+    print(f"propagator kernel: w(l) = {prop_perm:.3f} + {1 - prop_perm:.3f} * l^(-{prop_beta})")
 
     # Total steps: (num_insertions + num_coolings) * n_gen_msgs historical msgs + num_insertions aggressive orders
     total_eval_msgs_needed = (num_insertions + num_coolings) * n_gen_msgs
@@ -358,9 +368,10 @@ def run_heuristic_scenario(cfg: Dict[str, Any], save_folder: Path):
         all_books = []
         eval_idx = 0
         n_msg_todo = jnp.full(batch_size, total_steps, dtype=jnp.int32)
-        # HEURISTIC: per-sample counter of best-levels fully consumed by aggressive orders;
-        # subsequent historical prices are shifted by tick_size * shift_ticks to compensate.
-        shift_ticks = jnp.zeros(batch_size, dtype=jnp.int32)
+        # PROPAGATOR (TIM): per-sample kick magnitudes (tick per fully-consumed best level), one
+        # slot per insertion; the applied shift at step t decays as w(l) = perm + (1-perm)*l^-beta.
+        kick_mag = jnp.zeros((batch_size, num_insertions), dtype=jnp.float32)
+        kick_steps: list = []       # insertion step indices, filled as insertions happen
 
         for step in range(total_steps):
             if step in insertion_steps:
@@ -380,13 +391,22 @@ def run_heuristic_scenario(cfg: Dict[str, Any], save_folder: Path):
                 sim_states = process_msg_vmap(sim_states, sim_msg)
                 all_msgs.append(msg_decoded)
                 n_msg_todo = n_msg_todo - 1
-                # bump the shift where the aggressive order fully consumed the best level
-                shift_ticks = shift_ticks + level_consumed.astype(jnp.int32)
+                # register a one-tick kick where the aggressive order fully consumed the best level
+                kick_mag = kick_mag.at[:, len(kick_steps)].set(
+                    tick_size * level_consumed.astype(jnp.float32))
+                kick_steps.append(step)
 
             else:
-                # Process historical message WITH the accumulated price shift
+                # Process historical message WITH the decayed (transient) price shift
                 msg = m_seq_raw_eval[:, eval_idx, :]
-                msg = shift_prices(msg, tick_size * shift_ticks, direction)
+                if kick_steps:
+                    lags = jnp.array([step - ks for ks in kick_steps], dtype=jnp.float32)
+                    w = prop_perm + (1.0 - prop_perm) * lags ** (-prop_beta)        # (n_kicks,)
+                    shift_f = (kick_mag[:, :len(kick_steps)] * w[None, :]).sum(axis=1)
+                    shift_amt = (jnp.round(shift_f / tick_size) * tick_size).astype(jnp.int32)
+                else:
+                    shift_amt = jnp.zeros(batch_size, dtype=jnp.int32)
+                msg = shift_prices(msg, shift_amt, direction)
                 sim_msg = msg_to_jnp_vmap(msg)
                 sim_states = process_msg_vmap(sim_states, sim_msg)
                 all_msgs.append(msg)
@@ -522,9 +542,9 @@ def main():
                 cfg_d['n_samples'] = n_samples_per_day
                 cfg_d.pop('per_day_params', None)  # avoid recursion
                 print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
-                run_heuristic_scenario(cfg_d, save_folder)
+                run_propagator_scenario(cfg_d, save_folder)
         else:
-            run_heuristic_scenario(cfg, save_folder)
+            run_propagator_scenario(cfg, save_folder)
 
         print(f"\n{'='*60}")
         print(f"Experiment completed!")
