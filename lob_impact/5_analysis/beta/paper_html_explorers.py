@@ -99,7 +99,7 @@ def fig5():
                                  error_y=dict(type='data', array=se)))
     layout(fig, 'EA — response to a single child order R(m)',
            'messages after the execution event m', 'mean mid response R(m) (ticks)')
-    save(fig, 'fig4_event_response.html')
+    save(fig, 'fig7_event_response.html')
 
 
 # ---------------- Fig 6: midtraj (k-clock + event-time) ----------------
