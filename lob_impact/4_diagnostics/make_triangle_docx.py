@@ -215,11 +215,233 @@ MODEL_META = {  # grid label -> (display label, conditioning length)
     'Mamba3': ('Mamba3-78M', 500),
     'Mamba3_4k': ('Mamba3-4k (2k-finetuned checkpoint)', 4000),
     'S5_4k': ('S5-4k', 4000),
+    'GDN': ('GDN-78M (gated DeltaNet)', 500),
+    'Historic': ('Historic replay', 500),
+    'Heuristic': ('Heuristic (replay + permanent shift)', 500),
+    'Propagator': ('Propagator / TIM (replay + transient shift)', 500),
+    'CST': ('CST (Cont–Stoikov–Talreja zero-intelligence)', 500),
+    'Hawkes': ('Hawkes (self-exciting parametric flow)', 500),
 }
+
+# Baseline-specific narrative: what the generator is, and what a CORRECT run must show.
+BASELINE_META = {
+    'Historic': dict(
+        what='a pure replay of the real message stream. The injected child market orders hit the '
+             'simulated book (liquidity really disappears), but every subsequent message is the '
+             'recorded real one, unchanged.',
+        expect='the all-mechanics negative control: zero directional drift between insertions, '
+               'total impact = the mechanical dent only, and book statistics that track real data '
+               'by construction.',
+        blind='The replayed stream is fixed in advance, so it cannot react to the metaorder: '
+              'visible and invisible regimes are the SAME code path.'),
+    'Heuristic': dict(
+        what='the Historic replay plus a hardwired PERMANENT price-shift rule: every child order '
+             'shifts all subsequent replayed prices by the number of price levels it consumed, '
+             'forever (impact never decays).',
+        expect='a positive control for permanent impact only: stair-step build-up, zero '
+               'relaxation, and drift exactly equal to the designed shift.',
+        blind='The shift rule is deterministic in the insertion outcomes; the replayed flow itself '
+              'never reacts. Turning the rule off gives exactly the Historic replay — shown below '
+              'as the "shift off" regime.'),
+    'Propagator': dict(
+        what='the Historic replay plus a TRANSIENT propagator (TIM) price shift: each child\'s '
+             'kick decays with lag l as w(l) = 2/3 + 1/3·l^(−1/2), relaxing toward a permanent '
+             'level of 2/3 of the initial kick.',
+        expect='the theory-correct positive control: concave (square-root-law-like) build-up '
+               'during execution and relaxation toward ≈2/3 of peak after execution stops.',
+        blind='The kernel is deterministic in the insertion outcomes; the replayed flow never '
+              'reacts. Turning the kernel off gives exactly the Historic replay — shown below as '
+              'the "shift off" regime.'),
+    'CST': dict(
+        what='the Cont–Stoikov–Talreja zero-intelligence flow: limit/market/cancel arrival rates '
+             'estimated from real EA data and sampled level-by-level, independently of the '
+             'injected metaorder.',
+        expect='an impact-blind negative control: the flow cannot respond directionally to the '
+               'child orders; any price response is purely mechanical (and should heal as new '
+               'liquidity arrives at stationary rates).',
+        blind='Arrival intensities are functions of the current book shape only — the metaorder '
+              'is never encoded in any state the generator reads, so a separate invisible run '
+              'would be statistically identical.'),
+    'Hawkes': dict(
+        what='a multivariate self-exciting Hawkes flow estimated from real EA data: past events '
+             'excite future event intensities, but the injected child orders are never fed into '
+             'the intensity state.',
+        expect='an impact-blind negative control. This run doubles as the post-fix validity '
+               'check: the pre-fix generator had a spread ratchet (limit orders clipped away from '
+               'the touch), drifting to 8+ ticks; the fixed one must hold the historical level.',
+        blind='The intensity state is built only from the generator\'s own events; the metaorder '
+              'never enters it, so a separate invisible run would be statistically identical.'),
+}
+
+
+def build_baseline_report(fig_dir, out_path, model):
+    """Word report for a non-neural baseline: the triangle degenerates (the generator cannot
+    see the metaorder), so the report is (a) what the baseline is designed to show, (b) whether
+    the run shows exactly that — i.e. a correctness certificate, not an attribution puzzle."""
+    N = json.load(open(os.path.join(fig_dir, 'numbers.json')))
+    emp = N['empirical']
+    label, _ = MODEL_META.get(model, (model, 500))
+    meta = BASELINE_META[model]
+    analog = N.get('invisible_analog')
+    kernel = model in ('Heuristic', 'Propagator')
+
+    vb, vs, no = N['visible-buy'], N['visible-sell'], N['noins']
+    ib, isl = N.get('invisible-buy'), N.get('invisible-sell')
+    vis_dir = (vb['final_mean'] + vs['final_mean']) / 2
+    drift_dir = (vb['drift_mean'] + vs['drift_mean']) / 2
+    mech_avg = (vb['mech_mean'] + vs['mech_mean']) / 2
+    hs = N.get('hist_spread', float('nan'))
+    r_sat = emp.get('R_131', emp.get('R_100'))
+    resp = vb.get('resp_mean') or []
+    r1 = next((resp[m] for m in range(1, min(4, len(resp))) if resp[m] == resp[m]), float('nan'))
+    r_last = next((resp[m] for m in range(min(100, len(resp) - 1), 0, -1)
+                   if resp[m] == resp[m]), float('nan'))
+
+    # ---- computed correctness checks --------------------------------------
+    p1_ok = abs(no['final_mean']) <= max(2 * no['final_se'], 3.0)
+    drift_ok = (drift_dir > 1.0) if kernel else (abs(drift_dir) <= max(2.0, 0.5 * abs(mech_avg)))
+    spr_ok = (hs != hs) or (vb['spread_last'] <= 1.6 * max(hs, vb['spread_first']))
+    checks = [
+        ('P1 No unconditional drift',
+         f"no-insertion final move {no['final_mean']:+.1f} ± {no['final_se']:.1f} ticks (n={no['n']})",
+         'PASS' if p1_ok else 'FLAG'),
+        ('Directional response between insertions' + (' (designed shift)' if kernel else ' (must be ≈0)'),
+         f'model-generated drift, buy/sell trade-direction average: {drift_dir:+.1f} ticks '
+         f'(mechanical part for scale: {mech_avg:+.1f})',
+         'PASS' if drift_ok else 'FLAG'),
+        ('Mechanical dent at insertions',
+         f"mech contribution {vb['mech_mean']:+.1f} (buy) / {vs['mech_mean']:+.1f} (sell) ticks over 100 children",
+         'PASS' if (vb['mech_mean'] > 0 or vs['mech_mean'] > 0) else 'FLAG'),
+        ('V0 spread stationarity vs historical anchor',
+         f"spread {vb['spread_first']:.1f} → {vb['spread_last']:.1f} ticks along the rollout; "
+         f'historical level {hs:.1f}',
+         'PASS' if spr_ok else 'FLAG'),
+    ]
+    n_flag = sum(1 for _, _, v in checks if v == 'FLAG')
+
+    d = Doc()
+    d.p([(f'Baseline Certificate: {label}', True, False, None, 40)], style='Title', space_after=40)
+    d.p([(f'Control-triangle diagnostic (degenerate form) — EA · Shape I (100 child market '
+          f'orders) · grid_v2 · 2026-07-07', False, True, '52514E', 20)], space_after=240)
+
+    d.h('1. What this baseline is — and why its triangle is degenerate', 1)
+    d.p([('Generator: ', True, False, None, None), (meta['what'], False, False, None, None)])
+    d.p([('Why there is no separate "invisible" run: ', True, False, None, None),
+         (meta['blind'], False, False, None, None)])
+    d.p([('What a correct run must show: ', True, False, None, None),
+         (meta['expect'], False, False, None, None)])
+    d.image(os.path.join(fig_dir, 'fig1_regimes.png'),
+            'Figure 1. Regimes available for this baseline. The neural "visible vs invisible" '
+            'switch does not exist here: the generator can never condition on the metaorder.')
+    rows = [['Regime', 'Child MOs hit the book', 'Generator reacts', 'Final impact (ticks)'],
+            ['With metaorder', 'yes', 'via built-in rule' if kernel else 'no (blind)',
+             f"{vb['final_mean']:+.1f} (buy) / {vs['final_mean']:+.1f} (sell)  (n={vb['n']}/{vs['n']})"]]
+    if ib is not None:
+        rows.append([f'Shift off (= {analog} replay)', 'yes', 'no',
+                     f"{ib['final_mean']:+.1f} / {isl['final_mean']:+.1f}  (n={ib['n']}/{isl['n']})"])
+    rows.append(['No insertions', 'no', 'no',
+                 f"{no['final_mean']:+.1f} ± {no['final_se']:.1f}  (n={no['n']})"])
+    d.table(rows)
+
+    d.h('2. Cumulative impact along the rollout', 1)
+    if kernel:
+        d.p(f'The buy/sell trajectories build to {vb["final_mean"]:+.1f} / {vs["final_mean"]:+.1f} '
+            f'ticks in the trade direction (average {vis_dir:+.1f}). The "shift off" curves — the '
+            f'same replay without the price-shift rule — show what the rule adds: '
+            f'{(ib["final_mean"] + isl["final_mean"]) / 2 if ib else 0:+.1f} ticks of purely '
+            f'mechanical impact. The gap between the two IS the designed impact model, exact and '
+            f'reproducible, with no attribution ambiguity.')
+    else:
+        d.p(f'The buy/sell trajectories end at {vb["final_mean"]:+.1f} / {vs["final_mean"]:+.1f} '
+            f'ticks in the trade direction (average {vis_dir:+.1f}), against a no-insertion drift '
+            f'of {no["final_mean"]:+.1f} ± {no["final_se"]:.1f}. For an impact-blind generator '
+            f'this directional residual should be on the order of the mechanical dent '
+            f'({mech_avg:+.1f} ticks) — anything materially larger would indicate a bug in the '
+            f'insertion plumbing, not "impact".')
+    d.image(os.path.join(fig_dir, 'fig2_trajectories.png'),
+            'Figure 2. Cumulative mid move in the trade direction (mean ± 2 s.e.).')
+
+    d.h('3. Mechanics vs generator-produced drift', 1)
+    d.p([('The exact split: the ', False, False, None, None),
+         ('mechanical', True, False, '4A3AA7', None),
+         (' part is the mid jump at each insertion row; the ', False, False, None, None),
+         ('generator-produced', True, False, 'EB6834', None),
+         (f' part is everything between insertions. Here mechanics contribute {vb["mech_mean"]:+.1f} '
+          f'(buy) / {vs["mech_mean"]:+.1f} (sell) ticks and the between-insertion drift is '
+          f'{vb["drift_mean"]:+.1f} / {vs["drift_mean"]:+.1f} '
+          + ('— the drift IS the designed price-shift rule acting on the replayed stream.' if kernel
+             else '— for a blind generator this drift must be direction-independent noise; its '
+                  'trade-direction average is ' + f'{drift_dir:+.1f} ticks.'),
+          False, False, None, None)])
+    d.image(os.path.join(fig_dir, 'fig3_decomposition.png'),
+            'Figure 3. Mechanical vs generator-produced contribution per regime (trade direction).')
+
+    d.h('4. Per-event response vs real data', 1)
+    d.p(f'R(m) — the mean mid move m messages after a child execution — starts at {r1:+.2f} ticks '
+        f'(the mechanical kick) and sits at {r_last:+.2f} ticks by m≈100, vs the real-EA anchor '
+        f'that saturates at {r_sat:+.2f} ticks ({emp["n_events"]} real executions). '
+        + ('For this kernel baseline the shape of R(m) is the kernel itself: an immediate kick '
+           'that relaxes toward its permanent component.' if model == 'Propagator' else
+           'For this baseline R(m) after the kick reflects only the replayed/simulated flow, so '
+           'a flat profile is the CORRECT behaviour — it is what "no learned reaction" looks like.'
+           if not kernel else
+           'For the permanent-shift rule R(m) must step up at the kick and stay — no relaxation '
+           'by design.'))
+    d.image(os.path.join(fig_dir, 'fig4_event_response.png'),
+            'Figure 4. Event response R(m) vs the real-data anchor (green).')
+
+    d.h('5. Book health (V0 gate)', 1)
+    d.p(f'Spread along the rollout: {vb["spread_first"]:.1f} → {vb["spread_last"]:.1f} ticks '
+        f'(with metaorder), no-insertion run {no["spread_first"]:.1f} → {no["spread_last"]:.1f}, '
+        f'historical anchor {hs:.1f} ticks. '
+        + ('This is the decisive post-fix check for Hawkes: the pre-fix generator ratcheted the '
+           'spread monotonically; the fixed one must stay near the anchor for the entire 13k-message '
+           'horizon.' if model == 'Hawkes' else
+           'Replay-based baselines inherit real-data book statistics by construction, so any '
+           'deviation here would flag an insertion-plumbing bug.' if model != 'CST' else
+           'CST books are stationary by construction; a trending spread would flag an estimation '
+           'or plumbing bug.'))
+    d.image(os.path.join(fig_dir, 'fig5_spread.png'),
+            'Figure 5. Mean bid–ask spread along the rollout vs the historical level (dashed green).')
+
+    d.h('6. Correctness checklist', 1)
+    d.table([['Check', 'Measured', 'Verdict']] +
+            [[c, m, v] for c, m, v in checks], widths=[3200, 4600, 1560])
+    verdict = ('All checks pass — the baseline behaves exactly as designed.' if n_flag == 0 else
+               f'{n_flag} check(s) flagged — see the rows above; treat the affected quantities '
+               'with care before quoting them.')
+    d.p([(verdict, True, False, GOOD_HEX if n_flag == 0 else CRIT_HEX, None)])
+
+    d.h('7. Role in the model zoo', 1)
+    d.p('Baselines pin down the two failure modes the neural models must be measured against: '
+        'the blind generators (Historic, CST, Hawkes) show what ZERO learned reaction looks like '
+        'under identical insertion mechanics, and the kernel baselines (Heuristic = permanent, '
+        'Propagator = transient with 2/3 permanent component) show what theory-shaped impact looks '
+        'like when put in by hand. A neural model claiming realistic impact must beat the blind '
+        'baselines on directional response (P3) while matching the propagator-like relaxation '
+        '(P5) — no current model does both.')
+
+    d.h('8. Reproduction', 1)
+    d.p([('Data: ', True, False, None, None),
+         (f'/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2/EA-{model}-beta (with metaorder) and '
+          f'/lus/lfs1aip2/projects/u6gb/lob_impact_controls_v2/noins/EA-{model}-beta '
+          '(no-insertion control, N_INS_OVERRIDE=1 MB_OVERRIDE=13000). ', False, False, None, None),
+         ('Analysis: ', True, False, None, None),
+         ('lob_impact/4_diagnostics/control_triangle_report.py --model ' + model +
+          ' + make_triangle_docx.py (baseline mode auto-detected from numbers.json).',
+          False, False, None, None)])
+
+    d.save(out_path)
+    print(f'DOCX_DONE -> {out_path}')
+
+
+GOOD_HEX, CRIT_HEX = '0CA30C', 'D03B3B'
 
 
 def build_report(fig_dir, out_path, model='Mamba3'):
     N = json.load(open(os.path.join(fig_dir, 'numbers.json')))
+    if N.get('baseline'):
+        return build_baseline_report(fig_dir, out_path, model)
     emp = N['empirical']
     label, n_cond = MODEL_META.get(model, (model, 500))
 

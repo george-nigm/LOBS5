@@ -31,6 +31,13 @@ SENT = 2147483647
 GRID01 = np.linspace(0.0, 1.0, 241)
 MODEL_LABEL = 'Mamba3'
 
+# Baselines cannot condition on the injected flow, so a separate "invisible" generation is
+# meaningless: visible ≡ invisible BY CONSTRUCTION. For the two kernel baselines the closest
+# realizable invisible regime (child MOs hit the book, price-shift rule off) is exactly the
+# Historic replay — reuse its grid data instead of regenerating.
+BASELINES = {'Historic', 'Heuristic', 'CST', 'Hawkes', 'Propagator'}
+INVISIBLE_ANALOG = {'Heuristic': 'Historic', 'Propagator': 'Historic'}
+
 # --- palette (validated reference set, fixed slot order; light surface) ---
 C_VIS, C_INV, C_NOI = '#2a78d6', '#1baf7a', '#eda100'   # regimes: blue / aqua / yellow
 C_REAL = '#008300'                                       # real-data anchor: green
@@ -205,17 +212,31 @@ def end_labels(ax, items, min_sep_frac=0.045):
                     annotation_clip=False)
 
 
-def fig_schematic(path, vals):
+def fig_schematic(path, vals, baseline=False, analog=None):
     fig, ax = plt.subplots(figsize=(9.6, 4.4), dpi=200)
     ax.set_axis_off()
     ax.set_xlim(0, 3)
     ax.set_ylim(0, 1)
-    cols = [('Visible metaorder', C_VIS, True, True, vals['visible']),
-            ('Invisible metaorder', C_INV, True, False, vals['invisible']),
-            ('No insertions', C_NOI, False, False, vals['noins'])]
+    if baseline:
+        inv_name = f'Shift off (= {analog} replay)' if analog else 'Invisible ≡ visible'
+        cols = [('With metaorder', C_VIS, True, False, vals['visible'])]
+        if 'invisible' in vals:
+            cols.append((inv_name, C_INV, True, False, vals['invisible']))
+        cols.append(('No insertions', C_NOI, False, False, vals['noins']))
+        ax.set_xlim(0, len(cols))
+    else:
+        cols = [('Visible metaorder', C_VIS, True, True, vals['visible']),
+                ('Invisible metaorder', C_INV, True, False, vals['invisible']),
+                ('No insertions', C_NOI, False, False, vals['noins'])]
     rows = ['Child MOs applied\nto the order book', 'Child MOs visible\nto the model',
             'What it isolates']
     iso = ['mechanics + model reaction', 'book mechanics only', 'unconditional model drift']
+    if baseline:
+        rows[1] = 'Generator conditions\non the metaorder'
+        iso = ['mechanics + built-in shift rule' if analog else 'mechanics + generator response',
+               'book mechanics only (replay)', 'unconditional generator drift']
+        if 'invisible' not in vals:
+            iso = [iso[0], iso[2]]
     for c, (name, col, hit, seen, val) in enumerate(cols):
         x = c + 0.06
         ax.add_patch(FancyBboxPatch((x, 0.86), 0.88, 0.11,
@@ -239,8 +260,10 @@ def fig_schematic(path, vals):
                 color=MUTED)
         ax.annotate('', xy=(x + 0.44, 0.17), xytext=(x + 0.44, 0.22),
                     arrowprops=dict(arrowstyle='-|>', color=MUTED, lw=1.4))
-    fig.suptitle(f'{MODEL_LABEL}: three generation regimes — identical run, two switches flipped',
-                 fontsize=12, fontweight='bold', color=INK, y=1.00)
+    ttl = (f'{MODEL_LABEL}: generation regimes — the generator cannot see the metaorder, '
+           'so visible ≡ invisible by construction' if baseline else
+           f'{MODEL_LABEL}: three generation regimes — identical run, two switches flipped')
+    fig.suptitle(ttl, fontsize=12, fontweight='bold', color=INK, y=1.00)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(path, bbox_inches='tight')
     plt.close(fig)
@@ -256,6 +279,8 @@ def fig_trajectories(path, R):
               ('noins', C_NOI, '-', 'No insertions')]
     labels = []
     for key, col, ls, lab in series:
+        if key not in R:
+            continue
         r = R[key]
         ax.fill_between(GRID01 * 100, r['traj_mean'] - 2 * r['traj_se'],
                         r['traj_mean'] + 2 * r['traj_se'], color=col, alpha=0.13, lw=0)
@@ -278,6 +303,8 @@ def fig_decomposition(path, R):
     keys = ['visible-buy', 'visible-sell', 'invisible-buy', 'invisible-sell', 'noins']
     base = ['Visible, buy', 'Visible, sell', 'Invisible, buy', 'Invisible, sell',
             'No insertions']
+    base = [b for b, k in zip(base, keys) if k in R]
+    keys = [k for k in keys if k in R]
     labels = [f"{b}\n(n={R[k]['n']})" for b, k in zip(base, keys)]
     mech = [R[k]['mech_mean'] for k in keys]
     drift = [R[k]['drift_mean'] for k in keys]
@@ -307,6 +334,8 @@ def fig_event_response(path, R, emp):
     style_ax(ax)
     for key, col, lab in [('visible-buy', C_VIS, 'Model, visible (buy)'),
                           ('invisible-buy', C_INV, 'Model, invisible (buy)')]:
+        if key not in R:
+            continue
         r = R[key]
         if 'resp_mean' not in r:
             continue
@@ -351,6 +380,8 @@ def fig_spread(path, R, hist_spread):
               ('noins', C_NOI, '-', 'No insertions')]
     labels = []
     for key, col, ls, lab in series:
+        if key not in R:
+            continue
         r = R[key]
         ax.plot(GRID01 * 100, r['spr_mean'], color=col, ls=ls, lw=2.0,
                 label=f"{lab} (n={r['n']})")
@@ -386,14 +417,21 @@ def main():
 
     global MODEL_LABEL
     MODEL_LABEL = args.model
+    is_baseline = args.model in BASELINES
+    analog = INVISIBLE_ANALOG.get(args.model)
     scen = f'{args.stock}-{args.model}-beta'
     spec = {
         'visible-buy': (os.path.join(args.grid, scen, 'buy'), +1, True),
         'visible-sell': (os.path.join(args.grid, scen, 'sell'), -1, True),
-        'invisible-buy': (os.path.join(args.controls, 'invisible', scen, 'buy'), +1, True),
-        'invisible-sell': (os.path.join(args.controls, 'invisible', scen, 'sell'), -1, True),
         'noins': (os.path.join(args.controls, 'noins', scen, 'buy'), +1, False),
     }
+    if not is_baseline:
+        spec['invisible-buy'] = (os.path.join(args.controls, 'invisible', scen, 'buy'), +1, True)
+        spec['invisible-sell'] = (os.path.join(args.controls, 'invisible', scen, 'sell'), -1, True)
+    elif analog:   # kernel baselines: shift-off regime = the Historic replay grid data
+        ana_scen = f'{args.stock}-{analog}-beta'
+        spec['invisible-buy'] = (os.path.join(args.grid, ana_scen, 'buy'), +1, True)
+        spec['invisible-sell'] = (os.path.join(args.grid, ana_scen, 'sell'), -1, True)
     R = {}
     for key, (d, sign, ins) in spec.items():
         exp = discover_exp(d)
@@ -411,19 +449,22 @@ def main():
     vals = {
         'visible': (f"{R['visible-buy']['final_mean']:+.0f} / {R['visible-sell']['final_mean']:+.0f} ticks",
                     f"mean over n={R['visible-buy']['n']}+{R['visible-sell']['n']} runs (buy+sell)"),
-        'invisible': (f"{R['invisible-buy']['final_mean']:+.0f} / {R['invisible-sell']['final_mean']:+.0f} ticks",
-                      f"mean over n={R['invisible-buy']['n']}+{R['invisible-sell']['n']} runs (buy+sell)"),
         'noins': (f"{R['noins']['final_mean']:+.0f} ticks",
                   f"mean over n={R['noins']['n']} runs"),
     }
-    fig_schematic(os.path.join(args.out_dir, 'fig1_regimes.png'), vals)
+    if 'invisible-buy' in R:
+        vals['invisible'] = (f"{R['invisible-buy']['final_mean']:+.0f} / {R['invisible-sell']['final_mean']:+.0f} ticks",
+                             f"mean over n={R['invisible-buy']['n']}+{R['invisible-sell']['n']} runs (buy+sell)")
+    fig_schematic(os.path.join(args.out_dir, 'fig1_regimes.png'), vals,
+                  baseline=is_baseline, analog=analog)
     fig_trajectories(os.path.join(args.out_dir, 'fig2_trajectories.png'), R)
     fig_decomposition(os.path.join(args.out_dir, 'fig3_decomposition.png'), R)
     fig_event_response(os.path.join(args.out_dir, 'fig4_event_response.png'), R, emp)
     fig_spread(os.path.join(args.out_dir, 'fig5_spread.png'), R, hist_spread)
 
     num = {'empirical': emp, 'model': args.model, 'stock': args.stock,
-           'hist_spread': hist_spread}
+           'hist_spread': hist_spread, 'baseline': is_baseline,
+           'invisible_analog': analog}
     for k, r in R.items():
         num[k] = {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv)
                   for kk, vv in r.items()}
