@@ -679,10 +679,13 @@ def main():
                 cfg_d = dict(cfg)
                 cfg_d['order_volume'] = int(row['child'])
                 cfg_d['n_gen_msgs'] = int(row['mb'])
-                cfg_d['day_index'] = int(day_idx)
+                # day_index must address the DATASET day, not the CSV row position: a sliced
+                # (one-day) CSV re-indexes from 0, silently pairing day-k params with day-0
+                # data. An explicit day_index column wins over the row position.
+                cfg_d['day_index'] = int(row['day_index']) if 'day_index' in row else int(day_idx)
                 cfg_d['n_samples'] = n_samples_per_day
                 cfg_d.pop('per_day_params', None)
-                print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
+                print(f"\n--- Day {cfg_d['day_index']}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
                 sample_aggressive_scenario(cfg_d, save_folder)
         else:
             sample_aggressive_scenario(cfg, save_folder)
