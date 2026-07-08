@@ -759,6 +759,17 @@ def main():
             n_samples_per_day = max((n_samples_per_day // bsz) * bsz, bsz)
             print(f"  n_samples_per_day = {n_samples_per_day} (batch_size={bsz})")
 
+            # SAMPLE_SLICE in per-day mode shards DAYS (not within-day batches): with
+            # n_samples_per_day == bsz there is exactly 1 batch/day and batch-sharding is
+            # degenerate (n_slices > 1 asserts out of range). iloc WITHOUT reset_index keeps
+            # the original positional day_index so the dataset day mapping is unchanged.
+            if cfg.get('sample_slice') is not None:
+                _k, _n = int(cfg['sample_slice']), int(cfg.get('n_slices', 1))
+                import numpy as _np
+                _keep = _np.array_split(_np.arange(len(pd_df)), _n)[_k]
+                pd_df = pd_df.iloc[_keep]
+                print(f"  DAY SLICE {_k}/{_n}: days {list(pd_df.index)}")
+
             for day_idx, row in pd_df.iterrows():
                 cfg_d = dict(cfg)
                 cfg_d['order_volume'] = int(row['child'])
@@ -766,6 +777,8 @@ def main():
                 cfg_d['day_index'] = int(day_idx)
                 cfg_d['n_samples'] = n_samples_per_day
                 cfg_d.pop('per_day_params', None)
+                cfg_d.pop('sample_slice', None)   # day-sharded above; no within-day sharding
+                cfg_d.pop('n_slices', None)
                 print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
                 sample_aggressive_scenario(cfg_d, save_folder)
         else:
