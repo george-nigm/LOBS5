@@ -15,6 +15,9 @@
 #   sbatch run_lobs5_legacy.sh                      # smoke: 8 samples, 3 ins, mb=100
 #   MODE=full SHAPE=beta DIR=buy sbatch run_lobs5_legacy.sh
 set -euo pipefail
+# --export=ALL leaks the submitter's TMPDIR (login-node /local/user/...) which doesn't exist
+# on compute nodes -> torch dies at import in tempfile.mkdtemp. Force a node-valid tmp.
+export TMPDIR="${SLURM_TMPDIR:-/tmp}"
 IMPACT_DIR=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact
 HERE="$IMPACT_DIR/3_scenarios"
 REPO_ROOT="$(dirname "$IMPACT_DIR")"
