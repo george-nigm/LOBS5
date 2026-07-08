@@ -13,12 +13,13 @@ set -uo pipefail
 B=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
 MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,NMZI,Propagator,Mamba3,Mamba3_4k,S5_4k,GDN}"
+STOCK="${STOCK:-EA}"
 PY=/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python
 export JAX_PLATFORMS=cpu
 cd "$B"
 for SH in beta relaxation; do
-  echo ">>> master curve $SH (grid_v2, gated)"
-  $PY master_curve.py --grid "$GRID" --stock EA --shape "$SH" --models "$MODELS" \
-      --out "$B/results/master_curve/master_curve_EA_${SH}_v2gated.png"
+  echo ">>> master curve $SH (grid_v2, gated, $STOCK)"
+  $PY master_curve.py --grid "$GRID" --stock "$STOCK" --shape "$SH" --models "$MODELS" \
+      --out "$B/results/master_curve/master_curve_${STOCK}_${SH}_v2gated.png"
 done
 echo "MASTER_V2_DONE"
