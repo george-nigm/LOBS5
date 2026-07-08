@@ -31,8 +31,8 @@ MID = os.path.join(B, 'results', 'mid_impact')
 MASTER = os.path.join(B, 'results', 'master_curve')
 B3V = os.path.join(B, 'results', 'beta_vs_k_3views')
 
-NEURAL = ['Mamba3', 'Mamba3_4k', 'S5_4k', 'GDN']
-BASELINES = ['Historic', 'Heuristic', 'Hawkes', 'CST', 'NMZI', 'Propagator']
+NEURAL = ['S5', 'Mamba3', 'Mamba3_4k', 'S5_4k', 'S5_120M', 'GDN']
+BASELINES = ['Historic', 'Heuristic', 'Propagator', 'Hawkes', 'CST', 'NMZI']
 ALL = BASELINES + NEURAL
 C_REAL = '#008300'
 

@@ -18,7 +18,7 @@ IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 HERE="${IMPACT_DIR}/5_analysis/beta"
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"   # post-audit grid; GRID=... to point elsewhere
 STOCKS="${STOCKS:-EA NVDA AMD}"
-MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k,S5_4k}"
+MODELS="${MODELS:-Historic,Heuristic,Propagator,Hawkes,CST,NMZI,S5,Mamba3,Mamba3_4k,S5_4k,S5_120M,GDN}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "${HERE}/logs"
 
