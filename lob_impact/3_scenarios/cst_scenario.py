@@ -738,6 +738,13 @@ def main():
             n_samples_per_day = max((n_samples_per_day // bsz) * bsz, bsz)
             print(f"  n_samples_per_day = {n_samples_per_day}")
 
+            if cfg.get('sample_slice') is not None:
+                _k, _n = int(cfg['sample_slice']), int(cfg.get('n_slices', 1))
+                import numpy as _np
+                _keep = _np.array_split(_np.arange(len(pd_df)), _n)[_k]
+                pd_df = pd_df.iloc[_keep]
+                print(f"  DAY SLICE {_k}/{_n}: days {list(pd_df.index)}")
+
             for day_idx, row in pd_df.iterrows():
                 cfg_d = dict(cfg)
                 cfg_d['order_volume'] = int(row['child'])
@@ -745,6 +752,8 @@ def main():
                 cfg_d['day_index'] = int(day_idx)
                 cfg_d['n_samples'] = n_samples_per_day
                 cfg_d.pop('per_day_params', None)
+                cfg_d.pop('sample_slice', None)
+                cfg_d.pop('n_slices', None)
                 print(f"\n--- Day {day_idx}: {row['day']}, child={row['child']}, mb={row['mb']} ---")
                 run_cst_scenario(cfg_d, save_folder, worker_id=worker_id, num_workers=num_workers)
         else:
