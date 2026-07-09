@@ -29,6 +29,15 @@ FLEET_NOTES = [
     (r'^noins_', 'no-insertion drift control: 64 samples, 13k clean msgs'),
     (r'^inv_', 'invisible-metaorder control: 8 samples/day (PER_DAY=1 N_PER_DAY=8)'),
     (r'^lobimp_tri', 'triangle report build: reads 64-sample regimes, renders figs+docx'),
+    (r'^(hi|he|pr)_GOOG', 'GOOG grid_v2 replay: 52 samples/day x 20 days (1040/side)'),
+    (r'^g(mam|gdn|s5)_[br][bs]\d', 'GOOG 500-ctx neural slice: 2 days/slice, 52 samples/day, bsz 52'),
+    (r'^g(mam4|s5_4)', 'GOOG 4k-ctx neural slice: bsz 8, 104 samples/day, 16 slices'),
+    (r'^(rf|f)(mam4|gmam4|s5_4|gs5_4)', 'GOOG 4k day-1 finisher: SAMPLE_SLICE=<day>/20 after 12h timeout'),
+    (r'^(cst|nmz|haw)_G', 'GOOG grid_v2 param model: 52 samples/day x 20 days, 256G (tmpfs+XLA cgroup)'),
+    (r'^(cst|hwk)_est_GOOG', 'GOOG param estimation from historic data_cond'),
+    (r'^tw_day|^lobs5_legacy', 'twilight-sound-77 GOOG-2023 legacy grid: 104 samples/day (probe 8)'),
+    (r'^goog23', 'GOOG 2023_Jan calibration from flair06 old-proc npy'),
+    (r'^lobimp_beta', 'beta analysis pass over grid_v2'),
     (r'^lobimp_run|^run_', 'run_experiments.sh launch (smoke=64 samples unless noted)'),
 ]
 
