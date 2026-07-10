@@ -96,7 +96,9 @@ def main():
         exp = f'{args.stock}-{model}-{args.shape}'
         tb, ab = collect_traj(os.path.join(args.grid, exp, 'buy'), +1)
         ts, asl = collect_traj(os.path.join(args.grid, exp, 'sell'), -1)
-        trajs = tb + ts
+        # collect_traj returns (traj, aggr, mb) tuples since the per-day rework — unpack the
+        # trajectories (event-time; per-day mb makes lengths ragged, central_line pads)
+        trajs = [t[0] for t in tb + ts]
         if not trajs:
             print(f'{exp}: no data (skipped)'); continue
         x, mid, band, Lkeep, n = central_line(trajs, args.estimator, args.trim, args.min_frac)
