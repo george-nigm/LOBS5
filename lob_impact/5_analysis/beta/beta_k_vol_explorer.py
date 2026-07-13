@@ -59,6 +59,41 @@ def delta_from_bins(x, y, nbins=NBINS):
     return float(np.polyfit(xc[pos], np.log(ym[pos]), 1)[0])
 
 
+def delta_split(x, y, nbins=NBINS):
+    """Small-Q crossover check: δ fitted separately on the lower / upper half of the bin range."""
+    n = x.size
+    if n < 40:
+        return np.nan, np.nan
+    order = np.argsort(x)
+    xc, ym = [], []
+    for chunk in np.array_split(order, nbins):
+        xc.append(float(np.mean(x[chunk]))); ym.append(float(np.mean(y[chunk])))
+    xc, ym = np.array(xc), np.array(ym)
+    half = len(xc) // 2
+    out = []
+    for sl in (slice(0, half), slice(half, None)):
+        p = ym[sl] > 0
+        out.append(float(np.polyfit(xc[sl][p], np.log(ym[sl][p]), 1)[0]) if p.sum() >= 3 else np.nan)
+    return out[0], out[1]
+
+
+def delta_cross_metaorder(x, y, kc, days, kmax):
+    """Literature convention: ONE point per completed metaorder (per day, Q_total differs by
+    per-day calibration). OLS of ln(mean_day I/σ at k=kmax) on mean_day ln(Q_total/V)."""
+    m = kc == kmax
+    if m.sum() < 10:
+        return np.nan, 0
+    xd, yd = [], []
+    for d in np.unique(days[m]):
+        dm = m & (days == d)
+        xd.append(float(np.mean(x[dm]))); yd.append(float(np.mean(y[dm])))
+    xd, yd = np.array(xd), np.array(yd)
+    p = yd > 0
+    if p.sum() < 4 or (xd[p].max() - xd[p].min()) < 1e-6:
+        return np.nan, int(p.sum())
+    return float(np.polyfit(xd[p], np.log(yd[p]), 1)[0]), int(p.sum())
+
+
 def fits_at_k(x, y, kc, ks):
     """Per k in ks: (beta_free, intercept_free, beta_origin, delta_binned)."""
     bf = np.full(len(ks), np.nan); ic = np.full(len(ks), np.nan)
@@ -132,8 +167,12 @@ def main():
                                method=method, mode='intercept', color=col, panel='int'))
             # full-panel numbers (+ day-clustered bootstrap CI for the two headline sigmas)
             d_full = delta_from_bins(x, y)
+            d_lo, d_hi = delta_split(x, y)
+            d_x, nd = delta_cross_metaorder(x, y, kk, dd, int(ks[-1]))
             entry = {'binned': d_full, 'free': float(bf[-1]), 'origin': float(bo[-1]),
-                     'intercept': float(ic[-1]), 'N': int(x.size)}
+                     'intercept': float(ic[-1]), 'N': int(x.size),
+                     'binned_lowQ': d_lo, 'binned_highQ': d_hi,
+                     'cross_metaorder': d_x, 'cross_days_pos': nd}
             if args.bootstrap and method in ('parkinson', 'none'):
                 udays = np.unique(dd)
                 idx_by_day = {d: np.where(dd == d)[0] for d in udays}
@@ -152,6 +191,11 @@ def main():
               f"free={p.get('free', np.nan):+.3f} origin={p.get('origin', np.nan):+.3f} | "
               f"sigma1: binned={s1.get('binned', np.nan):+.3f} free={s1.get('free', np.nan):+.3f} "
               f"(N={p.get('N', 0):,})", flush=True)
+        print(f"{'':10s} audit park: lowQ={p.get('binned_lowQ', np.nan):+.3f} "
+              f"highQ={p.get('binned_highQ', np.nan):+.3f} | cross-metaorder "
+              f"delta={p.get('cross_metaorder', np.nan):+.3f} ({p.get('cross_days_pos', 0)} days) | "
+              f"sigma1: lowQ={s1.get('binned_lowQ', np.nan):+.3f} highQ={s1.get('binned_highQ', np.nan):+.3f} "
+              f"cross={s1.get('cross_metaorder', np.nan):+.3f}", flush=True)
 
     # ---------- figure: 2 stacked panels, custom JS radio controls ----------
     fig = go.Figure()
