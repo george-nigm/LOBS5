@@ -77,7 +77,13 @@ def main():
     # saturation guide: real impact stops growing past m ~ 60
     ax.axhline(rv[-1], color=C_REAL, lw=0.8, ls=':', alpha=0.7, zorder=1)
     xmax = max(hs)
-    ax.annotate(f'real response saturates at {rv[-1]:+.2f} ticks',
+    # 'saturates' only if the anchor has flattened: <15% growth over the second half of the
+    # window (GOOG/EA saturate; on NVDA the real response is still climbing at the edge)
+    mid_v = rv[min(range(len(hs)), key=lambda i: abs(hs[i] - 0.5 * xmax))]
+    saturated = rv[-1] <= 1.15 * mid_v
+    note = (f'real response saturates at {rv[-1]:+.2f} ticks' if saturated
+            else f'real response still rising at the window edge ({rv[-1]:+.2f} ticks)')
+    ax.annotate(note,
                 xy=(xmax, rv[-1]), xytext=(xmax * 0.5, rv[-1] - 0.14), color=C_REAL,
                 fontsize=10, fontweight='bold')
     ends.append((rv[-1], f'real {args.stock}', C_REAL))
