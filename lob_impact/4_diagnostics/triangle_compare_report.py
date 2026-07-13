@@ -22,7 +22,8 @@ from make_triangle_docx import Doc, MODEL_META  # noqa: E402  (sibling module)
 GRID01 = np.linspace(0.0, 1.0, 241)
 
 # palette (project reference set): model identity is constant across every figure
-MODEL_COLOR = {'Mamba3': '#2a78d6', 'Mamba3_4k': '#1baf7a', 'S5_4k': '#eb6834'}
+MODEL_COLOR = {'Mamba3': '#2a78d6', 'Mamba3_4k': '#1baf7a', 'S5_4k': '#eb6834',
+               'GDN': '#4a3aa7', 'S5_120M': '#eda100'}
 C_REAL = '#008300'
 C_MECH, C_DRIFT = '#4a3aa7', '#eda100'
 INK, INK2, MUTED = '#0b0b0b', '#52514e', '#898781'
@@ -39,18 +40,23 @@ plt.rcParams.update({
 })
 
 
+STOCK = 'EA'   # set from --stock in main(); used in real-data labels
+
+
 def disp(model):
     return MODEL_META.get(model, (model, None))[0].split(' (')[0]
 
 
-def latest_numbers(results_dir, model):
-    # exact-model match: 'triangle_Mamba3_*' must NOT swallow 'triangle_Mamba3_4k_*'
-    pat = re.compile(rf'triangle_{re.escape(model)}_\d{{8}}-\d{{6}}$')
-    cands = sorted(d for d in glob.glob(os.path.join(results_dir, f'triangle_{model}_*'))
+def latest_numbers(results_dir, model, stock='EA'):
+    # exact-model match: 'triangle_Mamba3_*' must NOT swallow 'triangle_Mamba3_4k_*'.
+    # EA (historic runs) has no stock in the dir name; other stocks use triangle_<STOCK>_<MODEL>_<ts>.
+    key = model if stock == 'EA' else f'{stock}_{model}'
+    pat = re.compile(rf'triangle_{re.escape(key)}_\d{{8}}-\d{{6}}$')
+    cands = sorted(d for d in glob.glob(os.path.join(results_dir, f'triangle_{key}_*'))
                    if pat.search(os.path.basename(d))
                    and os.path.exists(os.path.join(d, 'numbers.json')))
     if not cands:
-        raise SystemExit(f'no triangle numbers.json for {model} under {results_dir}')
+        raise SystemExit(f'no triangle numbers.json for {key} under {results_dir}')
     return os.path.join(cands[-1], 'numbers.json')
 
 
@@ -221,9 +227,9 @@ def fig_event_response(path, NN, models, emp):
     se = [emp.get(f'R_{h}_se', 0) for h in hs]
     ax.errorbar(hs, rv, yerr=[2 * s for s in se], color=C_REAL, lw=2.0,
                 ls=(0, (4, 2)), marker='o', ms=6, capsize=3,
-                label=f'Real EA data ({emp["n_events"]} executions)')
-    labels.append((rv[-1], f'Real EA (saturates)  {rv[-1]:+.2f}', C_REAL))
-    ax.set_xlim(0, 140)
+                label=f'Real {STOCK} data ({emp["n_events"]} executions)')
+    labels.append((rv[-1], f'Real {STOCK} (saturates)  {rv[-1]:+.2f}', C_REAL))
+    ax.set_xlim(0, max(140, int(max(hs) * 1.07)))
     end_labels(ax, labels)
     ax.set_xlabel('Messages after the execution event  m   '
                   '(window capped at the next insertion)')
@@ -245,7 +251,7 @@ def fig_spread(path, NN, models, hist_spread):
         ax.grid(axis='x', visible=False)
         if hist_spread == hist_spread:
             ax.axhline(hist_spread, color=C_REAL, lw=1.8, ls=(0, (2, 2)), zorder=1)
-        labels = [(hist_spread, f'Real EA  {hist_spread:.1f}', C_REAL)]
+        labels = [(hist_spread, f'Real {STOCK}  {hist_spread:.1f}', C_REAL)]
         for m in models:
             col = MODEL_COLOR[m]
             for key, ls in series:
@@ -454,14 +460,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k')
     ap.add_argument('--results_dir', default=os.path.join(HERE, 'results'))
+    ap.add_argument('--stock', default='EA')
     ap.add_argument('--out_dir', required=True)
     args = ap.parse_args()
     models = [m for m in args.models.split(',') if m]
     os.makedirs(args.out_dir, exist_ok=True)
+    global STOCK
+    STOCK = args.stock
 
     NN = {}
     for m in models:
-        f = latest_numbers(args.results_dir, m)
+        f = latest_numbers(args.results_dir, m, args.stock)
         print(f'{m} <- {f}')
         NN[m] = json.load(open(f))
     emp = NN[models[0]]['empirical']

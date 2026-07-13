@@ -216,6 +216,7 @@ MODEL_META = {  # grid label -> (display label, conditioning length)
     'Mamba3_4k': ('Mamba3-4k (2k-finetuned checkpoint)', 4000),
     'S5_4k': ('S5-4k', 4000),
     'GDN': ('GDN-94M (gated DeltaNet)', 500),
+    'S5_120M': ('S5-120M', 500),
     'Historic': ('Historic replay', 500),
     'Heuristic': ('Heuristic (replay + permanent shift)', 500),
     'Propagator': ('Propagator / TIM (replay + transient shift)', 500),

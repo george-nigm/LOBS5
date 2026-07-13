@@ -24,6 +24,7 @@ C_REAL = '#008300'
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--stock', default='EA')
     ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k')
     ap.add_argument('--results_dir', default=os.path.join(B, '..', '..',
                                                           '4_diagnostics', 'results'))
@@ -39,7 +40,7 @@ def main():
     emp = None
     ends = []
     for m in models:
-        N = json.load(open(latest_numbers(os.path.abspath(args.results_dir), m)))
+        N = json.load(open(latest_numbers(os.path.abspath(args.results_dir), m, args.stock)))
         emp = emp or N['empirical']
         r = N['visible-buy']
         rm = np.array(r['resp_mean'], float)
@@ -72,20 +73,21 @@ def main():
     se = [emp.get(f'R_{h}_se', 0) for h in hs]
     ax.errorbar(hs, rv, yerr=[2 * s for s in se], color=C_REAL, lw=1.9,
                 ls=(0, (4, 2)), marker='o', ms=5.5, capsize=3,
-                label=f'real EA data ({emp["n_events"]:,} executions)', zorder=4)
+                label=f'real {args.stock} data ({emp["n_events"]:,} executions)', zorder=4)
     # saturation guide: real impact stops growing past m ~ 60
     ax.axhline(rv[-1], color=C_REAL, lw=0.8, ls=':', alpha=0.7, zorder=1)
+    xmax = max(hs)
     ax.annotate(f'real response saturates at {rv[-1]:+.2f} ticks',
-                xy=(131, rv[-1]), xytext=(66, rv[-1] - 0.14), color=C_REAL,
+                xy=(xmax, rv[-1]), xytext=(xmax * 0.5, rv[-1] - 0.14), color=C_REAL,
                 fontsize=10, fontweight='bold')
-    ends.append((rv[-1], 'real EA', C_REAL))
+    ends.append((rv[-1], f'real {args.stock}', C_REAL))
 
-    ax.set_xlim(0, 135)
+    ax.set_xlim(0, xmax * 1.04)
     ax.set_ylim(bottom=-0.1)     # keep the ≈0 baselines visible (they dip a few hundredths negative)
     ax.axhline(0, color='#9a9a9a', lw=0.7, zorder=1)
     ax.set_xlabel(r'messages after the execution event  $m$')
     ax.set_ylabel(r'mean mid response $R(m)$  (ticks)')
-    ax.set_title('EA — response to a single child order vs real data')
+    ax.set_title(f'{args.stock} — response to a single child order vs real data')
     legend_box(ax, loc='upper left')
     fig.tight_layout()
     savefig_pub(fig, os.path.abspath(args.out))
