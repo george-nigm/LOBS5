@@ -154,13 +154,17 @@ def load_regime(exp, sign, n_samples, with_insertions, m_max=131):
         finals.append(sign * (end - mid[0]) / TICK)
     trajs, sprs = np.array(trajs), np.array(sprs)
     n = len(trajs)
+    # a sample whose book dies at the end (all-SENT tail) leaves final=nan — it must not
+    # poison the regime mean (seen: GOOG GDN invisible-sell), so aggregate nan-robustly
+    finals = np.asarray(finals, float)
+    nf = max(int(np.isfinite(finals).sum()), 1)
     out = {
         'n': n,
         'traj_mean': trajs.mean(0), 'traj_se': trajs.std(0) / max(np.sqrt(n), 1),
         'spr_mean': sprs.mean(0),
-        'final_mean': float(np.mean(finals)), 'final_se': float(np.std(finals) / max(np.sqrt(n), 1)),
-        'mech_mean': float(np.mean(mechs)) if mechs else 0.0,
-        'drift_mean': float(np.mean(drifts)) if drifts else float(np.mean(finals)),
+        'final_mean': float(np.nanmean(finals)), 'final_se': float(np.nanstd(finals) / np.sqrt(nf)),
+        'mech_mean': float(np.nanmean(mechs)) if mechs else 0.0,
+        'drift_mean': float(np.nanmean(drifts)) if drifts else float(np.nanmean(finals)),
         'min_gap': min_gap if min_gap < 10 ** 9 else None,
     }
     if with_insertions:
