@@ -44,7 +44,7 @@ vol = np.array([r['vol_day_mean'] for r in rows])
 tf  = np.array([r['trade_frac_day_mean'] for r in rows])
 mb  = np.array([r['msgs_btw_day_mean'] for r in rows])
 d   = {r['ticker']: r for r in rows}
-SEL = [('EA', '#00897B'), ('NVDA', '#8E24AA'), ('AMD', '#E53935')]
+SEL = [('EA', '#00897B'), ('GOOG', '#2F5DA3'), ('NVDA', '#8E24AA'), ('AMD', '#E53935')]
 BAR = {'vol': '#F4A93644', 'tf': '#5BB87044', 'mb': '#4A86C544'}
 EDGE = {'vol': '#E69500', 'tf': '#2E8B57', 'mb': '#2F5DA3'}
 
