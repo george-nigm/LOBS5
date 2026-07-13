@@ -46,6 +46,16 @@ FLEET_NOTES = [
     (r'^goog23', 'GOOG 2023_Jan calibration from flair06 old-proc npy'),
     (r'^lobimp_beta', 'beta analysis pass over grid_v2'),
     (r'^lobimp_run|^run_', 'run_experiments.sh launch (smoke=64 samples unless noted)'),
+    # 2026-07-13 post-crash recovery fleet (triangle/event-response for GOOG+NVDA papers)
+    (r'^Rinv_', 'NVDA invisible finisher after 07-10 OOM: 8/day, day-slice k/2, 224G'),
+    (r'^empresp_', 'real-data R(m) anchor from data_cond (400 files)'),
+    (r'^basresp_', 'impact-blind baseline R(m) reference (1024 samples)'),
+    (r'^tri[GN]_', 'control-triangle report: visible/invisible/noins x 160 samples'),
+    (r'^figtri_', 'paper figures: triangle_bars + event_response per stock'),
+    (r'^evresp_', 'event_response figure re-render (annotation fix)'),
+    (r'^dur_NVDA', 'NVDA duration-independence slopes over grid_v2'),
+    (r'^partover', 'participation cumulative overshoot printer (GOOG+NVDA Mamba3)'),
+    (r'^html_[GN]_', 'interactive HTML explorer stage (12h resubmit of the 6h-TIMEOUT run)'),
 ]
 
 TRES_RE = {
