@@ -73,6 +73,8 @@ def main():
         ok = np.isfinite(x) & np.isfinite(li)
         x, li, kc = x[ok], li[ok], kc[ok]
         days = [d for d, o in zip(days, ok) if o]
+        if kc.size == 0:
+            print(f'{exp}: all points filtered (misaligned/legacy dir?) — skip'); continue
         kmax = int(min(args.kmax, kc.max()))
 
         curves = {m: {im: {'exact': {'k': [], 'b': [], 'lo': [], 'hi': []},
