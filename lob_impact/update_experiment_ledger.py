@@ -56,6 +56,9 @@ FLEET_NOTES = [
     (r'^dur_NVDA', 'NVDA duration-independence slopes over grid_v2'),
     (r'^partover', 'participation cumulative overshoot printer (GOOG+NVDA Mamba3)'),
     (r'^html_[GN]_', 'interactive HTML explorer stage (12h resubmit of the 6h-TIMEOUT run)'),
+    (r'^bkvol2?_', 'beta-k vol explorer + audit: 6 sigmas x 3 fit modes, bootstrap CI, cross-metaorder, Q-split'),
+    (r'^esens_', 'estimator sensitivity: log-log/L2/L1, Almgren J=I/2+temp, duration covariate'),
+    (r'^tr_audit', 'transient exponent + relaxation tail from master-curve caches (seconds)'),
 ]
 
 TRES_RE = {
