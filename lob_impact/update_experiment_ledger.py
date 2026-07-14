@@ -59,6 +59,7 @@ FLEET_NOTES = [
     (r'^bkvol2?_', 'beta-k vol explorer + audit: 6 sigmas x 3 fit modes, bootstrap CI, cross-metaorder, Q-split'),
     (r'^esens_', 'estimator sensitivity: log-log/L2/L1, Almgren J=I/2+temp, duration covariate'),
     (r'^tr_audit', 'transient exponent + relaxation tail from master-curve caches (seconds)'),
+    (r'^bexh_', 'bias exhibit figure: cloud + signed bins + per-point/binned/L2 fits, 2 sigma rows'),
 ]
 
 TRES_RE = {
