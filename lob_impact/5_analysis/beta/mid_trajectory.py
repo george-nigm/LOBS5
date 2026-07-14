@@ -107,7 +107,7 @@ def collect_traj(side_dir, sign):
         if not np.isfinite(ref) or ref <= 0:
             continue
         mb = int(np.diff(aggr).min()) if len(aggr) > 1 else 0
-        trajs.append((sign * (mid - ref) / ref * 1e4, aggr, mb))   # bps
+        trajs.append((sign * (mid - ref) / ref * 1e4, aggr, mb, m.group(1)))   # bps, +day
         if any_aggr is None:
             any_aggr = aggr
     return trajs, any_aggr
@@ -148,6 +148,8 @@ def main():
     ap.add_argument('--trim', type=float, default=0.10, help='trimmed-mean: drop this fraction from EACH tail per step')
     ap.add_argument('--min_frac', type=float, default=0.5, help='only plot steps where >=this fraction of samples reach')
     ap.add_argument('--smooth', type=int, default=0, help='rolling-mean window (steps) on the mean line; 0=off')
+    ap.add_argument('--dump_samples', action='store_true',
+                    help='also cache the per-sample k-clock matrix <model>_K (+_K_side/_K_day) for spaghetti exhibits')
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
 
@@ -169,7 +171,9 @@ def main():
             print(f'{exp}: no data'); continue
         trajs = [x[0] for x in items]
         K = np.vstack([at_boundaries(I, aggr, mb, n_ins_k, n_cool_k)
-                       for I, aggr, mb in items])
+                       for I, aggr, mb, _day in items])
+        smp_side = np.array([+1] * len(tb) + [-1] * len(ts))
+        smp_day = np.array([x[3] for x in items])
         Lm = max(len(t) for t in trajs)                       # PAD to longest (was: truncate to shortest = bug)
         M = np.full((len(trajs), Lm), np.nan)
         for i, t in enumerate(trajs):
@@ -218,6 +222,10 @@ def main():
         axk.fill_between(ks, kmean - 1.96 * kse, kmean + 1.96 * kse, color=c, alpha=0.10)
         cache[f'{model}_k_mean'] = kmean
         cache[f'{model}_k_se'] = kse
+        if args.dump_samples:            # per-sample k-clock matrix for spaghetti exhibits
+            cache[f'{model}_K'] = K.astype(np.float32)
+            cache[f'{model}_K_side'] = smp_side
+            cache[f'{model}_K_day'] = smp_day
         print(f'  k-clock: end={kmean[-1]:.2f}±{kse[-1]:.2f} bps (k={nb})')
 
     if ins_steps is not None and Lmax:
