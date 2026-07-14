@@ -6,6 +6,11 @@ Reads the Action-2 daily file (ticker, day, open_price, highest_price, lowest_pr
 close_price, execution_sum) and returns, per (ticker, day), a daily sigma under each of:
 
   parkinson        (H,L)           per-day, range-based  σ²=(h-l)²/(4ln2)
+  range_raw        (H,L)           per-day, raw log range σ=h-l  — the metaorder-literature
+                                   convention (Sato-Kanazawa, Maitrier TSE, Zarinelli all use the
+                                   plain daily range, NOT the 1/sqrt(4ln2)≈0.60-scaled Parkinson);
+                                   use this sigma when comparing amplitudes against Y≈0.5.
+                                   Not in METHODS (kept out of the 5-method grids); extra dict key.
   garman_klass     (O,H,L,C)       per-day               σ²=0.5(h-l)² - (2ln2-1)(c-o)²
   rogers_satchell  (O,H,L,C)       per-day, drift-robust σ²=(h-c)(h-o)+(l-c)(l-o)
   close_to_close   (C series)      per-ticker window     σ=std(Δ ln C) over the month
@@ -82,6 +87,7 @@ def daily_sigmas(daily_csv):
 
         for i, d in enumerate(days):
             out[(ticker, d['day'])] = dict(
+                range_raw=float(h[i] - l[i]) if np.isfinite(h[i] - l[i]) else np.nan,
                 parkinson=float(park[i]) if np.isfinite(park[i]) else np.nan,
                 garman_klass=float(gk[i]) if np.isfinite(gk[i]) else np.nan,
                 rogers_satchell=float(rs[i]) if np.isfinite(rs[i]) else np.nan,
