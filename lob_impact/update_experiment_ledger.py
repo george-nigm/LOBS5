@@ -60,6 +60,8 @@ FLEET_NOTES = [
     (r'^esens_', 'estimator sensitivity: log-log/L2/L1, Almgren J=I/2+temp, duration covariate'),
     (r'^tr_audit', 'transient exponent + relaxation tail from master-curve caches (seconds)'),
     (r'^bexh_', 'bias exhibit figure: cloud + signed bins + per-point/binned/L2 fits, 2 sigma rows'),
+    (r'^emprc', 'anchor anatomy: R(m) to 250, per-day, buy/sell, drift, clean-window contamination check'),
+    (r'^mtd_', 'mid_trajectory rebuild with per-sample k-clock dump + fig6 spaghetti exhibit'),
 ]
 
 TRES_RE = {
