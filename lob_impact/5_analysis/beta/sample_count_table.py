@@ -33,7 +33,11 @@ def main():
             if k.endswith('_cnt'):
                 model = k[:-4]
                 n = int(np.nanmax(z[k]))
-                rows.setdefault((stock, shape), {})[model] = n
+                cell = str(n)
+                if f'{model}_K' in z.files:      # exact survivors at the final k (dump_samples runs)
+                    K = z[f'{model}_K']
+                    cell = f'{n} ({int(np.isfinite(K[:, -1]).sum())}@k{K.shape[1] - 1})'
+                rows.setdefault((stock, shape), {})[model] = cell
                 if model not in models_all:
                     models_all.append(model)
 
@@ -49,7 +53,7 @@ def main():
     for (stock, shape) in keys:
         r = rows[(stock, shape)]
         lines.append(f'| {stock} | {shape} | ' +
-                     ' | '.join(str(r.get(m, '—')) for m in models_all) + ' |')
+                     ' | '.join(r.get(m, '—') for m in models_all) + ' |')
     out = os.path.abspath(args.out)
     with open(out, 'w') as fh:
         fh.write('\n'.join(lines) + '\n')
