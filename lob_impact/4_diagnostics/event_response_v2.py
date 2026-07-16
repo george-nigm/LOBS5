@@ -29,10 +29,15 @@ MODEL_COLOR = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B
 C_REAL = '#111111'
 
 
+NEURAL = ['Mamba3', 'GDN', 'S5_120M', 'S5', 'Mamba3_4k', 'S5_4k']
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--triangle_glob', required=True)
+    ap.add_argument('--triangle_glob', default=None)
+    ap.add_argument('--model_npz', default=None,
+                    help='model_response_<ST>.npz from model_response_curve.py (250-msg, even axis)')
     ap.add_argument('--anchor', required=True)
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
@@ -46,7 +51,21 @@ def main():
     fig, (ax, axt) = plt.subplots(1, 2, figsize=(12.6, 4.9), dpi=200,
                                   gridspec_kw={'width_ratios': [2.1, 1]})
     plateaus = {}
-    for d in sorted(glob.glob(args.triangle_glob)):
+    if args.model_npz:
+        M = np.load(args.model_npz, allow_pickle=True)
+        for m in NEURAL:
+            if f'{m}_R' not in M.files:
+                continue
+            rm, rs = M[f'{m}_R'], M[f'{m}_Rse']
+            n_ev, n_run = (int(v) for v in M[f'{m}_n'])
+            x = np.arange(1, len(rm) + 1); ok = np.isfinite(rm) & (M[f'{m}_cnt'] >= 100)
+            c = MODEL_COLOR.get(m, '#444444')
+            ax.fill_between(x[ok], (rm - 2 * rs)[ok], (rm + 2 * rs)[ok], color=c, alpha=0.12, lw=0)
+            ax.plot(x[ok], rm[ok], color=c, lw=1.9,
+                    label=f'{m} — {n_ev:,} child events (n={n_run})')
+            tail = rm[ok][len(rm[ok]) // 2:]
+            plateaus[m] = float(np.nanmean(tail))
+    for d in sorted(glob.glob(args.triangle_glob)) if args.triangle_glob else []:
         f = os.path.join(d, 'numbers.json')
         if not os.path.exists(f):
             continue
