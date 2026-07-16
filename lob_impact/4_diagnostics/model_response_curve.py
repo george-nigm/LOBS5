@@ -62,7 +62,7 @@ def model_response(side_dir, m_max, n_files):
             if not np.isfinite(base):
                 continue
             nxt = ii[j + 1] if j + 1 < len(ii) else L
-            hi = min(m_max, nxt - t, L - t)
+            hi = min(m_max, nxt - t, L - 1 - t)
             if hi < 1:
                 continue
             n_ev += 1
