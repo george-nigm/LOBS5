@@ -62,6 +62,8 @@ FLEET_NOTES = [
     (r'^bexh_', 'bias exhibit figure: cloud + signed bins + per-point/binned/L2 fits, 2 sigma rows'),
     (r'^emprc', 'anchor anatomy: R(m) to 250, per-day, buy/sell, drift, clean-window contamination check'),
     (r'^mtd_', 'mid_trajectory rebuild with per-sample k-clock dump + fig6 spaghetti exhibit'),
+    (r'^b33', 'beta_3x3: 3 estimators (binned/L2/L1) x 3 cross-sections (<=k/=k/>=k) delta(k) dynamics'),
+    (r'^mresp', 'model per-event R(m) to 250 from grid, capped at next insertion (even-axis Figure 8 v2)'),
 ]
 
 TRES_RE = {
