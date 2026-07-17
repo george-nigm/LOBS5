@@ -6,7 +6,7 @@ for ALL SIX sigma normalisations, plus the amplitude/intercept dynamics.
 Rows:  binned delta | direct-L2 delta | direct-L1 delta | amplitude row
 Cols:  sigma = 1 (none), parkinson, garman_klass, rogers_satchell,
        close_to_close, yang_zhang
-View:  cumulative <=k only (the informative pooling; see beta_3x3 for =k / >=k).
+View:  --view le|eq|ge (cumulative <=k / exact =k / reverse >=k) — one figure per view.
 
 The two window estimators (close_to_close, yang_zhang) are one value per ticker,
 i.e. a constant rescale of y -> delta must be IDENTICAL to the sigma=1 column and
@@ -87,7 +87,11 @@ def main():
     ap.add_argument('--stock', required=True)
     ap.add_argument('--models', default='Historic,Hawkes,Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
     ap.add_argument('--ks', default='5:100:5')
+    ap.add_argument('--view', default='le', choices=['le', 'eq', 'ge'])
     args = ap.parse_args()
+    SEL = {'le': lambda kk, k: kk <= k, 'eq': lambda kk, k: kk == k,
+           'ge': lambda kk, k: kk >= k}[args.view]
+    VLBL = {'le': r'cumulative $\leq k$', 'eq': r'exact $=k$', 'ge': r'reverse $\geq k$'}[args.view]
     lo, hi, st = (int(v) for v in args.ks.split(':'))
     ks = np.arange(lo, hi + 1, st)
     sig = daily_sigmas(args.daily)
@@ -118,7 +122,7 @@ def main():
             d2 = np.full(len(ks), np.nan); a2 = np.full(len(ks), np.nan)
             d1 = np.full(len(ks), np.nan); a1 = np.full(len(ks), np.nan)
             for i, k in enumerate(ks):
-                m = kk <= k
+                m = SEL(kk, int(k))
                 if m.sum() < MIN_PTS:
                     continue
                 db[i], ib[i] = fit_binned(x[m], y[m])
@@ -162,10 +166,10 @@ def main():
                 ax.set_xlabel('$k$')
     axes[0][0].legend(fontsize=6.6, ncol=2, loc='lower right')
     fig.suptitle(f'{args.stock}: three estimators x six volatility normalisations '
-                 f'(cumulative $\\leq k$; window sigmas = per-ticker constants -> '
+                 f'({VLBL}; window sigmas = per-ticker constants -> '
                  f'delta must match the sigma=1 column, only amplitude moves)', y=0.995)
     fig.tight_layout()
-    png = os.path.join(outdir, f'beta_sigma_grid_{args.stock}.png')
+    png = os.path.join(outdir, f'beta_sigma_grid_{args.stock}_{args.view}.png')
     fig.savefig(png, dpi=145, bbox_inches='tight')
     np.savez_compressed(png.replace('.png', '.npz'), **cache)
     print(f'BETA_SIGMA_GRID_DONE -> {png} (+npz)', flush=True)
