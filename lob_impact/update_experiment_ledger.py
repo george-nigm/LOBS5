@@ -64,6 +64,7 @@ FLEET_NOTES = [
     (r'^mtd_', 'mid_trajectory rebuild with per-sample k-clock dump + fig6 spaghetti exhibit'),
     (r'^b33', 'beta_3x3: 3 estimators (binned/L2/L1) x 3 cross-sections (<=k/=k/>=k) delta(k) dynamics'),
     (r'^mresp', 'model per-event R(m) to 250 from grid, capped at next insertion (even-axis Figure 8 v2)'),
+    (r'^bsg', 'beta_sigma_grid: 3 estimators x 6 sigma normalisations + amplitude row, per cross-section'),
 ]
 
 TRES_RE = {
