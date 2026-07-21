@@ -65,7 +65,35 @@ FLEET_NOTES = [
     (r'^b33', 'beta_3x3: 3 estimators (binned/L2/L1) x 3 cross-sections (<=k/=k/>=k) delta(k) dynamics'),
     (r'^mresp', 'model per-event R(m) to 250 from grid, capped at next insertion (even-axis Figure 8 v2)'),
     (r'^bsg', 'beta_sigma_grid: 3 estimators x 6 sigma normalisations + amplitude row, per cross-section'),
+    (r'^b3l2', 'beta_3views_l2: Figure-10 remake, direct-L2 on unfiltered signed points + misfit insets'),
+    (r'^bsgrr', 'sigma-grid rerender chain (byestimator/l2 summary/amplitude) after full-model bsg'),
+    (r'^fig5c', 'fig5_combined: 2x2 build-up/relaxation x k-clock/master, shared bottom legend (cache re-render)'),
+    (r'^causal', 'causal tests: placebo pseudo-metaorder + pre-trend + flow-balance (gamma_flow vs H_price)'),
+    (r'^(hi|he|pr)_(AMD|MSFT)', 'AMD/MSFT grid_v2 replay: 52 samples/day x 20 days (1040/side)'),
+    (r'^(cst|nmz|haw)_[AM]_', 'AMD/MSFT grid_v2 param model: 52 samples/day x 20 days'),
+    (r'^est', 'CST+Hawkes parameter estimation from historic data_cond (new-stock chain)'),
+    (r'^lobimp_a2', 'Action-2 daily H/L stats (new stocks, shard self-mount)'),
 ]
+
+# Model-class map for the per-model resource comparison (paper: cost per generator).
+MODEL_CLASS = [
+    (r'^nmam4|^rnmam4|^fmam4|^gmam4|^rfgmam4', 'Mamba3-4k (neural, 4k ctx)'),
+    (r'^ns5_4|^gs5_4|^fs5_4|^rfs5_4', 'S5-4k (neural, 4k ctx)'),
+    (r'^nmam_|^gmam_|^r2k_m3', 'Mamba3 (neural, 500 ctx)'),
+    (r'^ngdn|^ggdn', 'GDN (neural, 500 ctx)'),
+    (r'^ns5_[br]|^gs5_[br]', 'S5-120M (neural, 500 ctx)'),
+    (r'^tw_day|^lobs5_legacy', 'LobS5 (neural, legacy GOOG-2023)'),
+    (r'^(hi|he|pr)_', 'Replays (Historic/Heuristic/Propagator, CPU)'),
+    (r'^(cst|nmz|haw)_', 'Parametric (CST/NMZI/Hawkes, CPU)'),
+    (r'^noins_|^inv_|^Rinv_', 'Controls (noins/invisible)'),
+]
+
+
+def class_for(name: str) -> str:
+    for pat, cls in MODEL_CLASS:
+        if re.search(pat, name):
+            return cls
+    return ''
 
 TRES_RE = {
     'cpu': re.compile(r'(?:^|,)cpu=(\d+)'),
@@ -151,6 +179,26 @@ def main():
         f'- **{len(rows)} jobs** ({n_ok} COMPLETED), wall-clock sums over all states.',
         f'- **GPU-hours: {gpu_h:.0f}** total / {gpu_h_ok:.0f} in completed jobs; **CPU-core-hours: {cpu_h:.0f}**.',
         '- Queue wait = Start − Submit. n_samples/fleet notes are hand-maintained in the script.',
+        '',
+        '## Resource cost per generator class (paper table)',
+        '',
+        '| generator class | jobs | GPU-hours | CPU-core-hours | median wall |',
+        '|---|---|---|---|---|',
+    ]
+    by_cls = {}
+    for r in rows:
+        cls = class_for(r['name'])
+        if not cls:
+            continue
+        d = by_cls.setdefault(cls, {'n': 0, 'gpu': 0.0, 'cpu': 0.0, 'walls': []})
+        h = hhmmss_to_h(r['elapsed'])
+        d['n'] += 1; d['gpu'] += r['gpu'] * h; d['cpu'] += r['cpu'] * h
+        if h > 0:
+            d['walls'].append(h)
+    for cls, d in sorted(by_cls.items(), key=lambda kv: -kv[1]['gpu']):
+        med = sorted(d['walls'])[len(d['walls']) // 2] if d['walls'] else 0.0
+        out.append(f"| {cls} | {d['n']} | {d['gpu']:.0f} | {d['cpu']:.0f} | {med:.1f}h |")
+    out += [
         '',
         '| JobID | Name | Submitted | Wait | Wall | CPU | GPU | Mem | State | Notes |',
         '|---|---|---|---|---|---|---|---|---|---|',
