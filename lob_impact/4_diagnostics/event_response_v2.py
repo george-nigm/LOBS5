@@ -9,8 +9,11 @@ Replaces the old event_response figure after the anchor anatomy:
     window capped at the next insertion) — no grid re-read;
   - right panel: TRADE-TIME view — real R at the k-th following execution
     (the only clock shared across stocks: 10% participation => next insertion
-    ~ 10 executions), with each model's instant plateau drawn as a flat line
-    (the models' defect IS that their response does not depend on the clock).
+    ~ 10 executions). When the model npz carries <m>_Rtr keys (trade-time model
+    curves computed by model_response_curve.py) the ACTUAL model curves are
+    drawn — short by construction (window capped at the next insertion) and
+    flat, visible to the eye rather than asserted; without those keys it falls
+    back to the old plateau hlines.
 
   python event_response_v2.py --stock NVDA \
       --triangle_glob 'results/triangle_NVDA_*_20260713-161454' \
@@ -96,17 +99,35 @@ def main():
     ks = np.arange(1, len(Rtr) + 1)
     axt.errorbar(ks, Rtr, yerr=2 * Rtr_se, fmt='o-', ms=4, color=C_REAL, lw=1.6,
                  capsize=2, label='real, trade time')
-    for m, p in sorted(plateaus.items(), key=lambda kv: -kv[1]):
-        axt.axhline(p, color=MODEL_COLOR.get(m, '#444444'), lw=1.4, ls=':',
-                    alpha=0.9)
-        axt.annotate(m, (ks[-1], p), fontsize=6.6, color=MODEL_COLOR.get(m, '#444444'),
-                     va='bottom', ha='right')
+    model_tr = {}
+    if args.model_npz:
+        M = np.load(args.model_npz, allow_pickle=True)
+        for m in NEURAL:
+            if f'{m}_Rtr' not in M.files:
+                continue
+            rt, rs, rc = M[f'{m}_Rtr'], M[f'{m}_Rtr_se'], M[f'{m}_Rtr_cnt']
+            kk = np.arange(1, len(rt) + 1)
+            okt = np.isfinite(rt) & (rc >= 100)
+            if not okt.any():
+                continue
+            c = MODEL_COLOR.get(m, '#444444')
+            axt.errorbar(kk[okt], rt[okt], yerr=2 * rs[okt], fmt='o-', ms=2.6,
+                         color=c, lw=1.2, capsize=0, alpha=0.95)
+            axt.annotate(m, (kk[okt][-1], rt[okt][-1]), fontsize=6.4, color=c,
+                         va='center', ha='left', xytext=(3, 0), textcoords='offset points')
+            model_tr[m] = rt
+    if not model_tr:
+        for m, p in sorted(plateaus.items(), key=lambda kv: -kv[1]):
+            axt.axhline(p, color=MODEL_COLOR.get(m, '#444444'), lw=1.4, ls=':', alpha=0.9)
+            axt.annotate(m, (ks[-1], p), fontsize=6.6, color=MODEL_COLOR.get(m, '#444444'),
+                         va='bottom', ha='right')
     axt.axvline(10, color='#888888', lw=1.0, ls='--')
     axt.annotate('next insertion\n(10% participation)', (10, axt.get_ylim()[0]),
                  fontsize=7, color='#666666', ha='center', va='bottom')
     axt.axhline(0, color='#bbbbbb', lw=0.8)
     axt.set_xlabel('k-th execution after the event (trade time)')
-    axt.set_title('trade-time: real builds (and relaxes);\nmodel plateaus are clock-independent',
+    axt.set_title('trade-time: real builds (and relaxes); model curves are\n'
+                  'short (capped at the next insertion) and flat',
                   fontsize=9.5, loc='left')
     axt.legend(fontsize=7.6, loc='upper left')
     fig.tight_layout()
@@ -114,7 +135,8 @@ def main():
     np.savez_compressed(os.path.splitext(args.out)[0] + '.npz',
                         mgrid=mg, R=R, R_se=Rse, Rtr=Rtr, Rtr_se=Rtr_se,
                         plateau_models=np.array(list(plateaus)),
-                        plateau_vals=np.array(list(plateaus.values())))
+                        plateau_vals=np.array(list(plateaus.values())),
+                        **{f'{m}_Rtr_fig': v for m, v in model_tr.items()})
     print('plateaus:', {k: round(v, 2) for k, v in plateaus.items()})
     print(f'EVRESP_V2_DONE -> {args.out}', flush=True)
 
