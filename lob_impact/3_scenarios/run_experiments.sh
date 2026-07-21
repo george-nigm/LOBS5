@@ -112,7 +112,7 @@ MODEL_KEYS=(historic mamba3)
 read -ra STOCKS <<< "${STOCKS:-EA NVDA AMD}"        # env-overridable: STOCKS="EA" for per-stock jobs
 # mb (messages-between) is FIXED per stock = its msgs_btw (eta=10% participation), from 1_data_prep.
 # NOT a sweep — one mb per stock so participation rate stays at the target.
-declare -A STOCK_MB=([EA]=122 [NVDA]=250 [AMD]=401 [GOOG]=729)
+declare -A STOCK_MB=([EA]=122 [NVDA]=250 [MSFT]=261 [AAPL]=344 [AMD]=401 [AMZN]=421 [GOOG]=729)
 # shape: "name|num_insertions|num_coolings|template|tag"   (tag = folder suffix: beta | relaxation)
 SHAPES=(
   "bet_composition|100|0|config_bet_composition.yaml|beta"        # Shape I  -> beta
