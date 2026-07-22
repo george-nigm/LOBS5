@@ -28,7 +28,7 @@ TICK = 100
 DATE_RE = re.compile(r'(\d{4}-\d{2}-\d{2})')
 COLORS = {'Real': '#111111', 'Historic': '#C0392B', 'Mamba3': '#2F5DA3', 'GDN': '#D81B60',
           'S5_120M': '#F06292', 'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
-LMAX = 200
+LMAX = 300
 FIT_LO, FIT_HI = 2, 40
 
 
@@ -120,7 +120,7 @@ def var_H(runs):
 
 
 def resp(runs):
-    ls = np.arange(1, 101)
+    ls = np.arange(1, 201)
     s = np.zeros(len(ls)); c = np.zeros(len(ls))
     for eps, mid in runs:
         for i, l in enumerate(ls):
@@ -155,14 +155,18 @@ def main():
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.6))
     cache = {}
-    lines = ['| source | gamma_flow | H_price | (1-gamma)/2 | verdict |',
-             '|---|---|---|---|---|']
+    lines = ['| source | runs | trades/run | pairs@100 | buy_share | gamma_flow | H_price | verdict |',
+             '|---|---|---|---|---|---|---|---|']
     for name, files in sources.items():
         if not files:
             print(f'{name}: no files', flush=True); continue
         runs = accum(files)
         if not runs:
             print(f'{name}: no usable runs', flush=True); continue
+        n_tr = np.array([len(e) for e, _ in runs])
+        buy_share = float(np.mean(np.concatenate([e for e, _ in runs]) > 0))
+        pairs100 = int(np.sum(np.maximum(n_tr - 100, 0)))
+        print(f'{name}: runs={len(runs)} trades/run median={int(np.median(n_tr))} pairs@l=100={pairs100:,} buy_share={buy_share:.3f}', flush=True)
         ls, C, gamma = acf_gamma(runs)
         lv, V, H = var_H(runs)
         lr, R = resp(runs)
@@ -187,7 +191,7 @@ def main():
         verdict = ('balanced' if np.isfinite(H) and abs(H - 0.5) < 0.07 else
                    'SUPERDIFFUSIVE (persistence uncompensated)' if H > 0.57 else
                    'subdiffusive')
-        lines.append(f'| {name} | {gamma:.2f} [{g_lo:.2f},{g_hi:.2f}] | {H:.2f} [{h_lo:.2f},{h_hi:.2f}] | {bal:.2f} | {verdict} |')
+        lines.append(f'| {name} | {len(runs)} | {int(np.median(n_tr))} | {pairs100:,} | {buy_share:.3f} | {gamma:.2f} [{g_lo:.2f},{g_hi:.2f}] | {H:.2f} [{h_lo:.2f},{h_hi:.2f}] | {verdict} |')
         print(f'{name}: gamma_flow={gamma:.2f} H_price={H:.2f} runs={len(runs)}', flush=True)
 
     axes[0].set_title('trade-sign autocorrelation $C(\\ell)$\n(long memory: slow power-law decay)', fontsize=10)
