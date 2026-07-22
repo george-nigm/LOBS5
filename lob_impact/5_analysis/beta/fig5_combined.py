@@ -155,7 +155,7 @@ def main():
     handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0, label=m.replace('_', '-'))
                for m in present]
     handles.append(Line2D([], [], color=GREY, lw=2.4, ls='--',
-                          label=r'reference ($\sqrt{\cdot}$-law / $2/3$ level)'))
+                          label=r'reference ($\sqrt{\cdot}$-law, $Y{=}0.5$ range-conv / $2/3$ level)'))
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 5),
                fontsize=12.5, frameon=False, bbox_to_anchor=(0.5, -0.045))
     fig.suptitle(f'{args.stock}: metaorder impact — build-up and relaxation, '

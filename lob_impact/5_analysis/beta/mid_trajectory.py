@@ -141,7 +141,8 @@ def main():
     ap.add_argument('--shape', default='beta', help='grid exp suffix: beta | relaxation')
     ap.add_argument('--daily', default=None, help='daily H/L CSV; if given (with --per_day_params), overlay √-law')
     ap.add_argument('--per_day_params', default=None, help='per_day_params_<STOCK>.csv (child/mb/V per day)')
-    ap.add_argument('--Y', type=float, default=1.0, help='√-law prefactor  I=Y*sigma*sqrt(Q/V)')
+    ap.add_argument('--Y', type=float, default=0.8325546,
+                help='√-law prefactor I=Y*sigma*sqrt(Q/V) in the SIGMA UNITS USED (default = empirical Y=0.5 of the raw-range convention converted to Parkinson: 0.5*1.665)')
     ap.add_argument('--sigma_method', default='parkinson')
     ap.add_argument('--estimator', default='tmean', choices=['tmean', 'median', 'mean'], help='central trajectory estimator')
     ap.add_argument('--beta_prop', type=float, default=0.5, help='propagator decay exponent (decay shape overlay)')
