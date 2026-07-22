@@ -251,8 +251,8 @@ def run_propagator_scenario(cfg: Dict[str, Any], save_folder: Path):
     event_type = cfg['event_type']
     direction = cfg['direction']
     order_volume = cfg['order_volume']
-    prop_beta = float(cfg.get('prop_beta', 0.5))
-    prop_perm = float(cfg.get('prop_perm', 2.0 / 3.0))
+    prop_beta = float(os.environ.get('PROP_BETA', cfg.get('prop_beta', 0.5)))
+    prop_perm = float(os.environ.get('PROP_PERM', cfg.get('prop_perm', 2.0 / 3.0)))
     # OW variant: exponential resilience kernel (Obizhaeva-Wang), selected via
     # env PROP_KERNEL=exp (env wins over cfg so the fleet can flip it per job).
     prop_kernel = os.environ.get('PROP_KERNEL', str(cfg.get('prop_kernel', 'powerlaw')))

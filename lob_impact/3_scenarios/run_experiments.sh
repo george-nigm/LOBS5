@@ -98,6 +98,8 @@ declare -A MODELS=(
   [propagator]="Propagator|propagator_scenario.py|||503|"
   # OW variant: same replay+kick machinery, exponential resilience kernel (PROP_KERNEL=exp)
   [ow]="OW|propagator_scenario.py|||503|"
+  # pure-transient propagator (PROP_PERM=0, kernel l^-0.5): build-up delta=0.5 BY CONSTRUCTION -> positive control for the exponent estimators
+  [propagator0]="Propagator0|propagator_scenario.py|||503|"
   [hawkes]="Hawkes|hawkes_scenario.py|||503|"
   # Queue-reactive (Huang-Lehalle-Rosenbaum): intensities = f(queue size); strongest classical challenger
   [qr]="QR|qr_scenario.py|||503|"
