@@ -99,6 +99,8 @@ declare -A MODELS=(
   # OW variant: same replay+kick machinery, exponential resilience kernel (PROP_KERNEL=exp)
   [ow]="OW|propagator_scenario.py|||503|"
   [hawkes]="Hawkes|hawkes_scenario.py|||503|"
+  # Queue-reactive (Huang-Lehalle-Rosenbaum): intensities = f(queue size); strongest classical challenger
+  [qr]="QR|qr_scenario.py|||503|"
   [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503|"
   [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
   [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000|/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_4k_j2504167_102965_params.npz"
@@ -167,7 +169,7 @@ render_config() {
   TMPL="$tmpl" OUT="$out" STOCK="$STOCK" DATA_DIR="$DATA_DIR" CKPT="$CKPT" \
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
   N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" N_SLICES="$N_SLICES" \
-  PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" CST_PARAMS="${CST_PARAMS:-}" HAWKES_PARAMS="${HAWKES_PARAMS:-}" N_COND="${N_COND:-}" BSZ="${BSZ:-}" \
+  PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" CST_PARAMS="${CST_PARAMS:-}" HAWKES_PARAMS="${HAWKES_PARAMS:-}" QR_PARAMS="${QR_PARAMS:-}" N_COND="${N_COND:-}" BSZ="${BSZ:-}" \
   METAORDER_VISIBLE="${METAORDER_VISIBLE:-}" PARAMS_NPZ="${PARAMS_NPZ:-}" \
   python3 - <<'PY'
 import os, yaml
@@ -199,6 +201,9 @@ if os.environ.get("CST_PARAMS"):                                                
     cfg["n_levels"]    = 10   # L10 proc data -> 40-col orderbook output, matching the other scenarios
 if os.environ.get("HAWKES_PARAMS"):                                                  # Hawkes parametric baseline
     cfg["params_file"] = os.environ["HAWKES_PARAMS"]
+    cfg["n_levels"]    = 10
+if os.environ.get("QR_PARAMS"):                                                      # queue-reactive baseline
+    cfg["params_file"] = os.environ["QR_PARAMS"]
     cfg["n_levels"]    = 10
 if os.environ.get("PER_DAY"):
     # per-day calibration: child(order_volume)=p50 and mb come from the CSV per day (NOT the
@@ -251,10 +256,11 @@ for model_key in "${MODEL_KEYS[@]}"; do
         dir_int="$(dir_to_int "$dir")"
         mb="${SMOKE_MB:-${STOCK_MB[$STOCK]:-50}}"   # FIXED per-stock msgs_btw (eta=10%), not swept
         # CST/Hawkes are parametric: feed per-stock estimated params (<model>_params/<...>_<STOCK>.pkl)
-        CST_PARAMS=""; HAWKES_PARAMS=""
+        CST_PARAMS=""; HAWKES_PARAMS=""; QR_PARAMS=""
         [ "$LABEL" = "CST" ]    && CST_PARAMS="${HERE}/cst_params/cst_params_${STOCK}.pkl"
         [ "$LABEL" = "NMZI" ]   && CST_PARAMS="${HERE}/cst_params/cst_params_${STOCK}.pkl"  # same rates; sign model differs
         [ "$LABEL" = "Hawkes" ] && HAWKES_PARAMS="${HERE}/hawkes_params/hawkes_params_${STOCK}.pkl"
+        [ "$LABEL" = "QR" ]     && QR_PARAMS="${HERE}/qr_params/qr_params_${STOCK}.pkl"
         scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
         SAVE_DIR="${SAVE_BASE}/${scen}/${dir}"
         cfg_dir="${SAVE_BASE}/_configs/${scen}"
