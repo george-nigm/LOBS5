@@ -29,7 +29,7 @@ DATE_RE = re.compile(r'(\d{4}-\d{2}-\d{2})')
 COLORS = {'Real': '#111111', 'Historic': '#C0392B', 'Mamba3': '#2F5DA3', 'GDN': '#D81B60',
           'S5_120M': '#F06292', 'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
 LMAX = 200
-FIT_LO, FIT_HI = 5, 60
+FIT_LO, FIT_HI = 2, 40
 
 
 def read_csv(f):
@@ -52,7 +52,17 @@ def signs_and_mid(msg_file, ob_file):
     # LOBSTER: direction is the side of the standing limit order; the trade is
     # initiated by the opposite side -> trade sign = -direction.
     eps = -np.sign(mm[ex, 5])
-    return eps, mid[ex]
+    # literature convention: the sign series is per AGGRESSIVE ORDER, not per
+    # fill — one market order eating several resting orders produces a burst of
+    # same-timestamp same-sign rows (52% of consecutive fills here). Collapse
+    # each burst into one trade; mid taken at the last fill of the burst.
+    ts = mm[ex, 0]
+    keep = np.ones(len(ex), bool)
+    keep[1:] = ~((np.diff(ts) == 0) & (eps[1:] == eps[:-1]))
+    # take the LAST row of each burst: shift the keep mask
+    last = np.ones(len(ex), bool)
+    last[:-1] = keep[1:]
+    return eps[last], mid[ex][last]
 
 
 def accum(files_msg, per_run_cap=None):
