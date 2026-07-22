@@ -48,9 +48,9 @@ def draw_mid(ax, z, n_ins=None):
     ax.margins(x=0)
 
 
-def inset_zoom(ax, z):
+def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44)):
     """Zoom inset: the baseline band the neural curves dwarf (means first; bands may clip)."""
-    ins = ax.inset_axes([0.06, 0.52, 0.44, 0.44])
+    ins = ax.inset_axes(list(rect))
     for m in models_in(z, '_k_mean'):
         y = z[f'{m}_k_mean']; se = z[f'{m}_k_se']
         x = np.arange(len(y))
@@ -61,7 +61,7 @@ def inset_zoom(ax, z):
         ys = z['sqrt_y']
         ins.plot(np.linspace(0, len(z[[k for k in z.files if k.endswith('_k_mean')][0]]) - 1, len(ys)),
                  ys, color=GREY, lw=1.8, ls='--')
-    ins.set_ylim(-4.5, 5.5)
+    ins.set_ylim(*ylim)
     ins.axhline(0, color='#cccccc', lw=0.7)
     ins.set_title('zoom: baselines & reference (bps)', fontsize=9)
     ins.tick_params(labelsize=8)
@@ -121,6 +121,7 @@ def main():
     draw_master(axes[0][1], Z['ms_beta'], relax=False, zmid=Z['mid_beta'])
     axes[0][1].set_title(r'build-up: master curve $\langle I(v)\rangle/\langle I(1)\rangle$ (gated)', fontsize=13.5)
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10)
+    inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.55, 0.07, 0.43, 0.40))
     axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
     axes[1][0].set_xlabel('children executed $k$ (then cooling blocks)')
