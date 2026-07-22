@@ -133,9 +133,11 @@ def main():
     outdir = os.path.join(here, 'results', f'causal_{args.stock}')
     os.makedirs(outdir, exist_ok=True)
 
+    # Real = the Historic no-insertion replay: pure real message flow, ~13k msgs
+    # per rollout (the 500-msg data_cond windows are too short for gamma/H fits).
     sources = {'Real': sorted(glob.glob(os.path.join(
-        args.grid, f'{args.stock}-Historic-beta', 'buy', '**', 'data_cond', '*message*.csv'),
-        recursive=True))[:args.n_files]}
+        args.controls, 'noins', f'{args.stock}-Historic-beta', 'buy', '**', 'data_gen',
+        '*message*gen*.csv'), recursive=True))[:args.n_files]}
     for m in [x for x in args.models.split(',') if x]:
         sources[m] = sorted(glob.glob(os.path.join(
             args.controls, 'noins', f'{args.stock}-{m}-beta', 'buy', '**', 'data_gen',
