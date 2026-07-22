@@ -19,6 +19,10 @@ import os, re, csv, glob, argparse
 import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '5_analysis', 'beta'))
+from vol_estimators import daily_sigmas
+
 
 TICK = 100
 SENT = 2147483647
@@ -45,16 +49,6 @@ def aggr_by_day(side_dir):
         d = os.path.basename(f)[len('aggressive_indices_'):-len('.csv')]
         if re.fullmatch(r'\d{4}-\d{2}-\d{2}', d):
             out[d] = np.loadtxt(f, dtype=int, ndmin=1)
-    return out
-
-
-def daily_sigmas(path):
-    import csv as _csv
-    out = {}
-    with open(path) as f:
-        for r in _csv.DictReader(f):
-            out[(r['stock'], r['date'])] = {'V': float(r['V']) if r.get('V') else np.nan,
-                                            'parkinson': float(r['parkinson']) if r.get('parkinson') else np.nan}
     return out
 
 

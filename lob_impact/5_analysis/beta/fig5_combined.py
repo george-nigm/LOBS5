@@ -88,14 +88,14 @@ def main():
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
     axes[1][0].set_xlabel('children executed $k$ (then cooling blocks)')
     draw_master(axes[1][1], Z['ms_relax'], relax=True)
-    axes[1][1].set_title(r'relaxation: master curve, $v>1$ = cooling (dashed: $\tfrac{2}{3}$ level)', fontsize=10)
+    axes[1][1].set_title(r'relaxation: master curve, $v>1$ = cooling (dashed: $2/3$ level)', fontsize=10)
     axes[1][1].set_xlabel('metaorder fraction executed $v$')
 
     present = [m for m in ORDER if any(f'{m}_k_mean' in Z[k].files for k in ('mid_beta', 'mid_decay'))]
     handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.2, label=m.replace('_', '-'))
                for m in present]
     handles.append(Line2D([], [], color=GREY, lw=1.6, ls='--',
-                          label=r'reference ($\sqrt{\cdot}$-law / $\tfrac{2}{3}$ level)'))
+                          label=r'reference ($\sqrt{\cdot}$-law / $2/3$ level)'))
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 7),
                fontsize=8.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
     fig.suptitle(f'{args.stock}: metaorder impact — build-up and relaxation, '
