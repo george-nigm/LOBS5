@@ -81,7 +81,7 @@ def main():
     names, counts = [], []
     for m in models:
         if f'{m}_K' in zk.files:
-            names.append(m); counts.append(int(np.isfinite(zk[f'{m}_K'][:, 1:]).sum()) * 2)
+            names.append(m); counts.append(int(np.isfinite(zk[f'{m}_K'][:, 1:]).sum()))
     ypos = np.arange(len(names))
     ax.barh(ypos, counts, color=[COLORS.get(m, '#444444') for m in names], alpha=0.85)
     ax.set_yticks(ypos); ax.set_yticklabels([m.replace('_', '-') for m in names], fontsize=9)

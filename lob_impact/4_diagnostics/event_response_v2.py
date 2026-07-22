@@ -94,7 +94,6 @@ def main():
     ax.set_ylabel('mean mid response R(m), ticks')
     ax.set_title(f'{args.stock}: per-event response, models vs the validated real anchor',
                  fontsize=11, fontweight='bold', loc='left')
-    ax.legend(loc='upper left', fontsize=6.8, ncol=2)
 
     ks = np.arange(1, len(Rtr) + 1)
     axt.errorbar(ks, Rtr, yerr=2 * Rtr_se, fmt='o-', ms=4, color=C_REAL, lw=1.6,
@@ -129,8 +128,17 @@ def main():
     axt.set_title('trade-time: real builds (and relaxes); model curves are\n'
                   'short (capped at the next insertion) and flat',
                   fontsize=9.5, loc='left')
-    axt.legend(fontsize=7.6, loc='upper left')
-    fig.tight_layout()
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = axt.get_legend_handles_labels()
+    seen = set(); H = []; L = []
+    for h, l in zip(h1 + h2, l1 + l2):
+        base = l.split(' —')[0]
+        if base in seen:
+            continue
+        seen.add(base); H.append(h); L.append(l)
+    fig.legend(H, L, loc='lower center', ncol=4, fontsize=7.5, frameon=False,
+               bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(args.out, bbox_inches='tight')
     np.savez_compressed(os.path.splitext(args.out)[0] + '.npz',
                         mgrid=mg, R=R, R_se=Rse, Rtr=Rtr, Rtr_se=Rtr_se,

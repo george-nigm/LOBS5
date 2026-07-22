@@ -86,7 +86,12 @@ def draw_master(ax, z, relax, zmid=None, n_end=None):
             ax.fill_between(v[:n], y[:n] - 2 * band, y[:n] + 2 * band, color=c, alpha=0.13, lw=0)
     v = z['vgrid']
     if relax:
-        ax.axhline(2 / 3, color=GREY, lw=1.4, ls='--')
+        # theory: sqrt build-up then power-law decay to the 2/3 permanent level
+        vv = np.linspace(0.01, v[-1], 300)
+        th = np.where(vv <= 1, np.sqrt(vv),
+                      2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(np.clip(vv - 1, 0, None))))
+        ax.plot(vv, th, color=GREY, lw=2.4, ls='--')
+        ax.axhline(2 / 3, color=GREY, lw=1.0, ls=':')
         ax.axvline(1.0, color='#999999', lw=1.0, ls=':')
     else:
         ax.plot(v, np.sqrt(np.clip(v, 0, None)), color=GREY, lw=1.4, ls='--')
@@ -122,6 +127,15 @@ def main():
     axes[0][1].set_ylim(-0.05, 1.12)
     axes[0][1].set_title(r'build-up: master curve $\langle I(v)\rangle/\langle I(1)\rangle$ (gated)', fontsize=13.5)
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10)
+    # theory decay tail in bps: peak = cached sqrt-law level at execution end
+    zd = Z['mid_decay']
+    if 'sqrt_y' in zd.files:
+        P = float(np.nanmax(zd['sqrt_y']))
+        klen = max(len(zd[k]) for k in zd.files if k.endswith('_k_mean'))
+        kk = np.linspace(10, klen - 1, 200)
+        vv = kk / 10.0
+        th = P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(vv - 1)))
+        axes[1][0].plot(kk, th, color=GREY, lw=2.4, ls='--')
     axes[1][0].set_ylim(axes[1][0].get_ylim()[0], axes[1][0].get_ylim()[1] * 1.35)
     inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.05, 0.62, 0.38, 0.36))
     axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
