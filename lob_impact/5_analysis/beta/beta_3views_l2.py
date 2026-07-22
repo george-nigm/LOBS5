@@ -8,12 +8,13 @@ Top row    delta_L2(k) for all models under the three cross-sections of the
            k-th insertion: cumulative <=k, exact =k, reverse >=k.
            Fit: y = a * (Q/V)^delta on signed y = I/sigma, grid over delta,
            closed-form amplitude a = <y,t>/<t,t> with t = (Q/V)^delta.
-Bottom row hero model at the cursor k: the signed cloud (x = ln(Q/V), y = I/sigma)
-           with the view-active points highlighted, the fitted curve a*e^{delta x},
-           and an INSET with the normalised misfit profile S(delta)/S_min --
-           the quantity the estimator minimises. A sharp minimum = identified
-           exponent; a flat profile (exact =k for weak-signal models) = not
-           identifiable.
+Bottom row THE MECHANICS OF THE ESTIMATOR, front and centre: normalised misfit
+           profiles S(delta)/S_min at the cursor k for representative models,
+           one panel per cross-section. A deep sharp minimum = identified
+           exponent (neural); a flat profile = any exponent fits, amplitude on
+           zero, "no law" (Historic). A separate supplementary PNG
+           (beta_3views_clouds_<ST>.png) keeps the hero signed-cloud panels
+           with the fitted power law, for the appendix if needed.
 
   python beta_3views_l2.py --grid <root> --daily <daily.csv> --stock NVDA
 """
@@ -78,9 +79,11 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     rng = np.random.default_rng(42)
 
+    PROFILE_MODELS = ['Mamba3', 'GDN', 'S5_120M', 'Historic', 'Hawkes']
     cache = {'ks': ks, 'dgrid': DGRID, 'kcursor': args.kcursor, 'hero': args.hero}
     curves = {}
     hero_pts = None
+    prof_pts = {}
     for model in [m for m in args.models.split(',') if m]:
         raw = collect(os.path.join(args.grid, f'{args.stock}-{model}-beta', 'buy'), args.stock, +1) + \
               collect(os.path.join(args.grid, f'{args.stock}-{model}-beta', 'sell'), args.stock, -1)
@@ -106,6 +109,8 @@ def main():
             cache[f'{model}_{vkey}'] = vals
         if model == args.hero:
             hero_pts = (x_all, y_all, kc)
+        if model in PROFILE_MODELS:
+            prof_pts[model] = (x_all, y_all, kc)
         print(f'  dL2 <=100={curves[(model, "le")][-1]:+.2f}  '
               f'=k mean={np.nanmean(curves[(model, "eq")]):+.2f}  '
               f'>=k(5)={curves[(model, "ge")][0]:+.2f}', flush=True)
@@ -131,54 +136,77 @@ def main():
             ax.set_ylabel(r'$\delta_{L_2}(k)$  (signed, unfiltered)')
             ax.legend(fontsize=6.8, ncol=2, loc='upper left')
 
-    # bottom row: hero cloud + fitted curve + misfit-profile inset, per view
-    x_all, y_all, kc = hero_pts
-    hc = COLORS.get(args.hero, '#2F5DA3')
-    xmin, xmax = np.nanpercentile(x_all, [0.5, 99.5])
-    ymin, ymax = np.nanpercentile(y_all, [0.5, 99.5])
+    # bottom row: THE ESTIMATOR ITSELF — misfit profiles S(delta)/S_min at the
+    # cursor k, per view, for representative models. Sharp deep minimum =
+    # identified; flat = no law.
     for ci, (vkey, _, selfn) in enumerate(VIEWS):
         ax = axes[1][ci]
-        m = selfn(kc, args.kcursor)
-        # cloud subsamples for readability (fits below use all masked points)
-        iia = np.flatnonzero(~m); iib = np.flatnonzero(m)
-        if iia.size > CLOUD_CAP:
-            iia = rng.choice(iia, CLOUD_CAP, replace=False)
-        if iib.size > CLOUD_CAP:
-            iib = rng.choice(iib, CLOUD_CAP, replace=False)
-        ax.scatter(x_all[iia], y_all[iia], s=4, alpha=0.05, color='#9a9a9a', lw=0, zorder=1)
-        ax.scatter(x_all[iib], y_all[iib], s=5, alpha=0.30, color=hc, lw=0, zorder=2)
-        ax.axhline(0.0, color='#bbbbbb', lw=0.8, zorder=1)
-        if m.sum() >= MIN_PTS:
-            S, A = l2_profile(x_all[m], y_all[m], rng)
-            j = int(np.argmin(S)); d, a = float(DGRID[j]), float(A[j])
-            xx = np.linspace(x_all[m].min(), x_all[m].max(), 100)
-            ax.plot(xx, a * np.exp(d * xx), color='#1a1a1a', lw=1.9, zorder=4,
-                    label=rf'$y = a\,(Q/V)^{{\delta}}$:  $\delta={d:.2f}$, $n={int(m.sum()):,}$')
-            ax.legend(fontsize=8, loc='upper left')
-            # inset: the misfit profile the estimator minimises
-            ins = ax.inset_axes([0.62, 0.08, 0.35, 0.38])
-            ins.plot(DGRID, S / S.min(), color=hc, lw=1.3)
-            ins.axvline(d, color='#1a1a1a', lw=0.9, ls=':')
-            ins.set_ylim(bottom=0.99)
-            ins.set_title(r'$S(\delta)/S_{\min}$', fontsize=7)
-            ins.tick_params(labelsize=6)
-            cache[f'hero_{vkey}_S'] = S
-            cache[f'hero_{vkey}_delta'] = d
-            cache[f'hero_{vkey}_a'] = a
-        ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
-        ax.set_xlabel(r'$\ln(Q/V)$')
+        for model in PROFILE_MODELS:
+            if model not in prof_pts:
+                continue
+            xm, ym, kcm = prof_pts[model]
+            msk = selfn(kcm, args.kcursor)
+            if msk.sum() < MIN_PTS:
+                continue
+            S, A = l2_profile(xm[msk], ym[msk], rng)
+            j = int(np.argmin(S))
+            c = COLORS.get(model, '#444444')
+            ax.plot(DGRID, S / S.min(), color=c, lw=1.6,
+                    label=rf'{model}: $\delta$={DGRID[j]:.2f}, $a$={A[j]:+.1e}')
+            ax.axvline(DGRID[j], color=c, lw=0.8, ls=':', alpha=0.6)
+            cache[f'{model}_{vkey}_S'] = S
+        ax.set_yscale('log')
+        ax.set_xlabel(r'$\delta$ candidate')
         if ci == 0:
-            ax.set_ylabel(rf'$I/\sigma$  (signed)   [{args.hero}]')
-    cache['hero_cloud_x'] = x_all[:CLOUD_CAP]; cache['hero_cloud_y'] = y_all[:CLOUD_CAP]
+            ax.set_ylabel(r'misfit $S(\delta)/S_{\min}$ at cursor $k$')
+        ax.legend(fontsize=6.4, loc='upper right')
 
     fig.suptitle(f'{args.stock}: direct-$L_2$ exponent on unfiltered signed points, three views (top); '
-                 f'{args.hero} cloud, fitted power law and misfit profile at $k={args.kcursor}$ (bottom). '
+                 f'the misfit profiles the estimator minimises, at $k={args.kcursor}$ (bottom). '
                  r'$\sigma$ = ' + args.method, fontsize=11.5, y=0.995)
     fig.tight_layout()
     png = os.path.join(outdir, f'beta_3views_l2_{args.stock}.png')
     fig.savefig(png, dpi=150, bbox_inches='tight')
     np.savez_compressed(png.replace('.png', '.npz'), **cache)
     print(f'B3L2_DONE -> {png} (+npz)', flush=True)
+
+    # supplementary: hero signed clouds with the fitted power law, per view
+    if hero_pts is not None:
+        x_all, y_all, kc = hero_pts
+        hc = COLORS.get(args.hero, '#2F5DA3')
+        xmin, xmax = np.nanpercentile(x_all, [0.5, 99.5])
+        ymin, ymax = np.nanpercentile(y_all, [0.5, 99.5])
+        fig2, axc = plt.subplots(1, 3, figsize=(13.5, 4.2))
+        for ci, (vkey, vlabel, selfn) in enumerate(VIEWS):
+            ax = axc[ci]
+            m = selfn(kc, args.kcursor)
+            iia = np.flatnonzero(~m); iib = np.flatnonzero(m)
+            if iia.size > CLOUD_CAP:
+                iia = rng.choice(iia, CLOUD_CAP, replace=False)
+            if iib.size > CLOUD_CAP:
+                iib = rng.choice(iib, CLOUD_CAP, replace=False)
+            ax.scatter(x_all[iia], y_all[iia], s=4, alpha=0.05, color='#9a9a9a', lw=0, zorder=1)
+            ax.scatter(x_all[iib], y_all[iib], s=5, alpha=0.30, color=hc, lw=0, zorder=2)
+            ax.axhline(0.0, color='#bbbbbb', lw=0.8, zorder=1)
+            if m.sum() >= MIN_PTS:
+                S, A = l2_profile(x_all[m], y_all[m], rng)
+                j = int(np.argmin(S)); d, a = float(DGRID[j]), float(A[j])
+                xx = np.linspace(x_all[m].min(), x_all[m].max(), 100)
+                ax.plot(xx, a * np.exp(d * xx), color='#1a1a1a', lw=1.9, zorder=4,
+                        label=rf'$\delta={d:.2f}$, $n={int(m.sum()):,}$')
+                ax.legend(fontsize=8, loc='upper left')
+                cache[f'hero_{vkey}_delta'] = d; cache[f'hero_{vkey}_a'] = a
+            ax.set_xlim(xmin, xmax); ax.set_ylim(ymin, ymax)
+            ax.set_title(vlabel, fontsize=10)
+            ax.set_xlabel(r'$\ln(Q/V)$')
+            if ci == 0:
+                ax.set_ylabel(rf'$I/\sigma$  (signed)   [{args.hero}]')
+        fig2.suptitle(f'{args.stock}: {args.hero} signed cloud with view-active points and the '
+                      f'fitted power law at $k={args.kcursor}$ (supplementary)', fontsize=11)
+        fig2.tight_layout()
+        png2 = os.path.join(outdir, f'beta_3views_clouds_{args.stock}.png')
+        fig2.savefig(png2, dpi=150, bbox_inches='tight')
+        print(f'B3L2_CLOUDS -> {png2}', flush=True)
 
 
 if __name__ == '__main__':
