@@ -1,0 +1,1859 @@
+# Crypto HFT / market-making для соло-кванта — карта возможностей (deep-research, 2026-07-22)
+
+Адверсариально верифицированный отчёт: 105 агентов, 5 поисковых веток, каждое утверждение прошло голосование 3 верификаторов (2/3 опровержений убивают тезис). Ниже — выжившие находки с уровнем уверенности и источниками, затем опровергнутое (что НЕ делать), открытые вопросы и план на 90 дней.
+
+## Executive summary
+
+For a solo PhD-level quant with LOB/ML skills and five-to-low-six-figure capital, the verified evidence points away from speed-dependent games and toward research-heavy niches: on-chain Ethereum MEV/CEX-DEX arbitrage is confirmed oligopolized (3 searchers take ~75% of $233.8M extracted; profitability requires exclusive block-builder integration), while top-tier CEX maker rebates are sub-basis-point and reserved for incumbents who have enjoyed rebate economics since 2020 — so raw passive MM and latency arb on majors are professionalized dead-ends. The genuinely accessible edges are (a) delta-neutral funding-rate arbitrage, especially on perp DEXs where a peer-reviewed 2025 study found the DEX leg still under-arbitraged (Sharpe 23.55 on Drift vs 2.89 HODL, up to 115.9%/6mo backtested with ~2% max loss), and (b) short-horizon signal research, since classic LOB signals (order-flow imbalance, spread, VWAP-mid deviation, VPIN toxicity) verifiably carry predictive information on crypto perps with SHAP-stable shapes from large-caps down to long-tail pairs. Critically, the same study showing signal transferability also shows naive signal-based passive market making fails on every asset without adverse-selection management — exactly where Avellaneda-Stoikov/GLFT-style modeling is the differentiator, making informed MM on perp DEXs a realistic target. Hyperliquid's structure favors this profile: a CLOB-on-chain venue whose ~884ms median order-to-fill (99% server-side, even from AWS Tokyo) caps everyone at sub-second speed tiers, so a $100-200/month VM in the right cloud region (AWS Tokyo for Binance/Hyperliquid, AWS Singapore for Bybit) captures the entire attainable latency edge (~200ms network transit) without physical colocation. A sensible 90-day path implied by the evidence: rent same-region VMs, record L2/trade/funding data on 2-3 venues, paper-trade cross-venue funding-rate arb first (lowest infrastructure bar, quantified risk profile), then layer OFI/toxicity-filtered quoting on a perp DEX.
+
+## Верифицированные находки
+
+### 1. [HIGH] Ethereum on-chain MEV / CEX-DEX arbitrage is effectively closed to new solo entrants: ~$233.8M was extracted over 19 months (Aug 2023 - Mar 2025) across ~7.2M arbitrages by only 19 major searchers, with just three capturing ~75% of volume and value; profitability is tied to exclusive searcher-builder integration, and the post-PBS block-builder market itself is an oligopoly that academics say requires deliberate countermeasures to fix.
+
+**Evidence:** Merged from 5 unanimously-confirmed claims. arXiv 2507.13023 (AFT 2025, Flashbots/EF-affiliated authors) verbatim: '233.8M USD extracted by 19 major CEX-DEX searchers from 7,203,560 identified CEX-DEX arbitrages'; 'three searchers captured three-quarters of both volume and extracted value'; 'searchers' profitability is tied to their integration level with block builders' with documented exclusive relationships (e.g., Senna 89% to beaverbuild, Graves 100% to Titan). KCL/ECAI-2025 builder-auction paper: 'a small set of dominant builders leverage these advantages, consolidating power, reducing auction efficiency, and heightening centralization.' Scope caveat from verifiers: strongest for Ethereum mainnet; long-tail pools, L2s and non-Ethereum chains (Solana, HyperEVM) are less concentrated and were not covered.
+
+**Verification vote:** 15-0 across 5 merged claims (11, 12, 13, 14, 15)
+
+- https://arxiv.org/abs/2507.13023
+- https://kclpure.kcl.ac.uk/portal/en/publications/from-competition-to-centralization-the-oligopoly-in-ethereum-bloc/
+
+### 2. [MEDIUM] Delta-neutral funding-rate arbitrage is the best-documented accessible strategy family, with the DEX leg historically under-arbitraged: a peer-reviewed 2025 backtest across 60 scenarios (BTC/ETH/XRP/BNB/SOL) found up to 115.9% return over six months with max possible loss 1.92%, and DEX venues (Drift Sharpe 23.55, ApolloX 6.50) far outperforming a HODL benchmark (2.89) and the same strategy on CEXs.
+
+**Evidence:** Werapun et al., Blockchain: Research and Applications (Elsevier/KeAi), DOI 10.1016/j.bcra.2025.100354, Aug 2025. Abstract verbatim: 'funding rate can generate substantial returns—up to 115.9% over six months—while keeping possible losses minimal at 1.92%'; 'Drift and ApolloX funding rate arbitrage strategies yielded exceptionally high Sharpe Ratios of 23.55 and 6.50... significantly outperforming the HODL strategy's ratio of 2.89.' Verifier caveats: backtest not live trading; Sharpe 23.55 is a near-zero-vol delta-neutral artifact (absolute PNL 7.61%); data likely 2022-2023 and ApolloX has since merged into Aster; practitioner 2025-2026 steady-state is ~8-20% APY, so 115.9%/6mo is best-case-among-60, not representative. Companion claim that the CEX leg was outright unprofitable (Sharpe -7.34 Binance) was REFUTED 0-3 — do not cite the CEX-side numbers.
+
+**Verification vote:** 4-2 across 2 merged claims (4, 5), both 2-1
+
+- https://www.sciencedirect.com/science/article/pii/S2096720925000818
+
+### 3. [HIGH] Classic LOB-microstructure signals transfer to crypto with verifiable predictive power: on Binance USDT-perps (Jan 2022 - Oct 2025, 1s data, 3s horizon), order-flow imbalance, spreads, and VWAP-to-mid deviation dominate CatBoost SHAP importance with strikingly consistent dependence shapes from large-cap (BTC) down to rank-~100 long-tail assets; independently, VPIN order-flow toxicity significantly predicts Bitcoin price jumps in a peer-reviewed VAR study.
+
+**Evidence:** Merged from 3 unanimously-confirmed claims (7, 8, 10). arXiv 2602.00776 (Bieganowski & Slepaczuk, U. Warsaw) verbatim: 'the same families of features dominate the SHAP summaries across large-cap and mid/long-tail cryptoassets... order flow imbalance has a largely monotone effect with concavity at extremes.' RIBAF vol. 81 (2026): 'VPIN significantly predicts future price jumps, with positive serial correlation... suggesting persistent asymmetric information.' Verifier qualifications: imbalance-return correlation is positive but WEAK per-observation ('largely driven by' overstates it); Andersen-Bondarenko critique means VPIN's edge may be partly mechanical (correlated with volume/volatility); SHAP importance and gross backtests do not establish net-of-fee profitability. The stronger companion claim that taker profitability was significant ONLY on long-tail perps was REFUTED 0-3.
+
+**Verification vote:** 9-0 across 3 merged claims (7, 8, 10)
+
+- https://arxiv.org/html/2602.00776v1
+- https://arxiv.org/abs/2506.05764
+- https://www.sciencedirect.com/science/article/pii/S0275531925004192
+
+### 4. [HIGH] Naive signal-based passive market making is not profitable even with good signals: in the same Binance-perps study, the maker (fixed-depth limit-order) version of the strategy failed on every asset — zero-mean returns could not be rejected (all p>0.05) — and suffered catastrophic flash-crash losses from severe adverse selection. This is precisely the gap where Avellaneda-Stoikov/GLFT-style inventory and adverse-selection management (the researcher's specialty) constitutes the edge.
+
+**Evidence:** Verbatim from the paper: 'For maker strategies, all p-values exceed 0.05, so the null hypothesis of zero mean returns cannot be rejected for any asset'; the maker strategy 'suffered catastrophic losses' in a flash crash due to 'severe adverse selection' — the paper's own conclusion, not an overreach. Caveats: single backtest with simulated queue-priority fills, not live trading; failure-to-reject is absence of evidence of profit. The transfer-to-AS/GLFT implication is the synthesis's inference, consistent with standard Glosten-Milgrom theory.
+
+**Verification vote:** 3-0 (claim 9)
+
+- https://arxiv.org/html/2602.00776v1
+
+### 5. [HIGH] Fee-tier economics structurally disadvantage small makers on major CEXs: top-tier maker rebates are thin (Binance Futures 0.005-0.008%, Bybit 0.0025-0.0125%, OKX 0.005%, Hyperliquid 0.003% — i.e., 0.25-1.25 bps, mostly sub-1bp) and gated behind market-maker programs; Binance has run negative-maker-fee spot MM programs since July 2020, so any small maker paying standard fees competes against rebated incumbents on program-eligible pairs.
+
+**Evidence:** Merged claims 16 and 2, both 3-0. All four rebate figures cross-checked against exchange announcements and 2026 fee guides (Hyperliquid: maker share >3%, 14-day volume >$500M for -0.003%). Binance announcement (2020-07-22) verbatim: 'Binance will upgrade our Market Maker Program on spot trading and introduce maker fee rebates,' continuing today as the Spot Liquidity Provider Program. Qualifications: rebates apply only to curated pair lists and top-scored participants; the specific '1,000 BTC 30-day volume entry bar makes rebates inaccessible' claim was REFUTED 0-3, so do not assert a precise entry threshold — only that program-tier economics favor incumbents.
+
+**Verification vote:** 6-0 across 2 merged claims (16, 2)
+
+- https://hftbacktest.readthedocs.io/en/latest/market_maker_program.html
+- https://www.binance.com/en/support/announcement/binance-introduces-maker-fee-rebates-to-the-spot-market-maker-program-777646dadd8846dab8a84ce32c9b7cc4
+
+### 6. [HIGH] Colocation in crypto means renting a VM in the right public-cloud region, not physical datacenter access: matching engines run in identifiable regions — Binance in AWS Tokyo, Bybit in AWS Singapore (apse1-az3), OKX in Alibaba Cloud Hong Kong (migrating to Tokyo end of July 2026), Hyperliquid validators in AWS Tokyo — so a small player can approximate colocation for ~$100s/month.
+
+**Evidence:** Claim 17, 3-0. Each location independently corroborated: Bybit's own API FAQ (AWS Singapore, AZ apse1-az3), AWS industry blog for Binance Tokyo, Glassnode/CoinDesk for Hyperliquid, Alibaba-Cloud-linked outage reports for OKX HK. Measured effect: 150ms -> <2ms when moving into the engine's region. Time-sensitive: OKX officially announced migrating all latency-sensitive services from Hong Kong to Tokyo at end of July 2026 — within days of report date; the OKX row must carry this note.
+
+**Verification vote:** 3-0 (claim 17)
+
+- https://hftbacktest.readthedocs.io/en/latest/market_maker_program.html
+
+### 7. [HIGH] Hyperliquid's latency landscape flattens the speed hierarchy in a small player's favor: it is a purpose-built CLOB-on-own-L1 perp DEX (not an AMM) whose ~24 validators all sit in AWS Tokyo ap-northeast-1; Tokyo placement buys a ~200ms network edge over Europe/US (2-3ms vs >200ms transit), but median order-to-fill is ~884ms even from Tokyo (879ms server-side, 5ms network) and the public api.hyperliquid.xyz runs behind AWS CloudFront — so venue-side processing dominates, sub-100ms HFT tiers are unattainable by anyone, and the competition is on model quality and queue placement rather than raw speed.
+
+**Evidence:** Merged from 5 unanimously-confirmed claims (0, 1, 3, 18, 19, 20). Glassnode's live latency monitor (primary, March 2026, 120 samples): 'direct TCP latency to Hyperliquid validator nodes in Tokyo (AZ1, AZ2, AZ4)'; median 884ms order-to-fill from AWS Tokyo (~879ms server-side) vs ~1,079ms from Ashburn; 'WebSocket round-trip to api.hyperliquid.xyz via AWS CloudFront' confirmed by live curl showing CloudFront headers. Hyperliquid's official node README: 'For lowest latency, run the node in Tokyo, Japan.' Official docs confirm fully on-chain perp/spot order books with one-block finality. Caveats: '2-3ms' is best-case transit; Hyperliquid docs claim 0.2s median for colocated clients — Glassnode attributes the discrepancy to network growth; the 879ms 'server-side' includes the CloudFront/API layer, not purely consensus.
+
+**Verification vote:** 18-0 across 6 merged claims (0, 1, 3, 18, 19, 20)
+
+- https://hyperlatency.glassnode.com/hyperliquid
+- https://www.coindesk.com/markets/2026/03/30/hyperliquid-traders-in-tokyo-get-200-millisecond-edge-glassnode-research-shows
+- https://open.spotify.com/episode/4SQVVAFF1ylRo4jcqj7xto
+
+### 8. [MEDIUM] For short-horizon crypto LOB prediction, properly preprocessed and tuned simple models (logistic regression, XGBoost) match or exceed deep LOB architectures (DeepLOB, Conv1D+LSTM) on BTC/USDT direction forecasting while offering lower inference latency — implying a solo researcher's compute budget is not the binding constraint; feature and data quality are.
+
+**Evidence:** arXiv 2506.05764 (June 2025) abstract verbatim: 'with data preprocessing and hyperparameter tuning, simpler models can match and even exceed the performance of more complex networks, offering faster inference and greater interpretability.' Benchmarked on Bybit BTC/USDT LOB at 100ms-multi-second horizons. Corroborated by Briola et al. (arXiv 2403.09267) finding deep LOB models generalize poorly out-of-sample. Caveats: solo-author preprint, 2-1 vote; the stronger claim that filtering pipelines (Kalman/Savitzky-Golay) are the PRIMARY source of edge was refuted 1-2, so state the model-parity result only.
+
+**Verification vote:** 2-1 (claim 6)
+
+- https://arxiv.org/abs/2506.05764
+
+## Опровергнутое (adversarial verification убила эти тезисы — не опираться)
+
+- Entry to Binance's Spot Market Maker Program requires demonstrated 30-day trading volume exceeding 1,000 BTC (on Binance or other exchanges), a bar far above what a solo quant with five-to-low-six-figure capital can organically reach — meaning official maker-rebate economics on Binance spot are inaccessible to small players, who instead face standard VIP-tier fees.
+- The same funding-rate arbitrage strategy applied on major centralized exchanges was unprofitable on a risk-adjusted basis — Sharpe of -7.34 on Binance and -7.93 on Bitmex — indicating the CEX version of the trade is already competed away (professionalized dead-end), with market maturity driving the difference.
+- Signal-extraction quality in crypto LOB forecasting comes primarily from data filtering/feature engineering (Kalman and Savitzky-Golay pipelines were tested) rather than from adding neural network depth or parameters.
+- Signal-driven taker strategies were statistically significantly profitable only on smaller-cap perps (ETC, ENJ, ROSE; annualized returns ~4-7x, p<0.05) but not on BTC or LTC — evidence that short-horizon ML edge in crypto lives in long-tail pairs, with majors already efficient.
+
+## Оговорки
+
+- K
+- e
+- y
+-  
+- u
+- n
+- c
+- e
+- r
+- t
+- a
+- i
+- n
+- t
+- i
+- e
+- s
+- :
+-  
+- (
+- 1
+- )
+-  
+- T
+- i
+- m
+- e
+- -
+- s
+- e
+- n
+- s
+- i
+- t
+- i
+- v
+- i
+- t
+- y
+-  
+- —
+-  
+- f
+- u
+- n
+- d
+- i
+- n
+- g
+- -
+- a
+- r
+- b
+-  
+- S
+- h
+- a
+- r
+- p
+- e
+- /
+- r
+- e
+- t
+- u
+- r
+- n
+-  
+- f
+- i
+- g
+- u
+- r
+- e
+- s
+-  
+- a
+- r
+- e
+-  
+- f
+- r
+- o
+- m
+-  
+- a
+-  
+- b
+- a
+- c
+- k
+- t
+- e
+- s
+- t
+-  
+- o
+- n
+-  
+- l
+- i
+- k
+- e
+- l
+- y
+-  
+- 2
+- 0
+- 2
+- 2
+- -
+- 2
+- 0
+- 2
+- 3
+-  
+- d
+- a
+- t
+- a
+-  
+- (
+- A
+- p
+- o
+- l
+- l
+- o
+- X
+-  
+- n
+- o
+-  
+- l
+- o
+- n
+- g
+- e
+- r
+-  
+- e
+- x
+- i
+- s
+- t
+- s
+-  
+- a
+- s
+-  
+- s
+- u
+- c
+- h
+- ,
+-  
+- a
+- b
+- s
+- o
+- r
+- b
+- e
+- d
+-  
+- i
+- n
+- t
+- o
+-  
+- A
+- s
+- t
+- e
+- r
+- )
+- ;
+-  
+- G
+- l
+- a
+- s
+- s
+- n
+- o
+- d
+- e
+-  
+- H
+- y
+- p
+- e
+- r
+- l
+- i
+- q
+- u
+- i
+- d
+-  
+- l
+- a
+- t
+- e
+- n
+- c
+- y
+-  
+- i
+- s
+-  
+- a
+-  
+- M
+- a
+- r
+- c
+- h
+- -
+- 2
+- 0
+- 2
+- 6
+-  
+- s
+- n
+- a
+- p
+- s
+- h
+- o
+- t
+-  
+- o
+- f
+-  
+- a
+-  
+- f
+- a
+- s
+- t
+- -
+- g
+- r
+- o
+- w
+- i
+- n
+- g
+-  
+- n
+- e
+- t
+- w
+- o
+- r
+- k
+- ;
+-  
+- O
+- K
+- X
+- '
+- s
+-  
+- e
+- n
+- g
+- i
+- n
+- e
+-  
+- m
+- o
+- v
+- e
+- s
+-  
+- f
+- r
+- o
+- m
+-  
+- H
+- o
+- n
+- g
+-  
+- K
+- o
+- n
+- g
+-  
+- t
+- o
+-  
+- A
+- l
+- i
+- b
+- a
+- b
+- a
+- /
+- T
+- o
+- k
+- y
+- o
+-  
+- a
+- t
+-  
+- e
+- n
+- d
+-  
+- o
+- f
+-  
+- J
+- u
+- l
+- y
+-  
+- 2
+- 0
+- 2
+- 6
+- ,
+-  
+- d
+- a
+- y
+- s
+-  
+- a
+- f
+- t
+- e
+- r
+-  
+- t
+- h
+- i
+- s
+-  
+- r
+- e
+- p
+- o
+- r
+- t
+- .
+-  
+- (
+- 2
+- )
+-  
+- B
+- a
+- c
+- k
+- t
+- e
+- s
+- t
+- -
+- v
+- s
+- -
+- l
+- i
+- v
+- e
+-  
+- g
+- a
+- p
+-  
+- —
+-  
+- t
+- h
+- e
+-  
+- 1
+- 1
+- 5
+- .
+- 9
+- %
+- /
+- 6
+- m
+- o
+-  
+- a
+- n
+- d
+-  
+- S
+- h
+- a
+- r
+- p
+- e
+- -
+- 2
+- 3
+- .
+- 5
+- 5
+-  
+- f
+- i
+- g
+- u
+- r
+- e
+- s
+-  
+- e
+- x
+- c
+- l
+- u
+- d
+- e
+-  
+- e
+- x
+- c
+- h
+- a
+- n
+- g
+- e
+-  
+- c
+- o
+- u
+- n
+- t
+- e
+- r
+- p
+- a
+- r
+- t
+- y
+-  
+- r
+- i
+- s
+- k
+- ,
+-  
+- v
+- e
+- n
+- u
+- e
+-  
+- f
+- a
+- i
+- l
+- u
+- r
+- e
+- ,
+-  
+- a
+- n
+- d
+-  
+- e
+- x
+- e
+- c
+- u
+- t
+- i
+- o
+- n
+-  
+- s
+- l
+- i
+- p
+- p
+- a
+- g
+- e
+- ,
+-  
+- a
+- n
+- d
+-  
+- a
+- r
+- e
+-  
+- b
+- e
+- s
+- t
+- -
+- c
+- a
+- s
+- e
+-  
+- a
+- m
+- o
+- n
+- g
+-  
+- 6
+- 0
+-  
+- s
+- c
+- e
+- n
+- a
+- r
+- i
+- o
+- s
+- ;
+-  
+- p
+- r
+- a
+- c
+- t
+- i
+- t
+- i
+- o
+- n
+- e
+- r
+-  
+- s
+- t
+- e
+- a
+- d
+- y
+- -
+- s
+- t
+- a
+- t
+- e
+-  
+- f
+- o
+- r
+-  
+- f
+- u
+- n
+- d
+- i
+- n
+- g
+-  
+- a
+- r
+- b
+-  
+- i
+- s
+-  
+- ~
+- 8
+- -
+- 2
+- 0
+- %
+-  
+- A
+- P
+- Y
+- .
+-  
+- (
+- 3
+- )
+-  
+- S
+- e
+- v
+- e
+- r
+- a
+- l
+-  
+- l
+- o
+- a
+- d
+- -
+- b
+- e
+- a
+- r
+- i
+- n
+- g
+-  
+- s
+- o
+- u
+- r
+- c
+- e
+- s
+-  
+- a
+- r
+- e
+-  
+- s
+- i
+- n
+- g
+- l
+- e
+-  
+- n
+- o
+- n
+- -
+- p
+- e
+- e
+- r
+- -
+- r
+- e
+- v
+- i
+- e
+- w
+- e
+- d
+-  
+- p
+- r
+- e
+- p
+- r
+- i
+- n
+- t
+- s
+-  
+- (
+- a
+- r
+- X
+- i
+- v
+-  
+- 2
+- 6
+- 0
+- 2
+- .
+- 0
+- 0
+- 7
+- 7
+- 6
+-  
+- f
+- o
+- r
+-  
+- t
+- h
+- e
+-  
+- m
+- a
+- k
+- e
+- r
+- -
+- f
+- a
+- i
+- l
+- u
+- r
+- e
+-  
+- a
+- n
+- d
+-  
+- S
+- H
+- A
+- P
+- -
+- t
+- r
+- a
+- n
+- s
+- f
+- e
+- r
+- a
+- b
+- i
+- l
+- i
+- t
+- y
+-  
+- r
+- e
+- s
+- u
+- l
+- t
+- s
+- ;
+-  
+- a
+- r
+- X
+- i
+- v
+-  
+- 2
+- 5
+- 0
+- 6
+- .
+- 0
+- 5
+- 7
+- 6
+- 4
+-  
+- f
+- o
+- r
+-  
+- m
+- o
+- d
+- e
+- l
+-  
+- p
+- a
+- r
+- i
+- t
+- y
+- )
+-  
+- w
+- i
+- t
+- h
+-  
+- s
+- i
+- m
+- u
+- l
+- a
+- t
+- e
+- d
+-  
+- f
+- i
+- l
+- l
+- s
+- ,
+-  
+- n
+- o
+- t
+-  
+- l
+- i
+- v
+- e
+-  
+- P
+- &
+- L
+- .
+-  
+- (
+- 4
+- )
+-  
+- V
+- P
+- I
+- N
+-  
+- p
+- r
+- e
+- d
+- i
+- c
+- t
+- i
+- v
+- i
+- t
+- y
+-  
+- c
+- a
+- r
+- r
+- i
+- e
+- s
+-  
+- t
+- h
+- e
+-  
+- A
+- n
+- d
+- e
+- r
+- s
+- e
+- n
+- -
+- B
+- o
+- n
+- d
+- a
+- r
+- e
+- n
+- k
+- o
+-  
+- c
+- r
+- i
+- t
+- i
+- q
+- u
+- e
+- :
+-  
+- p
+- o
+- s
+- s
+- i
+- b
+- l
+- y
+-  
+- m
+- e
+- c
+- h
+- a
+- n
+- i
+- c
+- a
+- l
+-  
+- c
+- o
+- r
+- r
+- e
+- l
+- a
+- t
+- i
+- o
+- n
+-  
+- w
+- i
+- t
+- h
+-  
+- v
+- o
+- l
+- u
+- m
+- e
+- /
+- v
+- o
+- l
+- a
+- t
+- i
+- l
+- i
+- t
+- y
+- ,
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- p
+- a
+- p
+- e
+- r
+- '
+- s
+-  
+- r
+- o
+- b
+- u
+- s
+- t
+- n
+- e
+- s
+- s
+-  
+- s
+- e
+- c
+- t
+- i
+- o
+- n
+-  
+- w
+- a
+- s
+-  
+- p
+- a
+- y
+- w
+- a
+- l
+- l
+- e
+- d
+- .
+-  
+- (
+- 5
+- )
+-  
+- T
+- h
+- e
+-  
+- M
+- E
+- V
+- -
+- o
+- l
+- i
+- g
+- o
+- p
+- o
+- l
+- y
+-  
+- c
+- o
+- n
+- c
+- l
+- u
+- s
+- i
+- o
+- n
+-  
+- i
+- s
+-  
+- E
+- t
+- h
+- e
+- r
+- e
+- u
+- m
+- -
+- m
+- a
+- i
+- n
+- n
+- e
+- t
+- -
+- s
+- c
+- o
+- p
+- e
+- d
+- ;
+-  
+- a
+- c
+- c
+- e
+- s
+- s
+- i
+- b
+- i
+- l
+- i
+- t
+- y
+-  
+- o
+- n
+-  
+- S
+- o
+- l
+- a
+- n
+- a
+- ,
+-  
+- L
+- 2
+- s
+- ,
+-  
+- a
+- n
+- d
+-  
+- H
+- y
+- p
+- e
+- r
+- E
+- V
+- M
+-  
+- w
+- a
+- s
+-  
+- n
+- o
+- t
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- e
+- d
+-  
+- e
+- i
+- t
+- h
+- e
+- r
+-  
+- w
+- a
+- y
+- .
+-  
+- (
+- 6
+- )
+-  
+- F
+- o
+- u
+- r
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+-  
+- w
+- e
+- r
+- e
+-  
+- r
+- e
+- f
+- u
+- t
+- e
+- d
+-  
+- i
+- n
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- c
+- a
+- t
+- i
+- o
+- n
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+- i
+- r
+-  
+- s
+- p
+- e
+- c
+- i
+- f
+- i
+- c
+- s
+-  
+- m
+- u
+- s
+- t
+-  
+- n
+- o
+- t
+-  
+- b
+- e
+-  
+- r
+- e
+- u
+- s
+- e
+- d
+- :
+-  
+- t
+- h
+- e
+-  
+- 1
+- ,
+- 0
+- 0
+- 0
+- -
+- B
+- T
+- C
+-  
+- B
+- i
+- n
+- a
+- n
+- c
+- e
+-  
+- M
+- M
+-  
+- e
+- n
+- t
+- r
+- y
+-  
+- b
+- a
+- r
+- ,
+-  
+- t
+- h
+- e
+-  
+- n
+- e
+- g
+- a
+- t
+- i
+- v
+- e
+-  
+- C
+- E
+- X
+- -
+- s
+- i
+- d
+- e
+-  
+- f
+- u
+- n
+- d
+- i
+- n
+- g
+- -
+- a
+- r
+- b
+-  
+- S
+- h
+- a
+- r
+- p
+- e
+- s
+- ,
+-  
+- f
+- i
+- l
+- t
+- e
+- r
+- i
+- n
+- g
+- -
+- a
+- s
+- -
+- p
+- r
+- i
+- m
+- a
+- r
+- y
+- -
+- e
+- d
+- g
+- e
+- ,
+-  
+- a
+- n
+- d
+-  
+- l
+- o
+- n
+- g
+- -
+- t
+- a
+- i
+- l
+- -
+- o
+- n
+- l
+- y
+-  
+- t
+- a
+- k
+- e
+- r
+-  
+- p
+- r
+- o
+- f
+- i
+- t
+- a
+- b
+- i
+- l
+- i
+- t
+- y
+- .
+-  
+- (
+- 7
+- )
+-  
+- N
+- o
+-  
+- c
+- l
+- a
+- i
+- m
+-  
+- i
+- n
+-  
+- t
+- h
+- e
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- e
+- d
+-  
+- s
+- e
+- t
+-  
+- d
+- i
+- r
+- e
+- c
+- t
+- l
+- y
+-  
+- q
+- u
+- a
+- n
+- t
+- i
+- f
+- i
+- e
+- s
+-  
+- c
+- a
+- p
+- a
+- c
+- i
+- t
+- y
+-  
+- o
+- r
+-  
+- r
+- e
+- a
+- l
+- i
+- s
+- t
+- i
+- c
+-  
+- S
+- h
+- a
+- r
+- p
+- e
+-  
+- f
+- o
+- r
+-  
+- s
+- m
+- a
+- l
+- l
+- -
+- s
+- c
+- a
+- l
+- e
+-  
+- p
+- e
+- r
+- p
+- -
+- D
+- E
+- X
+-  
+- m
+- a
+- r
+- k
+- e
+- t
+-  
+- m
+- a
+- k
+- i
+- n
+- g
+- ,
+-  
+- c
+- r
+- o
+- s
+- s
+- -
+- e
+- x
+- c
+- h
+- a
+- n
+- g
+- e
+-  
+- a
+- r
+- b
+-  
+- l
+- a
+- t
+- e
+- n
+- c
+- y
+-  
+- r
+- e
+- q
+- u
+- i
+- r
+- e
+- m
+- e
+- n
+- t
+- s
+- ,
+-  
+- l
+- i
+- q
+- u
+- i
+- d
+- a
+- t
+- i
+- o
+- n
+-  
+- h
+- u
+- n
+- t
+- i
+- n
+- g
+- ,
+-  
+- o
+- r
+-  
+- l
+- i
+- s
+- t
+- i
+- n
+- g
+- /
+- e
+- v
+- e
+- n
+- t
+-  
+- t
+- r
+- a
+- d
+- i
+- n
+- g
+-  
+- —
+-  
+- t
+- h
+- o
+- s
+- e
+-  
+- p
+- a
+- r
+- t
+- s
+-  
+- o
+- f
+-  
+- t
+- h
+- e
+-  
+- o
+- r
+- i
+- g
+- i
+- n
+- a
+- l
+-  
+- q
+- u
+- e
+- s
+- t
+- i
+- o
+- n
+-  
+- r
+- e
+- m
+- a
+- i
+- n
+-  
+- e
+- v
+- i
+- d
+- e
+- n
+- c
+- e
+- -
+- t
+- h
+- i
+- n
+- ,
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- 9
+- 0
+- -
+- d
+- a
+- y
+-  
+- r
+- o
+- a
+- d
+- m
+- a
+- p
+-  
+- i
+- n
+-  
+- t
+- h
+- e
+-  
+- s
+- u
+- m
+- m
+- a
+- r
+- y
+-  
+- i
+- s
+-  
+- a
+- n
+-  
+- i
+- n
+- f
+- e
+- r
+- e
+- n
+- c
+- e
+-  
+- f
+- r
+- o
+- m
+-  
+- t
+- h
+- e
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- e
+- d
+-  
+- f
+- i
+- n
+- d
+- i
+- n
+- g
+- s
+-  
+- r
+- a
+- t
+- h
+- e
+- r
+-  
+- t
+- h
+- a
+- n
+-  
+- a
+- n
+-  
+- i
+- n
+- d
+- e
+- p
+- e
+- n
+- d
+- e
+- n
+- t
+- l
+- y
+-  
+- s
+- o
+- u
+- r
+- c
+- e
+- d
+-  
+- p
+- l
+- a
+- n
+- .
+
+## Открытые вопросы (следующие раунды рисёрча)
+
+- What are the actual entry requirements and application process for the current maker-rebate/liquidity-provider programs on Binance, Bybit, OKX, and Hyperliquid in 2026 — and at what capital/volume does a solo quant realistically qualify (the specific 1,000-BTC bar claim was refuted, leaving the true threshold unverified)?
+- Do the DEX-side funding-rate arbitrage premia documented on 2022-2023 data (Drift/ApolloX) persist in 2026 on current venues (Hyperliquid, Drift, Aster, Lighter), and at what capacity before the basis compresses?
+- Is on-chain atomic/CEX-DEX arbitrage accessible to small entrants outside Ethereum mainnet — on Solana, L2s, or HyperEVM — where builder-integration oligopolies are reportedly weaker?
+- Can OFI/VPIN-conditioned quoting with explicit adverse-selection management (AS/GLFT-style) turn the verified naive-maker failure into net-positive P&L on a perp DEX, and what live-fill data would settle this — i.e., the single most important experiment for the 90-day roadmap?
+
+## Все источники
+
+-  — https://hftbacktest.readthedocs.io/en/latest/market_maker_program.html
+-  — https://www.coindesk.com/markets/2026/03/30/hyperliquid-traders-in-tokyo-get-200-millisecond-edge-glassnode-research-shows
+-  — https://hyperlatency.glassnode.com/hyperliquid
+-  — https://www.datawallet.com/crypto/hyperliquid-fees-explained
+-  — https://www.binance.com/en/support/announcement/binance-introduces-maker-fee-rebates-to-the-spot-market-maker-program-777646dadd8846dab8a84ce32c9b7cc4
+-  — https://open.spotify.com/episode/4SQVVAFF1ylRo4jcqj7xto
+-  — https://blog.everstrike.io/7-arbitrage-strategies-are-still-accessible-to-retail-quants-in-2025/
+-  — https://www.sciencedirect.com/science/article/pii/S2096720925000818
+-  — https://www.onchaintimes.com/analyzing-hlp-jlp-returns/
+-  — https://medium.com/@RyskyGeronimo/a-risk-return-analysis-of-hyperliquids-hlp-vault-7c164cd00a0d
+-  — https://arti-trends.com/ai-investment/hummingbot-review-2026/
+-  — https://medium.com/@luitingronald.us/a-2-sharpe-market-neutral-statistical-arbitrage-strategy-in-cryptocurrency-0f0b7728cf1e
+-  — https://arxiv.org/abs/2506.05764
+-  — https://arxiv.org/html/2602.00776v1
+-  — https://medium.com/coinmonks/i-used-a-2012-market-microstructure-paper-to-find-alpha-in-btc-it-worked-but-its-dying-500f9bc0fc94
+-  — https://www.sciencedirect.com/science/article/pii/S0275531925004192
+-  — https://arxiv.org/abs/2507.13023
+-  — https://kclpure.kcl.ac.uk/portal/en/publications/from-competition-to-centralization-the-oligopoly-in-ethereum-bloc/
+-  — https://blog.bitium.agency/dex-cex-arbitrage-guide-in-2025-new-opportunities-for-builders-848f44ef0f48
+-  — https://quantitativepy.substack.com/p/recommended-tech-stack-in-2026-for
+-  — https://www.quantt.co.uk/resources/crypto-quant-strategies-2026
+-  — https://deepwiki.com/binance/binance-spot-api-docs/1.3-rate-limiting-and-resource-management
+-  — https://www.trmlabs.com/glossary/counterparty-risk
