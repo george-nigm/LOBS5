@@ -137,8 +137,8 @@ def main():
             continue
         seen.add(base); H.append(h); L.append(l)
     fig.legend(H, L, loc='lower center', ncol=4, fontsize=7.5, frameon=False,
-               bbox_to_anchor=(0.5, -0.02))
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
+               bbox_to_anchor=(0.5, -0.10))
+    fig.tight_layout(rect=[0, 0.12, 1, 1])
     fig.savefig(args.out, bbox_inches='tight')
     np.savez_compressed(os.path.splitext(args.out)[0] + '.npz',
                         mgrid=mg, R=R, R_se=Rse, Rtr=Rtr, Rtr_se=Rtr_se,

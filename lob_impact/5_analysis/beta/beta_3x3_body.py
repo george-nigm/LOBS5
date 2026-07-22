@@ -37,7 +37,7 @@ def main():
     models = [m for m in ORDER if f'{m}_l2_le' in z3.files]
 
     plt.rcParams.update({'font.size': 11, 'axes.labelsize': 11.5})
-    fig, axes = plt.subplots(4, 3, figsize=(14.5, 13.0), sharex=True)
+    fig, axes = plt.subplots(3, 3, figsize=(14.5, 10.2), sharex=True)
 
     for ri, (est, rlabel) in enumerate(ROWS):
         for ci, (view, vlabel) in enumerate(VIEWS):
@@ -53,38 +53,24 @@ def main():
                 ax.set_title(vlabel, fontsize=13)
             if ci == 0:
                 ax.set_ylabel(f'{rlabel}\n' + r'$\delta(k)$', fontsize=11)
+            if ri == 2:
+                ax.set_xlabel('insertion index $k$')
 
-    # bottom row: n(k) entering each fit, per model (K matrices carry BOTH sides)
+    # counts go into the legend labels (K matrices carry both sides)
     fins = {}
-    for m in models:
-        if f'{m}_K' in zk.files:
-            fins[m] = np.isfinite(zk[f'{m}_K'][:, 1:]).sum(axis=0)  # per insertion k=1..100
-    for ci, (view, _) in enumerate(VIEWS):
-        ax = axes[3][ci]
-        for m, fin in fins.items():
-            kk = np.arange(1, len(fin) + 1)
-            if view == 'le':
-                n = np.cumsum(fin)
-            elif view == 'eq':
-                n = fin.astype(float)
-            else:
-                n = np.cumsum(fin[::-1])[::-1]
-            ax.plot(kk, n, color=COLORS.get(m, '#444444'),
-                    lw=2.4 if m == 'Hawkes' else 1.4)
-        ax.set_yscale('log')
-        ax.axhline(200, color='#555555', lw=1.0, ls=':')
-        ax.set_xlabel('insertion index $k$')
-        if ci == 0:
-            ax.set_ylabel('points entering the fit\n$n(k)$ (log; dotted: MIN\\_PTS)', fontsize=10.5)
+    for m_ in models:
+        if f'{m_}_K' in zk.files:
+            fins[m_] = int(np.isfinite(zk[f'{m_}_K'][:, 1:]).sum())
 
-    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.8, label=m.replace('_', '-'))
+    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.8,
+                  label=f"{m.replace('_', '-')} ({fins.get(m, 0)//1000}k pts)")
                for m in models]
-    fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 6),
-               fontsize=11.5, frameon=False, bbox_to_anchor=(0.5, -0.002))
+    fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 4),
+               fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.065))
     fig.suptitle(f'{args.stock}: exponent dynamics under three estimators (rows) and three '
-                 f'cross-sections (columns), with the sample counts behind every fit (bottom row)',
+                 f'cross-sections (columns); per-model point counts in the legend',
                  fontsize=13.5, y=0.995)
-    fig.tight_layout(rect=[0, 0.035, 1, 0.975])
+    fig.tight_layout(rect=[0, 0.075, 1, 0.975])
     out = os.path.join(here, 'results', 'beta_3x3', f'beta_3x3_body_{args.stock}.png')
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print('B3X3BODY ->', out)

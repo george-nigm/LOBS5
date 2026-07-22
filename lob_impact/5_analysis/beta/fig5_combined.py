@@ -27,7 +27,7 @@ def models_in(z, suffix):
     return [m for m in ORDER if m in ms]
 
 
-def draw_mid(ax, z, n_ins=None):
+def draw_mid(ax, z, n_ins=None, ref=None):
     klen = 0
     for m in models_in(z, '_k_mean'):
         y = z[f'{m}_k_mean']; se = z[f'{m}_k_se']
@@ -36,7 +36,9 @@ def draw_mid(ax, z, n_ins=None):
         c = COLORS.get(m, '#444444')
         ax.plot(x, y, color=c, lw=2.0)
         ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.16, lw=0)
-    if 'sqrt_x' in z.files and klen:
+    if ref is not None:
+        ax.plot(ref[0], ref[1], color=GREY, lw=2.2, ls='--')
+    elif 'sqrt_x' in z.files and klen:
         # cache stores the reference against MESSAGE position; the model curves
         # are on the k-clock -> map the reference onto the same k axis
         ys = z['sqrt_y']
@@ -48,7 +50,7 @@ def draw_mid(ax, z, n_ins=None):
     ax.margins(x=0)
 
 
-def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44)):
+def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None):
     """Zoom inset: the baseline band the neural curves dwarf (means first; bands may clip)."""
     ins = ax.inset_axes(list(rect))
     for m in models_in(z, '_k_mean'):
@@ -57,7 +59,9 @@ def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44)):
         c = COLORS.get(m, '#444444')
         ins.plot(x, y, color=c, lw=1.5)
         ins.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.15, lw=0)
-    if 'sqrt_x' in z.files:
+    if ref is not None:
+        ins.plot(ref[0], ref[1], color=GREY, lw=1.8, ls='--')
+    elif 'sqrt_x' in z.files:
         ys = z['sqrt_y']
         ins.plot(np.linspace(0, len(z[[k for k in z.files if k.endswith('_k_mean')][0]]) - 1, len(ys)),
                  ys, color=GREY, lw=1.8, ls='--')
@@ -126,18 +130,19 @@ def main():
     draw_master(axes[0][1], Z['ms_beta'], relax=False, zmid=Z['mid_beta'])
     axes[0][1].set_ylim(-0.05, 1.12)
     axes[0][1].set_title(r'build-up: master curve $\langle I(v)\rangle/\langle I(1)\rangle$ (gated)', fontsize=13.5)
-    draw_mid(axes[1][0], Z['mid_decay'], n_ins=10)
-    # theory decay tail in bps: peak = cached sqrt-law level at execution end
     zd = Z['mid_decay']
+    theory = None
     if 'sqrt_y' in zd.files:
         P = float(np.nanmax(zd['sqrt_y']))
         klen = max(len(zd[k]) for k in zd.files if k.endswith('_k_mean'))
-        kk = np.linspace(10, klen - 1, 200)
+        kk = np.linspace(0.01, klen - 1, 400)
         vv = kk / 10.0
-        th = P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(vv - 1)))
-        axes[1][0].plot(kk, th, color=GREY, lw=2.4, ls='--')
-    axes[1][0].set_ylim(axes[1][0].get_ylim()[0], axes[1][0].get_ylim()[1] * 1.35)
-    inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.05, 0.62, 0.38, 0.36))
+        th = np.where(vv <= 1, P * np.sqrt(np.clip(vv, 0, None)),
+                      P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(np.clip(vv - 1, 0, None)))))
+        theory = (kk, th)
+    draw_mid(axes[1][0], Z['mid_decay'], n_ins=10, ref=theory)
+    axes[1][0].set_ylim(axes[1][0].get_ylim()[0], axes[1][0].get_ylim()[1] * 1.30)
+    inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.05, 0.62, 0.38, 0.36), ref=theory)
     axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
     axes[1][0].set_xlabel('children executed $k$ (then cooling blocks)')
@@ -152,11 +157,11 @@ def main():
     handles.append(Line2D([], [], color=GREY, lw=2.4, ls='--',
                           label=r'reference ($\sqrt{\cdot}$-law / $2/3$ level)'))
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 5),
-               fontsize=12.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
+               fontsize=12.5, frameon=False, bbox_to_anchor=(0.5, -0.045))
     fig.suptitle(f'{args.stock}: metaorder impact — build-up and relaxation, '
                  'raw $k$-clock (left) and normalised master curves (right)',
                  fontsize=15, y=0.99)
-    fig.tight_layout(rect=[0, 0.06, 1, 0.97])
+    fig.tight_layout(rect=[0, 0.085, 1, 0.97])
     out = os.path.join(res, 'mid_impact', f'fig5_combined_{args.stock}.png')
     fig.savefig(out, dpi=170, bbox_inches='tight')
     with open(out.replace('.png', '_sources.json'), 'w') as f:
