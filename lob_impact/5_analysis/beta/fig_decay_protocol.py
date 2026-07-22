@@ -74,6 +74,16 @@ def main():
     ax.text(2.45, 1.13, 'current generators:\nflat or rising — all four tests fail',
             fontsize=10.5, color='#37474F', style='italic')
 
+    # inset: HOW gamma is fitted — log-log of the excess above the permanent
+    # level vs time since execution end; power law = straight line, slope -gamma
+    ins = ax.inset_axes([0.70, 0.42, 0.28, 0.30])
+    zz = vv[vv > 1.02] - 1.0
+    exc_t = (theory[vv > 1.02] - 2/3) / (1/3)
+    exc_e = (expo[vv > 1.02] - 2/3) / (1/3)
+    ins.loglog(zz, exc_t, color='#1B5E20', lw=2.2)
+    ins.loglog(zz, exc_e, color='#B71C1C', lw=1.6, ls='--')
+    ins.set_title('the fit: $\\log$ excess vs $\\log$ time\nslope $= -\\gamma$ (straight = power law)', fontsize=8.2)
+    ins.set_xlabel('$v-1$', fontsize=8); ins.tick_params(labelsize=7)
     ax.set_xlim(0, args.vmax); ax.set_ylim(0, 1.75)
     ax.set_xlabel('metaorder fraction executed  $v$   ($v>1$ = cooling, in execution durations)')
     ax.set_ylabel(r'master curve  $\langle I(v)\rangle / \langle I(1)\rangle$')

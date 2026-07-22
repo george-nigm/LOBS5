@@ -35,7 +35,7 @@ def draw_mid(ax, z, n_ins=None):
         klen = max(klen, len(y))
         c = COLORS.get(m, '#444444')
         ax.plot(x, y, color=c, lw=2.0)
-        ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.10, lw=0)
+        ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.16, lw=0)
     if 'sqrt_x' in z.files and klen:
         # cache stores the reference against MESSAGE position; the model curves
         # are on the k-clock -> map the reference onto the same k axis
@@ -48,13 +48,42 @@ def draw_mid(ax, z, n_ins=None):
     ax.margins(x=0)
 
 
-def draw_master(ax, z, relax):
+def inset_zoom(ax, z):
+    """Zoom inset: the baseline band the neural curves dwarf (means first; bands may clip)."""
+    ins = ax.inset_axes([0.06, 0.52, 0.44, 0.44])
+    for m in models_in(z, '_k_mean'):
+        y = z[f'{m}_k_mean']; se = z[f'{m}_k_se']
+        x = np.arange(len(y))
+        c = COLORS.get(m, '#444444')
+        ins.plot(x, y, color=c, lw=1.5)
+        ins.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.15, lw=0)
+    if 'sqrt_x' in z.files:
+        ys = z['sqrt_y']
+        ins.plot(np.linspace(0, len(z[[k for k in z.files if k.endswith('_k_mean')][0]]) - 1, len(ys)),
+                 ys, color=GREY, lw=1.8, ls='--')
+    ins.set_ylim(-4.5, 5.5)
+    ins.axhline(0, color='#cccccc', lw=0.7)
+    ins.set_title('zoom: baselines & reference (bps)', fontsize=9)
+    ins.tick_params(labelsize=8)
+
+
+def draw_master(ax, z, relax, zmid=None, n_end=None):
     gated_out = []
     for m in models_in(z, '_master'):
         if not bool(z[f'{m}_sig']):
             gated_out.append(m); continue
         v = z['vgrid']; y = z[f'{m}_master']
-        ax.plot(v, y, color=COLORS.get(m, '#444444'), lw=2.0)
+        c = COLORS.get(m, '#444444')
+        ax.plot(v, y, color=c, lw=2.0)
+        # +-2SE band via delta method: relative SE of the k-clock mean applied
+        # to the master line (the k sampling matches the v grid one-to-one)
+        if zmid is not None and f'{m}_k_mean' in zmid.files:
+            km = zmid[f'{m}_k_mean']; ks = zmid[f'{m}_k_se']
+            n = min(len(km), len(v), len(y))
+            with np.errstate(all='ignore'):
+                rel = np.abs(ks[:n] / km[:n])
+            band = np.abs(y[:n]) * np.clip(rel, 0, 1.5)
+            ax.fill_between(v[:n], y[:n] - 2 * band, y[:n] + 2 * band, color=c, alpha=0.13, lw=0)
     v = z['vgrid']
     if relax:
         ax.axhline(2 / 3, color=GREY, lw=1.4, ls='--')
@@ -86,16 +115,16 @@ def main():
     plt.rcParams.update({'font.size': 12.5, 'axes.labelsize': 13, 'xtick.labelsize': 11.5, 'ytick.labelsize': 11.5})
     fig, axes = plt.subplots(2, 2, figsize=(15.5, 9.5))
     draw_mid(axes[0][0], Z['mid_beta'])
-    axes[0][0].set_yscale('symlog', linthresh=3.0, linscale=1.0)
-    axes[0][0].set_title('build-up: mid-price impact $I(k)$ (bps, antisymmetrised; symlog $y$)', fontsize=13.5)
+    inset_zoom(axes[0][0], Z['mid_beta'])
+    axes[0][0].set_title('build-up: mid-price impact $I(k)$ (bps, antisymmetrised)', fontsize=13.5)
     axes[0][0].set_ylabel('build-up shape\n$I$, bps')
-    draw_master(axes[0][1], Z['ms_beta'], relax=False)
+    draw_master(axes[0][1], Z['ms_beta'], relax=False, zmid=Z['mid_beta'])
     axes[0][1].set_title(r'build-up: master curve $\langle I(v)\rangle/\langle I(1)\rangle$ (gated)', fontsize=13.5)
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10)
     axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
     axes[1][0].set_xlabel('children executed $k$ (then cooling blocks)')
-    draw_master(axes[1][1], Z['ms_relax'], relax=True)
+    draw_master(axes[1][1], Z['ms_relax'], relax=True, zmid=Z['mid_decay'])
     axes[1][1].set_title(r'relaxation: master curve, $v>1$ = cooling (dashed: $2/3$ level)', fontsize=13.5)
     axes[1][1].set_xlabel('metaorder fraction executed $v$')
 
