@@ -28,6 +28,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', required=True)
     ap.add_argument('--copy_to', default=None)
+    ap.add_argument('--mask', action='store_true', help='identifiability mask (OFF by default pending decision)')
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     z3 = np.load(os.path.join(here, 'results', 'beta_3x3', f'beta_3x3_{args.stock}.npz'))
@@ -42,6 +43,8 @@ def main():
     P2R = np.sqrt(4 * np.log(2.0))
     Y_MIN = 0.05
     try:
+        if not args.mask:
+            raise RuntimeError('mask disabled by flag')
         zb = np.load(os.path.join(here, 'results', 'bias_exhibit', f'bias_exhibit_{args.stock}.npz'))
         rm = 'Mamba3' if 'Mamba3_parkinson_xc' in zb.files else sorted(k for k in zb.files if k.endswith('_parkinson_xc'))[0][:-len('_parkinson_xc')]
         q_ref = float(np.exp(zb[f'{rm}_parkinson_xc'][-1]))

@@ -253,7 +253,14 @@ def run_propagator_scenario(cfg: Dict[str, Any], save_folder: Path):
     order_volume = cfg['order_volume']
     prop_beta = float(cfg.get('prop_beta', 0.5))
     prop_perm = float(cfg.get('prop_perm', 2.0 / 3.0))
-    print(f"propagator kernel: w(l) = {prop_perm:.3f} + {1 - prop_perm:.3f} * l^(-{prop_beta})")
+    # OW variant: exponential resilience kernel (Obizhaeva-Wang), selected via
+    # env PROP_KERNEL=exp (env wins over cfg so the fleet can flip it per job).
+    prop_kernel = os.environ.get('PROP_KERNEL', str(cfg.get('prop_kernel', 'powerlaw')))
+    prop_tau = float(os.environ.get('PROP_TAU', cfg.get('prop_tau', 1000.0)))
+    if prop_kernel == 'exp':
+        print(f"propagator kernel: w(l) = {prop_perm:.3f} + {1 - prop_perm:.3f} * exp(-l/{prop_tau:.0f})   [OW]")
+    else:
+        print(f"propagator kernel: w(l) = {prop_perm:.3f} + {1 - prop_perm:.3f} * l^(-{prop_beta})")
 
     # Total steps: (num_insertions + num_coolings) * n_gen_msgs historical msgs + num_insertions aggressive orders
     total_eval_msgs_needed = (num_insertions + num_coolings) * n_gen_msgs
@@ -401,7 +408,10 @@ def run_propagator_scenario(cfg: Dict[str, Any], save_folder: Path):
                 msg = m_seq_raw_eval[:, eval_idx, :]
                 if kick_steps:
                     lags = jnp.array([step - ks for ks in kick_steps], dtype=jnp.float32)
-                    w = prop_perm + (1.0 - prop_perm) * lags ** (-prop_beta)        # (n_kicks,)
+                    if prop_kernel == 'exp':
+                        w = prop_perm + (1.0 - prop_perm) * jnp.exp(-lags / prop_tau)    # (n_kicks,) OW
+                    else:
+                        w = prop_perm + (1.0 - prop_perm) * lags ** (-prop_beta)        # (n_kicks,)
                     shift_f = (kick_mag[:, :len(kick_steps)] * w[None, :]).sum(axis=1)
                     shift_amt = (jnp.round(shift_f / tick_size) * tick_size).astype(jnp.int32)
                 else:
