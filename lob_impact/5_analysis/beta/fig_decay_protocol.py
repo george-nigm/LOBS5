@@ -60,7 +60,7 @@ def main():
 
     # the four numbered tests
     ax.annotate('TEST 1 — level: fall to $\\approx\\frac{2}{3}$ of peak\nwithin 1–2 execution durations\n(uninformed metaorder: band $[0,\\frac{2}{3}]$)',
-                xy=(2.6, 2/3), xytext=(2.35, 0.30), fontsize=10.5, color='#1B5E20',
+                xy=(2.15, 2/3), xytext=(1.30, 0.16), fontsize=10.5, color='#1B5E20',
                 arrowprops=dict(arrowstyle='->', color='#1B5E20'))
     ax.annotate('TEST 2 — exponent: $\\gamma \\approx 0.5$\n(slope of the decay segment)',
                 xy=(1.45, float(2/3 + (1/3)*(np.sqrt(1.45)-np.sqrt(0.45)))), xytext=(0.014, 0.44),
@@ -68,15 +68,15 @@ def main():
     ax.annotate('TEST 3 — kernel form: power law, NOT exponential\n(exponential + nonlinear impact = dynamic arbitrage)',
                 xy=(1.35, float(2/3 + (1/3)*np.exp(-0.35/0.35))), xytext=(1.55, 1.32),
                 fontsize=10.5, color='#B71C1C', arrowprops=dict(arrowstyle='->', color='#B71C1C'))
-    ax.text(0.03, 1.52, 'TEST 4 — consistency: $\\gamma + \\delta \\geq 1$\n(couples Stage 2 to the build-up exponent)',
+    ax.text(2.05, 1.52, 'TEST 4 — consistency: $\\gamma + \\delta \\geq 1$\n(couples Stage 2 to the build-up exponent)',
             fontsize=10.5, color='#333333',
             bbox=dict(boxstyle='round,pad=0.35', fc='#F5F5F5', ec='#999999'))
-    ax.text(2.45, 1.13, 'current generators:\nflat or rising — all four tests fail',
+    ax.text(1.25, 1.16, 'current generators:\nflat or rising — all four tests fail',
             fontsize=10.5, color='#37474F', style='italic')
 
     # inset: HOW gamma is fitted — log-log of the excess above the permanent
     # level vs time since execution end; power law = straight line, slope -gamma
-    ins = ax.inset_axes([0.70, 0.42, 0.28, 0.30])
+    ins = ax.inset_axes([0.66, 0.06, 0.32, 0.30])
     zz = vv[vv > 1.02] - 1.0
     exc_t = (theory[vv > 1.02] - 2/3) / (1/3)
     exc_e = (expo[vv > 1.02] - 2/3) / (1/3)
