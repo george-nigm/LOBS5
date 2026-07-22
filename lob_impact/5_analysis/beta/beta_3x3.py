@@ -83,6 +83,9 @@ def main():
     ap.add_argument('--models', default='Historic,Heuristic,Propagator,Hawkes,CST,NMZI,'
                                         'Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
     ap.add_argument('--ks', default='5:100:5')
+    ap.add_argument('--trim', type=float, default=0.0,
+                    help='top-fraction of |y| to drop per fitted pool (outlier experiment)')
+    ap.add_argument('--tag', default='', help='output filename suffix, e.g. trim95')
     args = ap.parse_args()
     lo, hi, st = (int(v) for v in args.ks.split(':'))
     ks = np.arange(lo, hi + 1, st)
@@ -120,7 +123,11 @@ def main():
                 for i, k in enumerate(ks):
                     m = sel(kc, int(k))
                     if m.sum() >= MIN_PTS:
-                        vals[i] = fn(x_all[m], y_all[m])
+                        xx, yy = x_all[m], y_all[m]
+                        if args.trim > 0:
+                            keep = np.abs(yy) <= np.quantile(np.abs(yy), 1.0 - args.trim)
+                            xx, yy = xx[keep], yy[keep]
+                        vals[i] = fn(xx, yy)
                 curves[(model, mkey, vkey)] = vals
                 cache[f'{model}_{mkey}_{vkey}'] = vals
         b = curves[(model, 'binned', 'le')][-1]
@@ -149,7 +156,8 @@ def main():
     fig.suptitle(f'{args.stock}: exponent dynamics under three estimators (rows) '
                  f'and three cross-sections (cols); dashed = 0.5, sigma = Parkinson', y=0.995)
     fig.tight_layout()
-    png = os.path.join(outdir, f'beta_3x3_{args.stock}.png')
+    suff = f'_{args.tag}' if args.tag else ''
+    png = os.path.join(outdir, f'beta_3x3_{args.stock}{suff}.png')
     fig.savefig(png, dpi=150, bbox_inches='tight')
     np.savez_compressed(png.replace('.png', '.npz'), **cache)
     print(f'BETA_3X3_DONE -> {png} (+npz)', flush=True)

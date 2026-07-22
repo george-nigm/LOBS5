@@ -29,6 +29,9 @@ def main():
     ap.add_argument('--stock', required=True)
     ap.add_argument('--copy_to', default=None)
     ap.add_argument('--mask', action='store_true', help='identifiability mask (OFF by default pending decision)')
+    ap.add_argument('--mask_style', default='zero', choices=['zero', 'dots'],
+                    help="zero: non-identified segments pinned at delta-axis zero (suspended); dots: faint dotted raw values")
+    ap.add_argument('--suffix', default='', help='output filename suffix')
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     z3 = np.load(os.path.join(here, 'results', 'beta_3x3', f'beta_3x3_{args.stock}.npz'))
@@ -85,7 +88,14 @@ def main():
                         alpha=1.0 if m == 'Hawkes' else 0.9)
                 if (~msk).any():
                     hidden = v.copy(); hidden[msk] = np.nan
-                    ax.plot(ks, hidden, color=COLORS.get(m, '#444444'), lw=0.8, ls=':', alpha=0.35)
+                    if args.mask_style == 'zero':
+                        # SUSPENDED: no law identified -> pinned at zero (tiny stagger so
+                        # overlapping suspended models stay distinguishable)
+                        off = -0.022 * models.index(m)
+                        zline = np.where(np.isfinite(hidden), off, np.nan)
+                        ax.plot(ks, zline, color=COLORS.get(m, '#444444'), lw=1.8, ls='-', alpha=0.9)
+                    else:
+                        ax.plot(ks, hidden, color=COLORS.get(m, '#444444'), lw=0.8, ls=':', alpha=0.35)
             ax.axhline(0.5, color='#C0392B', ls='--', lw=1.0)
             ax.axhline(0.0, color='#cccccc', lw=0.8)
             ax.set_ylim(-0.6, 1.6)
@@ -111,7 +121,8 @@ def main():
                  f'cross-sections (columns); per-model point counts in the legend',
                  fontsize=13.5, y=0.995)
     fig.tight_layout(rect=[0, 0.075, 1, 0.975])
-    out = os.path.join(here, 'results', 'beta_3x3', f'beta_3x3_body_{args.stock}.png')
+    suff = f'_{args.suffix}' if args.suffix else ''
+    out = os.path.join(here, 'results', 'beta_3x3', f'beta_3x3_body_{args.stock}{suff}.png')
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print('B3X3BODY ->', out)
     if args.copy_to:
