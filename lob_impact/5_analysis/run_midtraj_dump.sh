@@ -14,7 +14,7 @@ export JAX_PLATFORMS=cpu
 PY=/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python
 B=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta
 GRID=/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2
-DAILY=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/2_daily_stats/results/daily_20260708-131449/daily_h_l_all.csv
+DAILY=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/2_daily_stats/results/daily_20260708-131449/daily_h_l_all_plus.csv
 PDP=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/1_data_prep/results/per_day_params/per_day_params_${STOCK}.csv
 MODELS="Historic,Heuristic,Propagator,Hawkes,CST,NMZI,Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k"
 cd "$B"
