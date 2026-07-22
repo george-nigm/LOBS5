@@ -166,18 +166,28 @@ def main():
         ls, C, gamma = acf_gamma(runs)
         lv, V, H = var_H(runs)
         lr, R = resp(runs)
+        # bootstrap CIs over runs (B=200): resample rollouts with replacement
+        bs_rng = np.random.default_rng(7)
+        gs, hs = [], []
+        for _ in range(200):
+            idx = bs_rng.integers(0, len(runs), len(runs))
+            sub = [runs[i] for i in idx]
+            gs.append(acf_gamma(sub)[2]); hs.append(var_H(sub)[2])
+        g_lo, g_hi = np.nanpercentile(gs, [2.5, 97.5])
+        h_lo, h_hi = np.nanpercentile(hs, [2.5, 97.5])
         c = COLORS.get(name, '#444444')
         ok = C > 0
         axes[0].loglog(ls[ok], C[ok], color=c, lw=1.5, label=f'{name} ($\\gamma$={gamma:.2f})')
-        axes[1].loglog(lv, V, color=c, lw=1.5, label=f'{name} ($H$={H:.2f})')
+        axes[1].loglog(lv, V, color=c, lw=1.5, label=f'{name} ($H$={H:.2f} [{h_lo:.2f},{h_hi:.2f}])')
         axes[2].plot(lr, R, color=c, lw=1.5, label=name)
         cache[f'{name}_C'] = C; cache[f'{name}_V'] = V; cache[f'{name}_R'] = R
         cache[f'{name}_gamma'] = gamma; cache[f'{name}_H'] = H
+        cache[f'{name}_H_ci'] = np.array([h_lo, h_hi]); cache[f'{name}_gamma_ci'] = np.array([g_lo, g_hi])
         bal = (1 - gamma) / 2 if np.isfinite(gamma) else np.nan
         verdict = ('balanced' if np.isfinite(H) and abs(H - 0.5) < 0.07 else
                    'SUPERDIFFUSIVE (persistence uncompensated)' if H > 0.57 else
                    'subdiffusive')
-        lines.append(f'| {name} | {gamma:.2f} | {H:.2f} | {bal:.2f} | {verdict} |')
+        lines.append(f'| {name} | {gamma:.2f} [{g_lo:.2f},{g_hi:.2f}] | {H:.2f} [{h_lo:.2f},{h_hi:.2f}] | {bal:.2f} | {verdict} |')
         print(f'{name}: gamma_flow={gamma:.2f} H_price={H:.2f} runs={len(runs)}', flush=True)
 
     axes[0].set_title('trade-sign autocorrelation $C(\\ell)$\n(long memory: slow power-law decay)', fontsize=10)

@@ -74,7 +74,7 @@ def main():
 
     # gate between screen and certify
     ax.text(7.67, ym + 0.62, 'gate', ha='center', fontsize=10, color=C_STOP, fontweight='bold')
-    ax.text(7.67, Y0 + H + 0.42, r'STOP if $H > 0.5$ or drift $\gg$ signal:'
+    ax.text(7.67, Y0 + H + 0.42, r'STOP if $H$ departs from the real stream or drift $\gg$ signal:'
             '\ndisqualified before any fleet is spent',
             ha='center', va='bottom', fontsize=9.6, color=C_STOP)
     arrow(ax, 7.67, ym + 0.5, 7.67, Y0 + H + 0.25, color=C_STOP, lw=2.0)
