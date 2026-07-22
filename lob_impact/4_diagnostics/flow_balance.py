@@ -136,7 +136,7 @@ def main():
     ap.add_argument('--controls', required=True)
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k,Hawkes')
+    ap.add_argument('--models', default='Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k,Hawkes,CST,NMZI')
     ap.add_argument('--n_files', type=int, default=64)
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))

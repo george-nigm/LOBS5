@@ -56,16 +56,16 @@ def main():
     plateaus = {}
     if args.model_npz:
         M = np.load(args.model_npz, allow_pickle=True)
-        for m in NEURAL:
-            if f'{m}_R' not in M.files:
-                continue
+        all_models = sorted({k[:-2] for k in M.files if k.endswith('_R') and not k.endswith('_Rse')})
+        for m in [x for x in all_models if x in NEURAL] + [x for x in all_models if x not in NEURAL]:
             rm, rs = M[f'{m}_R'], M[f'{m}_Rse']
             n_ev, n_run = (int(v) for v in M[f'{m}_n'])
             x = np.arange(1, len(rm) + 1); ok = np.isfinite(rm) & (M[f'{m}_cnt'] >= 100)
             c = MODEL_COLOR.get(m, '#444444')
-            ax.fill_between(x[ok], (rm - 2 * rs)[ok], (rm + 2 * rs)[ok], color=c, alpha=0.12, lw=0)
-            ax.plot(x[ok], rm[ok], color=c, lw=1.9,
-                    label=f'{m} — {n_ev:,} child events (n={n_run})')
+            neural = m in NEURAL
+            ax.fill_between(x[ok], (rm - 2 * rs)[ok], (rm + 2 * rs)[ok], color=c, alpha=0.12 if neural else 0.07, lw=0)
+            ax.plot(x[ok], rm[ok], color=c, lw=1.9 if neural else 1.1, alpha=1.0 if neural else 0.85,
+                    label=f'{m} — {n_ev:,} child events (n={n_run})' if neural else m)
             tail = rm[ok][len(rm[ok]) // 2:]
             plateaus[m] = float(np.nanmean(tail))
     for d in sorted(glob.glob(args.triangle_glob)) if args.triangle_glob else []:
@@ -94,7 +94,7 @@ def main():
     ax.set_ylabel('mean mid response R(m), ticks')
     ax.set_title(f'{args.stock}: per-event response, models vs the validated real anchor',
                  fontsize=11, fontweight='bold', loc='left')
-    ax.legend(loc='upper left', fontsize=7.6)
+    ax.legend(loc='upper left', fontsize=6.8, ncol=2)
 
     ks = np.arange(1, len(Rtr) + 1)
     axt.errorbar(ks, Rtr, yerr=2 * Rtr_se, fmt='o-', ms=4, color=C_REAL, lw=1.6,
