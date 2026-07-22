@@ -89,6 +89,9 @@ def main():
                                         'Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
     ap.add_argument('--ks', default='5:100:5')
     ap.add_argument('--view', default='le', choices=['le', 'eq', 'ge'])
+    ap.add_argument('--points_cache', default=None,
+                    help='npz with pre-collected raw points; created if absent '
+                         '(collect() is ~5h on the GOOG grid — cache it once)')
     args = ap.parse_args()
     SEL = {'le': lambda kk, k: kk <= k, 'eq': lambda kk, k: kk == k,
            'ge': lambda kk, k: kk >= k}[args.view]
@@ -103,16 +106,29 @@ def main():
 
     cache = {'ks': ks}
     curves = {}
+    pts = None
+    if args.points_cache and os.path.exists(args.points_cache):
+        pts = dict(np.load(args.points_cache, allow_pickle=True))
+        print(f'points cache loaded: {args.points_cache}', flush=True)
+    pts_out = {}
     for model in [m for m in args.models.split(',') if m]:
-        raw = collect(os.path.join(args.grid, f'{args.stock}-{model}-beta', 'buy'), args.stock, +1) + \
-              collect(os.path.join(args.grid, f'{args.stock}-{model}-beta', 'sell'), args.stock, -1)
-        if not raw:
-            print(f'{model}: no data', flush=True); continue
-        Q = np.array([r[0] for r in raw], float); I = np.array([r[1] for r in raw], float)
-        days = np.array([r[2] for r in raw]); kc = np.array([r[3] for r in raw], int) + 1
+        if pts is not None and f'{model}_Q' in pts:
+            Q = pts[f'{model}_Q']; I = pts[f'{model}_I']
+            days = pts[f'{model}_days']; kc = pts[f'{model}_kc']
+        else:
+            raw = collect(os.path.join(args.grid, f'{args.stock}-{model}-beta', 'buy'), args.stock, +1) + \
+                  collect(os.path.join(args.grid, f'{args.stock}-{model}-beta', 'sell'), args.stock, -1)
+            if not raw:
+                print(f'{model}: no data', flush=True); continue
+            Q = np.array([r[0] for r in raw], float); I = np.array([r[1] for r in raw], float)
+            days = np.array([r[2] for r in raw]); kc = np.array([r[3] for r in raw], int) + 1
+            if args.points_cache:
+                pts_out[f'{model}_Q'] = Q; pts_out[f'{model}_I'] = I
+                pts_out[f'{model}_days'] = days; pts_out[f'{model}_kc'] = kc
+                np.savez_compressed(args.points_cache, **pts_out)
         V = np.array([sig.get((args.stock, d), {}).get('V', np.nan) for d in days], float)
         x0 = np.log(Q / V)
-        print(f'{model}: {len(raw):,} points', flush=True)
+        print(f'{model}: {len(Q):,} points', flush=True)
         for sm in SIGMAS:
             sv = np.ones(len(days)) if sm == 'none' else \
                 np.array([sig.get((args.stock, d), {}).get(sm, np.nan) for d in days], float)
