@@ -79,7 +79,7 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     rng = np.random.default_rng(42)
 
-    PROFILE_MODELS = ['Mamba3', 'GDN', 'S5_120M', 'Historic', 'Hawkes']
+    PROFILE_MODELS = ['Mamba3', 'GDN', 'S5_120M', 'Heuristic', 'Propagator', 'Historic', 'Hawkes']
     cache = {'ks': ks, 'dgrid': DGRID, 'kcursor': args.kcursor, 'hero': args.hero}
     curves = {}
     hero_pts = None

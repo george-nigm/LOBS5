@@ -28,14 +28,20 @@ def models_in(z, suffix):
 
 
 def draw_mid(ax, z, n_ins=None):
+    klen = 0
     for m in models_in(z, '_k_mean'):
         y = z[f'{m}_k_mean']; se = z[f'{m}_k_se']
         x = np.arange(len(y))
+        klen = max(klen, len(y))
         c = COLORS.get(m, '#444444')
-        ax.plot(x, y, color=c, lw=1.6)
+        ax.plot(x, y, color=c, lw=2.0)
         ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.10, lw=0)
-    if 'sqrt_x' in z.files:
-        ax.plot(z['sqrt_x'], z['sqrt_y'], color=GREY, lw=1.4, ls='--')
+    if 'sqrt_x' in z.files and klen:
+        # cache stores the reference against MESSAGE position; the model curves
+        # are on the k-clock -> map the reference onto the same k axis
+        ys = z['sqrt_y']
+        xref = np.linspace(0, klen - 1, len(ys))
+        ax.plot(xref, ys, color=GREY, lw=2.0, ls='--')
     if n_ins is not None:
         ax.axvline(n_ins, color='#999999', lw=1.0, ls=':')
     ax.axhline(0, color='#cccccc', lw=0.8)
@@ -48,7 +54,7 @@ def draw_master(ax, z, relax):
         if not bool(z[f'{m}_sig']):
             gated_out.append(m); continue
         v = z['vgrid']; y = z[f'{m}_master']
-        ax.plot(v, y, color=COLORS.get(m, '#444444'), lw=1.6)
+        ax.plot(v, y, color=COLORS.get(m, '#444444'), lw=2.0)
     v = z['vgrid']
     if relax:
         ax.axhline(2 / 3, color=GREY, lw=1.4, ls='--')
@@ -57,7 +63,7 @@ def draw_master(ax, z, relax):
         ax.plot(v, np.sqrt(np.clip(v, 0, None)), color=GREY, lw=1.4, ls='--')
     if gated_out:
         ax.text(0.02, 0.97, 'gate-failed: ' + ', '.join(gated_out), transform=ax.transAxes,
-                fontsize=6.6, color='#888888', va='top')
+                fontsize=10, color='#888888', va='top')
     ax.axhline(0, color='#cccccc', lw=0.8)
     ax.margins(x=0)
 
@@ -77,30 +83,31 @@ def main():
     }
     Z = {k: np.load(v, allow_pickle=True) for k, v in src.items()}
 
-    fig, axes = plt.subplots(2, 2, figsize=(12.8, 7.6))
+    plt.rcParams.update({'font.size': 12.5, 'axes.labelsize': 13, 'xtick.labelsize': 11.5, 'ytick.labelsize': 11.5})
+    fig, axes = plt.subplots(2, 2, figsize=(15.5, 9.5))
     draw_mid(axes[0][0], Z['mid_beta'])
-    axes[0][0].set_title('build-up: mid-price impact $I(k)$ (bps, antisymmetrised)', fontsize=10)
+    axes[0][0].set_title('build-up: mid-price impact $I(k)$ (bps, antisymmetrised)', fontsize=13.5)
     axes[0][0].set_ylabel('build-up shape\n$I$, bps')
     draw_master(axes[0][1], Z['ms_beta'], relax=False)
-    axes[0][1].set_title(r'build-up: master curve $\langle I(v)\rangle/\langle I(1)\rangle$ (gated)', fontsize=10)
+    axes[0][1].set_title(r'build-up: master curve $\langle I(v)\rangle/\langle I(1)\rangle$ (gated)', fontsize=13.5)
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10)
-    axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=10)
+    axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
     axes[1][0].set_xlabel('children executed $k$ (then cooling blocks)')
     draw_master(axes[1][1], Z['ms_relax'], relax=True)
-    axes[1][1].set_title(r'relaxation: master curve, $v>1$ = cooling (dashed: $2/3$ level)', fontsize=10)
+    axes[1][1].set_title(r'relaxation: master curve, $v>1$ = cooling (dashed: $2/3$ level)', fontsize=13.5)
     axes[1][1].set_xlabel('metaorder fraction executed $v$')
 
     present = [m for m in ORDER if any(f'{m}_k_mean' in Z[k].files for k in ('mid_beta', 'mid_decay'))]
-    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.2, label=m.replace('_', '-'))
+    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0, label=m.replace('_', '-'))
                for m in present]
-    handles.append(Line2D([], [], color=GREY, lw=1.6, ls='--',
+    handles.append(Line2D([], [], color=GREY, lw=2.4, ls='--',
                           label=r'reference ($\sqrt{\cdot}$-law / $2/3$ level)'))
-    fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 7),
-               fontsize=8.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
+    fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 5),
+               fontsize=12.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
     fig.suptitle(f'{args.stock}: metaorder impact — build-up and relaxation, '
                  'raw $k$-clock (left) and normalised master curves (right)',
-                 fontsize=11.5, y=0.99)
+                 fontsize=15, y=0.99)
     fig.tight_layout(rect=[0, 0.06, 1, 0.97])
     out = os.path.join(res, 'mid_impact', f'fig5_combined_{args.stock}.png')
     fig.savefig(out, dpi=170, bbox_inches='tight')
