@@ -37,6 +37,13 @@ if [ "$MODE" = smoke ]; then
 else
   MB=729; N_SAMPLES="${N_SAMPLES:-64}"; SAVE_DIR="$SAVE_BASE/GOOG-LobS5-$SHAPE/$DIRN"
 fi
+# no-insertion control: N_INS_OVERRIDE=1 MB_OVERRIDE=13000 -> single insertion at the very
+# end = ~13k clean generated messages (flow-balance input); writes to noins/ subtree
+if [ -n "${N_INS_OVERRIDE:-}" ]; then
+  N_INS="$N_INS_OVERRIDE"; N_COOL=0
+  [ -n "${MB_OVERRIDE:-}" ] && MB="$MB_OVERRIDE"
+  SAVE_DIR="$SAVE_BASE/noins/GOOG2023-S5-beta/$DIRN"
+fi
 
 CFG="$HERE/logs/cfg_lobs5_legacy_${SLURM_JOB_ID:-$$}.yaml"
 python3 - <<PY
