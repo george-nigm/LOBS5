@@ -121,6 +121,12 @@ def main():
     R_clean = np.array([np.nanmean(S[GAP > m, m - 1]) if (GAP > m).sum() >= 30 else np.nan
                         for m in mgrid])
     n_clean = np.array([(GAP > m).sum() for m in mgrid])
+    # FIXED-COMPOSITION curve: one population across all m (events whose clean window
+    # covers the whole grid). Separates true delayed build-up from survivor-mix shifts:
+    # if R_fixed shows the same step as R/R_clean, the dynamics are real.
+    fixmask = GAP > mgrid[-1]
+    R_fixed = np.nanmean(S[fixmask], 0) if fixmask.sum() >= 30 else np.full(len(mgrid), np.nan)
+    n_fixed = int(fixmask.sum())
 
     fig, axes = plt.subplots(2, 3, figsize=(16, 8))
     ax = axes[0][0]
@@ -153,6 +159,9 @@ def main():
     ax.plot(mgrid, R, color='#2F5DA3', lw=1.8, label='full R(m) (with follow-on MOs)')
     ax.plot(mgrid, R_clean, color='#E67E22', lw=1.6,
             label='clean: no other MO in (t, t+m]')
+    if np.isfinite(R_fixed).any():
+        ax.plot(mgrid, R_fixed, color='#8E44AD', lw=1.6, ls='-.',
+                label=f'fixed composition: window>{int(mgrid[-1])} (n={n_fixed})')
     ax.axhline(0, color='#bbbbbb', lw=0.8); ax.legend(fontsize=8)
     for probe in (30, 60, 100, 150, 200):
         if probe <= M and np.isfinite(R_clean[probe - 1]):
@@ -174,7 +183,7 @@ def main():
                         mgrid=mgrid, R=R, R_se=R_se, D=D, Rb=Rb, Rs=Rs,
                         Rday=Rday, days=np.array(days), nday=nday,
                         null_lo=nlo, null_hi=nhi, Rtr=Rtr, Rtr_se=Rtr_se,
-                        R_clean=R_clean, n_clean=n_clean, kmean=kmean,
+                        R_clean=R_clean, n_clean=n_clean, R_fixed=R_fixed, n_fixed=n_fixed, kmean=kmean,
                         msgs_per_exec=np.array([mpe[d] for d in days]))
     for probe in (10, 30, 60, 100, 131, 200, 250):
         if probe <= M:
