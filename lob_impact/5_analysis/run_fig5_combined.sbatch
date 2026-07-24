@@ -13,6 +13,7 @@ set +u; source /home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh; conda 
 export JAX_PLATFORMS=cpu
 cd /home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta
 FIGDIR=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/paper/Figures
-for ST in EA NVDA GOOG; do
-  python -u fig5_combined.py --stock "$ST" --copy_to "$FIGDIR"
+for ST in ${STOCKS_F5:-EA NVDA GOOG AMD MSFT}; do
+  python -u fig5_combined.py --stock "$ST" --copy_to "$FIGDIR" || echo "[skip] $ST (cache incomplete)"
 done
+python -u sample_count_table.py || true
