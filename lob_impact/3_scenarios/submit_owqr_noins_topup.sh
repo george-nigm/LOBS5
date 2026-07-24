@@ -21,9 +21,16 @@ free=$(( QOS_CAP - HEADROOM - inq ))
 n=0
 while [ "$n" -lt "$free" ] && [ -s "$PENDING" ]; do
   read -r ST m k < "$PENDING"
+  # unique full-stock job name (AMD vs AAPL both start with A) + skip-if-queued guard:
+  # sbatch client timeouts can report failure for a job the server accepted.
+  JN=s0_${ST}_${m}$k
+  if squeue -u "$(whoami)" -h -n "$JN" 2>/dev/null | grep -q .; then
+    echo "TOPUP: '$ST $m $k' already queued, dropping from list" >> "$JIDS"
+    sed -i '1d' "$PENDING"; continue
+  fi
   EXTRA=""; [ "$m" = ow ] && EXTRA=",PROP_KERNEL=exp,PROP_TAU=1000"
   j=$(sbatch --parsable --account=brics.u6gb --partition=workq --cpus-per-task=32 --mem=256G --time=12:00:00 \
-    --job-name=s0${ST:0:1}_${m}$k --output=logs/s0_${ST}_${m}_s${k}_%j.out \
+    --job-name="$JN" --output=logs/s0_${ST}_${m}_s${k}_%j.out \
     --export=ALL,SAVE_BASE=$NOINS,STOCKS=$ST,ONLY_SHAPE=beta,DIRS=buy,N_SAMPLES=2048,SAMPLE_SLICE=$k/8,N_INS_OVERRIDE=1,MB_OVERRIDE=${MBOV[$ST]}$EXTRA \
     run_experiments.sh full "$m" 2>>"$JIDS.err") || { echo "TOPUP: sbatch failed on '$ST $m $k', stopping this cycle" | tee -a "$JIDS"; exit 0; }
   echo "B $ST $m s$k=$j" >> "$JIDS"
