@@ -15,6 +15,6 @@ set +u; source /home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh; conda 
 export JAX_PLATFORMS=cpu
 cd /home/u6gb/georgenigm.u6gb/LOBS5
 export PYTHONPATH="$PWD:$PWD/Alphatrade:${PYTHONPATH:-}"
-GRID=/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2
+GRID="${EST_GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
 python -u lob_impact/5_analysis/_cst_estimate_stock.py "$STOCK" "$GRID" 300 100
 python -u lob_impact/5_analysis/_hawkes_estimate_stock.py "$STOCK" "$GRID" 300 100
