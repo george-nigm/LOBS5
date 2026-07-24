@@ -9,7 +9,7 @@ cd /home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/3_scenarios
 PENDING=logs/owqr_noins_pending.txt
 JIDS=logs/owqr_noins_topup.txt
 NOINS=/lus/lfs1aip2/projects/u6gb/lob_impact_controls_v2/noins
-HEADROOM="${HEADROOM:-12}"
+HEADROOM="${HEADROOM:-2}"
 QOS_CAP=512
 declare -A MBOV=([EA]=13000 [NVDA]=25000 [GOOG]=73000 [AMD]=55000 [MSFT]=26000 [AAPL]=38000)
 
