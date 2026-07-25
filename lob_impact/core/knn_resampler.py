@@ -54,16 +54,19 @@ def vol_profile(l2_flat: onp.ndarray, tick_size: int, l_ticks: int) -> onp.ndarr
     out = onp.zeros(2 * l_ticks, dtype=onp.float32)
     if ask_p[0] <= 0 or bid_p[0] <= 0:
         return out
-    mid = ((ask_p[0] + bid_p[0]) // 2 // tick_size) * tick_size
+    # Half-tick offsets around the exact mid: with a 1-tick spread the touches land at
+    # -1/+1 (floor for bids, ceil for asks), so top-of-book volume is never dropped.
+    mid2 = ask_p[0] + bid_p[0]                  # = 2 * mid, exact integer
+    t2 = 2 * tick_size
 
-    # bid side: offsets -1 .. -l_ticks -> slots l_ticks-1 .. 0
-    off_b = (bid_p - mid) // tick_size          # negative
+    # bid side: slot = floor((2p - 2mid)/2tick), offsets -1 .. -l_ticks -> slots l_ticks-1 .. 0
+    off_b = (2 * bid_p - mid2) // t2
     ok = (bid_p > 0) & (off_b <= -1) & (off_b >= -l_ticks)
     slots = (off_b[ok] + l_ticks).astype(onp.int64)   # -l_ticks -> 0
     onp.add.at(out, slots, bid_v[ok].astype(onp.float32))
 
-    # ask side: offsets +1 .. +l_ticks -> slots l_ticks .. 2*l_ticks-1
-    off_a = (ask_p - mid) // tick_size          # positive
+    # ask side: slot = ceil((2p - 2mid)/2tick), offsets +1 .. +l_ticks -> slots l_ticks .. 2*l_ticks-1
+    off_a = -((mid2 - 2 * ask_p) // t2)
     ok = (ask_p > 0) & (off_a >= 1) & (off_a <= l_ticks)
     slots = (off_a[ok] - 1 + l_ticks).astype(onp.int64)
     onp.add.at(out, slots, ask_v[ok].astype(onp.float32))
@@ -78,17 +81,18 @@ def _vol_profiles_bulk(l2_rows: onp.ndarray, tick_size: int, l_ticks: int) -> on
     bid_p = l2_rows[:, 2::4].astype(onp.int64)
     bid_v = l2_rows[:, 3::4].astype(onp.float32)
 
-    mid = ((ask_p[:, 0] + bid_p[:, 0]) // 2 // tick_size) * tick_size
+    mid2 = ask_p[:, 0] + bid_p[:, 0]            # = 2 * mid
+    t2 = 2 * tick_size
     valid = (ask_p[:, 0] > 0) & (bid_p[:, 0] > 0)
 
     out = onp.zeros((n, 2 * l_ticks), dtype=onp.float32)
     rows_idx = onp.broadcast_to(onp.arange(n)[:, None], ask_p.shape)
 
-    off_b = (bid_p - mid[:, None]) // tick_size
+    off_b = (2 * bid_p - mid2[:, None]) // t2
     ok = valid[:, None] & (bid_p > 0) & (off_b <= -1) & (off_b >= -l_ticks)
     onp.add.at(out, (rows_idx[ok], (off_b[ok] + l_ticks).astype(onp.int64)), bid_v[ok])
 
-    off_a = (ask_p - mid[:, None]) // tick_size
+    off_a = -((mid2[:, None] - 2 * ask_p) // t2)
     ok = valid[:, None] & (ask_p > 0) & (off_a >= 1) & (off_a <= l_ticks)
     onp.add.at(out, (rows_idx[ok], (off_a[ok] - 1 + l_ticks).astype(onp.int64)), ask_v[ok])
     return out
