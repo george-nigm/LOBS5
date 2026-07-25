@@ -105,6 +105,12 @@ declare -A MODELS=(
   [qr]="QR|qr_scenario.py|||503|"
   # K-NN message resampling (Giegrich-Oomen-Reisinger 2409.06514): pool = same-day history, no ckpt (CPU)
   [knn]="KNN|knn_scenario.py|||503|"
+  # External v4 baselines (DeepMarket, TSLA/INTC Jan-2015 ckpts; torch on cuda, JAX stays on cpu —
+  # ckpt field left EMPTY on purpose so the :229 switch pins JAX to CPU; ckpt path flows via env branch below)
+  [cgan_dm]="CGAN|cgan_dm_scenario.py|||503|"
+  [trades]="TRADES|trades_scenario.py|||503|"
+  # MarketGPT (Wheeler-Varner, ITCH-token AR, AAPL ckpt): same torch-cuda/jax-cpu split
+  [marketgpt]="MarketGPT|marketgpt_scenario.py|||503|"
   [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503|"
   [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
   [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000|/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_4k_j2504167_102965_params.npz"
@@ -174,6 +180,7 @@ render_config() {
   CKPT_STEP="$CKPT_STEP" BOOK_DIM="$BOOK_DIM" SAVE_DIR="$SAVE_DIR" \
   N_INS="$N_INS" N_COOL="$N_COOL" TICK="$TICK" N_SAMPLES_OVERRIDE="$N_SAMPLES_OVERRIDE" SLICE_K="$SLICE_K" N_SLICES="$N_SLICES" \
   PER_DAY="$PER_DAY" PDP_DIR="$PDP_DIR" NPD="$N_PER_DAY" CST_PARAMS="${CST_PARAMS:-}" HAWKES_PARAMS="${HAWKES_PARAMS:-}" QR_PARAMS="${QR_PARAMS:-}" N_COND="${N_COND:-}" BSZ="${BSZ:-}" \
+  EXT_MODEL="${EXT_MODEL:-}" EXT_CKPT="${EXT_CKPT:-}" EXT_ROOT="${EXT_ROOT:-}" \
   METAORDER_VISIBLE="${METAORDER_VISIBLE:-}" PARAMS_NPZ="${PARAMS_NPZ:-}" \
   python3 - <<'PY'
 import os, yaml
@@ -209,6 +216,20 @@ if os.environ.get("HAWKES_PARAMS"):                                             
 if os.environ.get("QR_PARAMS"):                                                      # queue-reactive baseline
     cfg["params_file"] = os.environ["QR_PARAMS"]
     cfg["n_levels"]    = 10
+if os.environ.get("EXT_MODEL"):                                                      # external v4 baselines
+    cfg["n_levels"] = 10
+    m = os.environ["EXT_MODEL"]
+    if m == "CGAN":
+        cfg["deepmarket_root"] = os.environ["EXT_ROOT"]
+        cfg["cgan_ckpt"]       = os.environ["EXT_CKPT"]
+        cfg["stock2015"]       = cfg["stock"]
+    elif m == "TRADES":
+        cfg["deepmarket_root"] = os.environ["EXT_ROOT"]
+        cfg["trades_ckpt"]     = os.environ["EXT_CKPT"]
+        cfg["stock2015"]       = cfg["stock"]
+    elif m == "MarketGPT":
+        cfg["marketgpt_root"] = os.environ["EXT_ROOT"]
+        cfg["marketgpt_ckpt"] = os.environ["EXT_CKPT"]
 if os.environ.get("PER_DAY"):
     # per-day calibration: child(order_volume)=p50 and mb come from the CSV per day (NOT the
     # hardcoded 75). batch_size == n_samples_per_day so each day = one batch.
@@ -265,6 +286,25 @@ for model_key in "${MODEL_KEYS[@]}"; do
         [ "$LABEL" = "NMZI" ]   && CST_PARAMS="${HERE}/cst_params/cst_params_${STOCK}.pkl"  # same rates; sign model differs
         [ "$LABEL" = "Hawkes" ] && HAWKES_PARAMS="${HERE}/hawkes_params/hawkes_params_${STOCK}.pkl"
         [ "$LABEL" = "QR" ]     && QR_PARAMS="${HERE}/qr_params/qr_params_${STOCK}.pkl"
+        # External v4 baselines: checkpoints/repos live OUTSIDE our git (env-overridable)
+        EXT_MODEL=""; EXT_CKPT=""; EXT_ROOT=""
+        if [ "$LABEL" = "CGAN" ] || [ "$LABEL" = "TRADES" ]; then
+          EXT_MODEL="$LABEL"
+          EXT_ROOT="${DEEPMARKET_ROOT:-$HOME/external/DeepMarket}"
+          if [ "$LABEL" = "CGAN" ]; then
+            case "$STOCK" in
+              TSLA) EXT_CKPT="${CGAN_CKPT:-$EXT_ROOT/data/checkpoints/CGAN/val_ema=-1.0419_epoch=0_TSLA_lr_0.001_seq_size_256_seed_30.ckpt}" ;;
+              INTC) EXT_CKPT="${CGAN_CKPT:-$EXT_ROOT/data/checkpoints/CGAN/val_ema=-1.05518_epoch=1_INTC_CGAN_lr_0.001_seq_size_256_seed_30.ckpt}" ;;
+              *) echo "CGAN ckpts exist only for TSLA/INTC (got $STOCK)"; exit 2 ;;
+            esac
+          else
+            EXT_CKPT="${TRADES_CKPT:-$EXT_ROOT/data/checkpoints/TRADES/${STOCK}.ckpt}"
+          fi
+        elif [ "$LABEL" = "MarketGPT" ]; then
+          EXT_MODEL="MarketGPT"
+          EXT_ROOT="${MARKETGPT_ROOT:-$HOME/external/MarketGPT}"
+          EXT_CKPT="${MARKETGPT_CKPT:-$EXT_ROOT/ckpt_finetune_AAPL_v3.pt}"
+        fi
         scen="${STOCK}-${LABEL}-${TAG}"             # one experiment = stock-model-(beta|relaxation)/dir
         SAVE_DIR="${SAVE_BASE}/${scen}/${dir}"
         cfg_dir="${SAVE_BASE}/_configs/${scen}"
