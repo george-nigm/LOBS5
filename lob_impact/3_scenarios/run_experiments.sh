@@ -146,7 +146,7 @@ MODE="${1:-smoke}"; shift || true
 # no-insertion drift control: single insertion at the very end = 13k clean generated messages).
 SMOKE_N_INS="${N_INS_OVERRIDE:-}"; SMOKE_MB="${MB_OVERRIDE:-}"
 if [ "$MODE" = "smoke" ]; then
-  MODEL_KEYS=("${MODEL_KEYS[0]}"); STOCKS=(EA)
+  MODEL_KEYS=("${MODEL_KEYS[0]}"); STOCKS=("${STOCKS[0]:-EA}")  # smoke: 1 combo, but respect env STOCKS (cgan_dm needs TSLA, marketgpt needs AAPL)
   SHAPES=("${SHAPES[0]}"); DIRECTIONS=(buy)
   N_SAMPLES_OVERRIDE=64; SMOKE_N_INS=3; SMOKE_MB=5   # tiny: 3 insertions, mb=5 — just to check
   # throwaway, not the consolidated grid root; SMOKE_SAVE_BASE pins a shared path so that
