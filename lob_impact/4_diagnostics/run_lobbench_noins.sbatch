@@ -38,6 +38,13 @@ for d in "$NOINS/$STOCK-"*-beta; do
       ln -sf "$f" "$T/$sub/$(basename "$f")"
     done
   done
+  # noins runs don't write data_real; the cond windows ARE real LOBSTER data on the
+  # same stock/month (and share the message_real_id_{i} naming) — use them as the
+  # real side of the gen-vs-real distributional comparison.
+  if [ -z "$(ls -A "$T/data_real" 2>/dev/null)" ]; then
+    for f in "$T/data_cond"/*.csv; do [ -e "$f" ] || continue; ln -sf "$(readlink -f "$f")" "$T/data_real/$(basename "$f")"; done
+    echo "REAL=cond-proxy for $M"
+  fi
   MODELS+=("$M")
   echo "STAGED $M: gen=$ngen real=$(ls "$T/data_real" | wc -l) cond=$(ls "$T/data_cond" | wc -l)"
 done
@@ -45,7 +52,7 @@ done
 
 # ---- score
 cd "$BENCH"
-python -u run_bench.py --stock "$STOCK" --time_period "$PERIOD" \
+echo y | python -u run_bench.py --stock "$STOCK" --time_period "$PERIOD" \
   --data_dir "$STAGE" --save_dir "$OUT/scores_$STOCK" \
   --model_name "${MODELS[@]}" --n_workers "${SLURM_CPUS_PER_TASK:-16}"
 echo "LOBBENCH_NOINS_DONE $STOCK models=${MODELS[*]}"
