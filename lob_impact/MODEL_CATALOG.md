@@ -49,6 +49,8 @@ orders (metaorder protocol) → write `data_cond`/`data_gen` CSVs (see `FRAMEWOR
 | Model | Status (2026-07-25) |
 |---|---|
 | MarS / LMM (Microsoft, ICLR'25) | engine MIT (github.com/microsoft/MarS) but LMM weights private since 2024 («awaiting review», HF issue #9 unanswered); trained on Chinese A-shares. Cite as unavailable |
+| TradeFM (J.P. Morgan AI Research, arXiv:2602.23784, Feb 2026) | 524M AR transformer over composite L3 event tokens (Δt, depth-in-bps from mid, log-volume, add/cancel, side; vocab 16,384) + own price-time-priority LOB simulator; trained on billions of events, 9k+ US equities, zero-shot APAC. Closest published analog of our neural line at foundation scale — but **no code, no weights, proprietary tape** (JPM policy, same as Coletta). Pseudocode+hyperparams only; cite in related work |
+| TRADES ckpts (status update 2026-07-25) | Drive files DELETED (404 on archived file IDs), HF mirror `LeonardoBerti/DeepMarket` private → weights currently unavailable publicly; adapter ready, awaiting author response or in-house retrain |
 | Coletta world agent (JPM, ICAIF'21/'22) | no code, no weights ever released (proprietary). De-facto public implementation = DeepMarket CGAN (row B) |
 | Stock-GAN (Li et al., AAAI 2020) | no official repo; appendix pseudocode only |
 | Shi-Cartlidge NS-ABM (AAMAS'23) | neural-Hawkes ABIDES hybrid; only the KDD'22 event-prediction part released |
