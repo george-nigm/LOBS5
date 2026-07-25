@@ -103,6 +103,8 @@ declare -A MODELS=(
   [hawkes]="Hawkes|hawkes_scenario.py|||503|"
   # Queue-reactive (Huang-Lehalle-Rosenbaum): intensities = f(queue size); strongest classical challenger
   [qr]="QR|qr_scenario.py|||503|"
+  # K-NN message resampling (Giegrich-Oomen-Reisinger 2409.06514): pool = same-day history, no ckpt (CPU)
+  [knn]="KNN|knn_scenario.py|||503|"
   [mamba3]="Mamba3|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j3417629_pw8u0edj_3417629|46050|503|"
   [mamba3_4k]="Mamba3_4k|mamba3_scenario.py|${CKPT_BASE}/exp_R1_Mamba3/checkpoints/j4163888_51a6jrbu_4163888|35280|503|4000"
   [s5_4k]="S5_4k|s5_scenario.py|${CKPT_BASE}/exp_H2-context-scale/checkpoints/j2504167_y0c4j6l3_2504167|102965|503|4000|/lus/lfs1aip2/projects/u6gb/lob_impact_grid/_ckpt_converted/s5_4k_j2504167_102965_params.npz"
@@ -118,7 +120,7 @@ MODEL_KEYS=(historic mamba3)
 read -ra STOCKS <<< "${STOCKS:-EA NVDA AMD}"        # env-overridable: STOCKS="EA" for per-stock jobs
 # mb (messages-between) is FIXED per stock = its msgs_btw (eta=10% participation), from 1_data_prep.
 # NOT a sweep — one mb per stock so participation rate stays at the target.
-declare -A STOCK_MB=([EA]=122 [NVDA]=250 [MSFT]=261 [AAPL]=344 [AMD]=401 [AMZN]=421 [GOOG]=729)
+declare -A STOCK_MB=([EA]=122 [NVDA]=250 [MSFT]=261 [AAPL]=344 [AMD]=401 [AMZN]=421 [GOOG]=729 [TSLA]=302 [INTC]=243)
 # shape: "name|num_insertions|num_coolings|template|tag"   (tag = folder suffix: beta | relaxation)
 SHAPES=(
   "bet_composition|100|0|config_bet_composition.yaml|beta"        # Shape I  -> beta
