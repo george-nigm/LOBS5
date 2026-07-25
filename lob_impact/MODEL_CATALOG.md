@@ -69,6 +69,22 @@ orders (metaorder protocol) → write `data_cond`/`data_gen` CSVs (see `FRAMEWOR
 | Financial Wind Tunnel (arXiv:2503.17909) | candlestick/cross-sectional |
 | ABIDES / agent-based configs | rule agents, not learned world models (host platform only) |
 
+## v4 reproduction plan — everything with code goes onto AAPL (2026-07-25)
+
+Narrative for the paper: table of ALL existing models (sections A-E) → subset with public code →
+we reproduce that subset on ONE stock (AAPL, Jan-2026; in-distribution for our neural ckpts,
+same-stock for the MarketGPT ckpt). Feasibility verdicts:
+
+| Model | Route to AAPL | Data needed | Compute | Effort / risk |
+|---|---|---|---|---|
+| MarketGPT | off-the-shelf AAPL-2019 ckpt (temporal transfer, price-level-free decode) | our cond windows | smoke + fleet GPU-h | adapter DONE; smoke queued |
+| TRADES | **retrain** on AAPL Jan-2026 (weights deleted upstream; retrain also kills the 2015 re-anchor caveat) | ~15 days AAPL LOBSTER csv — exported from our proc npy | ~1-2 GPU-days (12M params, DDPM-100, seq 256; archived ckpt names give exact config) | need AAPL normalization stats + export pipeline; medium |
+| CGAN (DeepMarket) | retrain on AAPL (tiny, 0.5M params) alongside TSLA/INTC off-the-shelf runs | same export | hours | type-thresholds are per-stock hand-tuned upstream — calibrate on train type-mix; low-medium |
+| KNN | direct (pool = AAPL same-day data, no training) | none extra | CPU | DONE; smoke queued |
+| Hultin lob-rnn | retrain; TF 2.4 code on py3.10 needs porting to TF≥2.10 | same export (their loader differs — adapter) | ~1 GPU-day | STRETCH: TF not in env, port risk; decide after the four above land |
+| RWKV4/6 (LOB-Bench line) | would be in-house training on our stack | our tokens | ~days | optional; not an external reproduction claim |
+| MarS/LMM, TradeFM, Coletta, Stock-GAN, DiGA, DFM, Shi-Cartlidge | NOT reproducible (no weights AND no/partial training code or proprietary data) | — | — | cite-only rows of the table |
+
 ## Fairness caveat for the paper
 
 Every public checkpoint (B) is trained on another period (2015/2019) and, for TRADES/CGAN, another
