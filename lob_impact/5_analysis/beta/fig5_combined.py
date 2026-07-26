@@ -39,6 +39,10 @@ def n_of(z, m):
             return int(c[0])
     if f'{m}_K' in z.files:
         return int(np.shape(z[f'{m}_K'])[0])
+    # master-curve caches store the fleet size as `{m}_n` — without this a model that
+    # exists only there (OW, QR) is legended as "n = 0".
+    if f'{m}_n' in z.files:
+        return int(np.atleast_1d(z[f'{m}_n']).ravel()[0])
     return 0
 
 
