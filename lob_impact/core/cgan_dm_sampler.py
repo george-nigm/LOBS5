@@ -48,11 +48,22 @@ class CganDmSampler:
         from lob_impact.core.deepmarket_bridge import load_engine
         self.engine, dm = load_engine(deepmarket_root, ckpt_path, 'gan', self.device)
 
+        # The checkpoint stores CHOSEN_STOCK as the Stocks ENUM (upstream only converts to a
+        # plain name when it is a list). That matters: post_process_order compares
+        # `self.chosen_stock == cst.Stocks.TSLA.name` against the STRING 'TSLA', so with an enum
+        # the comparison is always False and even the TSLA checkpoint would silently take the
+        # INTC order-type thresholds. Normalise to the plain name so each checkpoint gets its own
+        # thresholds — a deliberate deviation from upstream behaviour (upstream bug).
         got_stock = getattr(self.engine, 'chosen_stock', None)
-        print(f"CGAN engine loaded: chosen_stock={got_stock} "
+        got_name = getattr(got_stock, 'name', got_stock)
+        print(f"CGAN engine loaded: chosen_stock={got_stock!r} -> name={got_name!r} "
               f"(expected {stock2015}), device={self.device}")
-        if got_stock is not None and got_stock != stock2015:
-            raise ValueError(f'checkpoint stock {got_stock} != requested {stock2015}')
+        if got_name is not None and got_name != stock2015:
+            raise ValueError(f'checkpoint stock {got_name} != requested {stock2015}')
+        if got_stock is not None and got_name != got_stock:
+            self.engine.chosen_stock = got_name
+            print(f"[cgan] normalised chosen_stock enum -> {got_name!r} "
+                  f"so post_process_order picks the {got_name} thresholds")
         self.noise_dim = self.engine.generator_lstm_hidden_state_dim
 
         # 2015 z-score stats (constants.py, "normalization_terms['lob']" layout)

@@ -68,6 +68,14 @@ def load_engine(deepmarket_root: str, ckpt_path: str, engine: str, device):
     import torch
     with deepmarket_imports(deepmarket_root):
         import constants as dm_cst
+        # DeepMarket's `utils/` has no __init__.py -> it imports as a NAMESPACE package with no
+        # __file__, and Lightning's load_from_checkpoint calls inspect.getfile() on it
+        # ("<module 'utils'> is a built-in module"). Give namespace packages a synthetic __file__.
+        import utils as dm_utils
+        for m in (dm_utils,):
+            if getattr(m, '__file__', None) is None and getattr(m, '__path__', None):
+                m.__file__ = os.path.join(list(m.__path__)[0], '__init__.py')
+                print(f"[deepmarket_bridge] synthetic __file__ for namespace pkg {m.__name__}")
         if engine == 'gan':
             from models.gan.gan_engine import GANEngine as Engine
         elif engine == 'diffusion':
