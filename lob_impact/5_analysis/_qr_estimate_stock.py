@@ -25,9 +25,17 @@ GRID = sys.argv[2]
 N = int(sys.argv[3]) if len(sys.argv) > 3 else 300
 TICK = int(sys.argv[4]) if len(sys.argv) > 4 else 100
 
+# data_cond is the REAL LOBSTER window every scenario conditions on, so it is identical
+# whichever model's folder it sits in. Prefer Historic (always present for the established
+# stocks); for a stock whose Historic fleet has not run yet (AAPL) fall back to any
+# <STOCK>-*-beta folder that already staged cond windows, so estimation is not blocked.
 books = []
 for side in ('buy', 'sell'):
     books += sorted(glob.glob(f'{GRID}/{STOCK}-Historic-beta/{side}/exp_*/data_cond/*orderbook*.csv'))
+if not books:
+    for side in ('buy', 'sell'):
+        books += sorted(glob.glob(f'{GRID}/{STOCK}-*-beta/{side}/exp_*/data_cond/*orderbook*.csv'))
+    print(f'{STOCK}: no Historic cond windows; falling back to any model folder', flush=True)
 books = books[:N]
 print(f'{STOCK}: estimating QR params from {len(books)} conditioning windows', flush=True)
 
