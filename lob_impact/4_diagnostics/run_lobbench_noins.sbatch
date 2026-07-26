@@ -18,18 +18,25 @@ PERIOD="${PERIOD:-2026_Jan}"
 NOINS="${NOINS:-/lus/lfs1aip2/projects/u6gb/lob_impact_controls_v2/noins}"
 BENCH="${BENCH:-/lus/lfs1aip2/projects/u6gb/public/projects_public_s5e_quant_team_lob_pipeline/lob_bench}"
 OUT=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/4_diagnostics/results/lobbench_noins
-STAGE="$OUT/stage_$STOCK"
+# ONLY_MODELS="CST,Hawkes,NMZI" scores a subset. Two half-size jobs schedule far sooner than one
+# 440G job under a priority-1 fairshare (backfill fits small jobs into gaps), and the parametric
+# baselines carry ~16k generated files each while the neural runs carry ~64 — splitting along that
+# line also balances the memory. TAG keeps concurrent subsets from clobbering each other's stage dir.
+ONLY_MODELS="${ONLY_MODELS:-}"
+TAG="${TAG:-all}"
+STAGE="$OUT/stage_${STOCK}_${TAG}"
 set +u; source /home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh; conda activate lobs5; set -u
 export JAX_PLATFORMS=cpu
 
 # ---- stage: merge every exp_* of every model into the bench layout
-rm -rf "$STAGE"; mkdir -p "$OUT/scores_$STOCK"
+rm -rf "$STAGE"; mkdir -p "$OUT/scores_${STOCK}_${TAG}"
 MODELS=()
 for d in "$NOINS/$STOCK-"*-beta; do
   [ -d "$d" ] || continue
   M=$(basename "$d"); M=${M#"$STOCK"-}; M=${M%-beta}
   ngen=$(find "$d"/buy/exp_*/data_gen -maxdepth 1 -name '*message*gen*.csv' 2>/dev/null | wc -l)
   if [ "$ngen" -eq 0 ]; then echo "SKIP $M (no generated files yet)"; continue; fi
+  if [ -n "$ONLY_MODELS" ] && ! echo ",$ONLY_MODELS," | grep -q ",$M,"; then echo "SKIP $M (not in ONLY_MODELS)"; continue; fi
   T="$STAGE/$M/$STOCK/$PERIOD"
   mkdir -p "$T/data_real" "$T/data_gen" "$T/data_cond"
   for sub in data_real data_gen data_cond; do
@@ -53,6 +60,6 @@ done
 # ---- score
 cd "$BENCH"
 echo y | python -u run_bench.py --stock "$STOCK" --time_period "$PERIOD" \
-  --data_dir "$STAGE" --save_dir "$OUT/scores_$STOCK" \
+  --data_dir "$STAGE" --save_dir "$OUT/scores_${STOCK}_${TAG}" \
   --model_name "${MODELS[@]}" --n_workers "${SLURM_CPUS_PER_TASK:-16}"
 echo "LOBBENCH_NOINS_DONE $STOCK models=${MODELS[*]}"
