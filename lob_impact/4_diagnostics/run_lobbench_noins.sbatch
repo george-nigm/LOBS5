@@ -93,7 +93,11 @@ done
 
 # ---- score
 cd "$BENCH"
-echo y | python -u run_bench.py --stock "$STOCK" --time_period "$PERIOD" \
+# SCORE_FLAGS: with GEN_WINDOW=500 the time-lagged family (lag ~500 msgs) spans the whole
+# truncated rollout and dies with "cannot reindex on an axis with duplicate labels", which
+# aborts the WHOLE job at the very end even though every other family finished. Pass e.g.
+# SCORE_FLAGS="--unconditional --conditional --context --divergence" for windowed runs.
+echo y | python -u run_bench.py --stock "$STOCK" --time_period "$PERIOD" ${SCORE_FLAGS:-} \
   --data_dir "$STAGE" --save_dir "$OUT/scores_${STOCK}_${TAG}" \
   --model_name "${MODELS[@]}" --n_workers "${SLURM_CPUS_PER_TASK:-16}"
 echo "LOBBENCH_NOINS_DONE $STOCK models=${MODELS[*]}"
