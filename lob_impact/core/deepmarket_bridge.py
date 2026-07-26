@@ -18,6 +18,7 @@ stashed ones back for the rest of the process.
 from __future__ import annotations
 
 import contextlib
+import os
 import sys
 
 # top-level names DeepMarket owns that commonly collide with our tree
@@ -31,14 +32,25 @@ def deepmarket_imports(deepmarket_root: str):
                if k in COLLIDING or k.split('.')[0] in COLLIDING}
     if stashed:
         print(f"[deepmarket_bridge] stashed colliding modules: {sorted(stashed)}")
+
+    # Path order alone is NOT enough: DeepMarket's `utils/` has no __init__.py, so it is a
+    # NAMESPACE package, and a regular module (our repo root's utils.py) wins over a namespace
+    # portion no matter which entry comes first. Drop every sys.path entry that shadows a
+    # colliding name with a plain .py module for the duration of the import.
+    # NB: an empty sys.path entry means "current directory" — resolve it, or a cwd that
+    # holds the shadowing utils.py slips through the filter.
+    shadowing = [p for p in sys.path
+                 if any(os.path.isfile(os.path.join(p or os.getcwd(), f'{n}.py'))
+                        for n in COLLIDING)]
+    saved_path = list(sys.path)
+    if shadowing:
+        print(f"[deepmarket_bridge] hiding shadowing path entries: {shadowing}")
+        sys.path[:] = [p for p in sys.path if p not in shadowing]
     sys.path.insert(0, deepmarket_root)
     try:
         yield
     finally:
-        try:
-            sys.path.remove(deepmarket_root)
-        except ValueError:
-            pass
+        sys.path[:] = saved_path
         # keep DeepMarket's modules loaded (the checkpoint unpickler needs them by
         # name), but restore ours for everything else in the process
         dm_loaded = {k: sys.modules[k] for k in list(sys.modules)
