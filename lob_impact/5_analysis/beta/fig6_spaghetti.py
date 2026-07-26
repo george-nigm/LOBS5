@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
           'Hawkes': '#D4AC0D', 'CST': '#27AE60', 'NMZI': '#117864',
           'Mamba3': '#2F5DA3', 'GDN': '#D81B60', 'S5': '#E67E22', 'S5_120M': '#F06292',
-          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
+          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 MAX_SPAGHETTI = 400   # per panel; a uniform random subset if more (seeded)
 
 
@@ -29,7 +29,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--npz', required=True)
     ap.add_argument('--stock', default='GOOG')
-    ap.add_argument('--models', default='')
+    ap.add_argument('--models', default=',OW,QR')
     args = ap.parse_args()
     z = np.load(args.npz, allow_pickle=True)
     models = ([m for m in args.models.split(',') if m] or

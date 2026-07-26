@@ -29,7 +29,7 @@ from beta_grid import collect
 from vol_estimators import daily_sigmas
 
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Hawkes': '#D4AC0D',
-          'CST': '#27AE60', 'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5_4k': '#8E44AD'}
+          'CST': '#27AE60', 'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5_4k': '#8E44AD', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 MIN_BINS = 5
 
 
@@ -80,7 +80,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,Hawkes,QR,CST,Mamba3,Mamba3_4k')
     ap.add_argument('--method', default='parkinson', help='σ estimator, or "none" for σ=1')
     ap.add_argument('--nbins', type=int, default=18)
     ap.add_argument('--kmax', type=int, default=100)

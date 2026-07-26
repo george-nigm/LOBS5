@@ -25,7 +25,7 @@ C_REAL = '#008300'
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k')
+    ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k,OW,QR')
     ap.add_argument('--results_dir', default=os.path.join(B, '..', '..',
                                                           '4_diagnostics', 'results'))
     ap.add_argument('--baselines', default=os.path.join(B, '..', '..', '4_diagnostics',

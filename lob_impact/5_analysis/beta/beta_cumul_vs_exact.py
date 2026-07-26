@@ -16,7 +16,7 @@ from beta_grid import collect
 from vol_estimators import daily_sigmas
 
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'CST': '#27AE60',
-          'Mamba3': '#2F5DA3', 'S5': '#E67E22'}
+          'Mamba3': '#2F5DA3', 'S5': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 MIN_PTS = 8
 
 
@@ -33,7 +33,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,CST,Mamba3')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,CST,Mamba3,QR')
     ap.add_argument('--kmax', type=int, default=100)
     ap.add_argument('--out', default=None)
     args = ap.parse_args()

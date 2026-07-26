@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
           'Hawkes': '#D4AC0D', 'CST': '#27AE60', 'NMZI': '#117864',
           'Mamba3': '#2F5DA3', 'GDN': '#D81B60', 'S5_120M': '#F06292',
-          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
+          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 C_BIASED, C_BINS, C_L2, C_L1 = '#C0392B', 'k', '#27AE60', '#7B1FA2'
 DGRID = np.arange(0.05, 1.51, 0.01)
 
@@ -59,7 +59,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', default='GOOG')
     ap.add_argument('--method', default='parkinson', choices=['parkinson', 'none'])
-    ap.add_argument('--models', default='')
+    ap.add_argument('--models', default=',OW,QR')
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     outdir = os.path.join(here, 'results', 'bias_exhibit')

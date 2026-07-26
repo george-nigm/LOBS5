@@ -100,7 +100,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,Hawkes,QR,CST,Mamba3,Mamba3_4k')
     ap.add_argument('--method', default='parkinson',
                     help="σ estimator: parkinson|garman_klass|rogers_satchell|"
                          "close_to_close|yang_zhang|none (σ=1)")

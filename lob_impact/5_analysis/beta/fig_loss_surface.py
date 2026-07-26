@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Mamba3,Historic')
+    ap.add_argument('--models', default='Mamba3,Historic,OW,QR')
     ap.add_argument('--copy_to', default=None)
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))

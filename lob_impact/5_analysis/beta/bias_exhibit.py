@@ -30,7 +30,7 @@ from vol_estimators import daily_sigmas
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
           'Hawkes': '#D4AC0D', 'CST': '#27AE60', 'NMZI': '#117864',
           'Mamba3': '#2F5DA3', 'GDN': '#D81B60', 'S5_120M': '#F06292',
-          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
+          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 CLOUD_MAX = 4000
 
 
@@ -68,7 +68,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Hawkes,Mamba3,GDN,Mamba3_4k,S5_4k')
+    ap.add_argument('--models', default='Historic,Hawkes,QR,Mamba3,GDN,Mamba3_4k,S5_4k,OW')
     ap.add_argument('--nbins', type=int, default=18)
     args = ap.parse_args()
     sig = daily_sigmas(args.daily)

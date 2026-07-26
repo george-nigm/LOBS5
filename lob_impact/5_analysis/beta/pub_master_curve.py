@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from pubstyle import apply, style, ref_style, legend_box, savefig_pub
 
-DRAW_ORDER = ['Historic', 'Heuristic', 'Hawkes', 'CST', 'Mamba3_4k', 'Mamba3']
+DRAW_ORDER = ['Historic', 'Heuristic', 'Hawkes', 'CST', 'Mamba3_4k', 'Mamba3', 'OW', 'QR']
 
 
 def models_in(d):

@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 SENTINEL = 2147483647
 DATE_RE = re.compile(r'_(\d{4}-\d{2}-\d{2})_')
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'CST': '#27AE60',
-          'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5': '#E67E22', 'S5_4k': '#E67E22'}
+          'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5': '#E67E22', 'S5_4k': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 
 
 def _read(f):
@@ -137,7 +137,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,CST,Mamba3')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,CST,Mamba3,QR')
     ap.add_argument('--shape', default='beta', help='grid exp suffix: beta | relaxation')
     ap.add_argument('--daily', default=None, help='daily H/L CSV; if given (with --per_day_params), overlay √-law')
     ap.add_argument('--per_day_params', default=None, help='per_day_params_<STOCK>.csv (child/mb/V per day)')

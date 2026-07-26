@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 COLORS = {'Historic': '#C0392B', 'Hawkes': '#D4AC0D', 'Mamba3': '#2F5DA3',
           'GDN': '#D81B60', 'S5_120M': '#F06292', 'Mamba3_4k': '#16A085',
-          'S5_4k': '#E67E22', 'S5': '#5D6D7E'}
+          'S5_4k': '#E67E22', 'S5': '#5D6D7E', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 SIGMAS = ['none', 'parkinson', 'garman_klass', 'rogers_satchell', 'close_to_close', 'yang_zhang']
 VIEWS = [('le', r'cumulative $\leq k$'), ('eq', r'exact $=k$'), ('ge', r'reverse $\geq k$')]
 

@@ -33,7 +33,7 @@ MODEL_STYLE = {
     'S5_4k':     dict(color='#E67E22', ls='-',  label='S5-4k'),
     'S5_120M':   dict(color='#F06292', ls='--', label='S5-120M'),  # H1 scaling-law best (120M counted); dashed to split from GDN magenta
     'GDN':       dict(color='#D81B60', ls='-',  label='GDN'),   # magenta: keeps clear of the purple propagator ref
-    'OW':        dict(color='#827717', ls='-',  label='OW'),    # Obizhaeva-Wang exp-kernel baseline
+    'OW':        dict(color='#6A1B9A', ls='-',  label='OW'),    # Obizhaeva-Wang exp-kernel baseline
     'QR':        dict(color='#00ACC1', ls='-',  label='QR'),    # queue-reactive baseline
 }
 

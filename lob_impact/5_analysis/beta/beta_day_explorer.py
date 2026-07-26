@@ -44,7 +44,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', default='EA')
     ap.add_argument('--daily', required=True)
-    ap.add_argument('--models', default='Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,Hawkes,QR,CST,Mamba3,Mamba3_4k')
     ap.add_argument('--maxpts', type=int, default=7000, help='subsample points per model for the cloud (slope is stable)')
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
