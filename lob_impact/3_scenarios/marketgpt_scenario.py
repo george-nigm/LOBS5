@@ -222,9 +222,17 @@ def run_marketgpt_scenario(cfg: Dict[str, Any], save_folder: Path,
         n_fallback = 0
         n_resampled = 0
         t_gen = pytime.time()
+        # Steady-state probe: the first messages of a batch also pay the one-time KV-cache
+        # prime (110 context messages x 24 tokens for the whole batch) plus CUDA warm-up, so
+        # the whole-batch rate badly understates a real run of 13k+ messages. Time from
+        # message WARMUP_MSGS onward and report that separately.
+        WARMUP_MSGS = 10
+        t_steady = None
 
         for block in range(total_blocks):
             for _ in range(n_gen_msgs):
+                if out_ptr == WARMUP_MSGS:
+                    t_steady = pytime.time()
                 l2_np = onp.asarray(l2_vmap(sim_states))
                 asks_np = onp.asarray(sim_states.asks)
                 bids_np = onp.asarray(sim_states.bids)
@@ -366,6 +374,14 @@ def run_marketgpt_scenario(cfg: Dict[str, Any], save_folder: Path,
               f"resampled-in: {n_resampled}")
         print(f"  throughput: {B * total_msgs_per_sample / elapsed:.1f} msgs/s "
               f"({elapsed:.0f}s for {B}x{total_msgs_per_sample})")
+        if t_steady is not None and total_msgs_per_sample > WARMUP_MSGS:
+            el_s = pytime.time() - t_steady
+            n_s = B * (total_msgs_per_sample - WARMUP_MSGS)
+            rate = n_s / el_s
+            print(f"  throughput STEADY (excl. prime+warmup): {rate:.1f} msgs/s "
+                  f"({el_s:.0f}s for {n_s} msgs) -> a 100-insertion run of "
+                  f"{100 * cfg.get('n_gen_msgs', 0)} msgs x {B} samples would take "
+                  f"{100 * cfg.get('n_gen_msgs', 0) * B / max(rate, 1e-9) / 3600:.1f} h/batch")
 
         for i, sample_idx in enumerate(batch_i):
             gid = (worker_id + batch_idx * num_workers) * batch_size + i
