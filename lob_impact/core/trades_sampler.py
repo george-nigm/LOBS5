@@ -50,25 +50,10 @@ class TradesSampler:
         self.stock2015 = stock2015
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
-        sys.path.insert(0, deepmarket_root)
-        try:
-            import constants as dm  # noqa: F401
-            from models.diffusers.diffusion_engine import DiffusionEngine
-            _orig_load = torch.load
-            torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, 'weights_only': False})
-            try:
-                self.engine = DiffusionEngine.load_from_checkpoint(
-                    ckpt_path, map_location=self.device)
-            finally:
-                torch.load = _orig_load
-            g = lambda name: getattr(dm, f'{stock2015}_{name}')
-        finally:
-            sys.path.remove(deepmarket_root)
-
-        self.engine.eval()
-        self.engine.to(self.device)
-        for p in self.engine.parameters():
-            p.requires_grad_(False)
+        # generic-module-name collision guard — see core/deepmarket_bridge.py
+        from lob_impact.core.deepmarket_bridge import load_engine
+        self.engine, dm = load_engine(deepmarket_root, ckpt_path, 'diffusion', self.device)
+        g = lambda name: getattr(dm, f'{stock2015}_{name}')
 
         print(f"TRADES engine loaded: diffusionsteps={getattr(self.engine, 'num_diffusionsteps', '?')} "
               f"cond_size={getattr(self.engine, 'cond_size', '?')} device={self.device}")

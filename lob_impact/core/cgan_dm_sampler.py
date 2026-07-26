@@ -42,27 +42,11 @@ class CganDmSampler:
         self.stock2015 = stock2015
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
-        # DeepMarket uses generic top-level module names (constants, configuration,
-        # models, utils) — resolve them from its root with highest priority, then
-        # restore sys.path so the scenario's own imports are unaffected.
-        sys.path.insert(0, deepmarket_root)
-        try:
-            import constants as dm_cst  # noqa: F401  (needed by unpickler)
-            from models.gan.gan_engine import GANEngine
-            _orig_load = torch.load
-            torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, 'weights_only': False})
-            try:
-                self.engine = GANEngine.load_from_checkpoint(
-                    ckpt_path, map_location=self.device)
-            finally:
-                torch.load = _orig_load
-        finally:
-            sys.path.remove(deepmarket_root)
-
-        self.engine.eval()
-        self.engine.to(self.device)
-        for p in self.engine.parameters():
-            p.requires_grad_(False)
+        # DeepMarket's generic top-level module names (constants/configuration/utils/
+        # models) collide with modules JAX and our tree already loaded — the bridge
+        # stashes those for the duration of the import (see core/deepmarket_bridge.py).
+        from lob_impact.core.deepmarket_bridge import load_engine
+        self.engine, dm = load_engine(deepmarket_root, ckpt_path, 'gan', self.device)
 
         got_stock = getattr(self.engine, 'chosen_stock', None)
         print(f"CGAN engine loaded: chosen_stock={got_stock} "
@@ -73,12 +57,6 @@ class CganDmSampler:
 
         # 2015 z-score stats (constants.py, "normalization_terms['lob']" layout)
         S = stock2015
-        import importlib
-        sys.path.insert(0, deepmarket_root)
-        try:
-            dm = importlib.import_module('constants')
-        finally:
-            sys.path.remove(deepmarket_root)
         g = lambda name: getattr(dm, f'{S}_{name}')
         self.mean_spread, self.std_spread = g('MEAN_SPREAD'), g('STD_SPREAD')
         self.mean_return, self.std_return = g('MEAN_RETURN'), g('STD_RETURN')
