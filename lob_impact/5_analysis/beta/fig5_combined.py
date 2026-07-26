@@ -210,16 +210,24 @@ def main():
     axes[1][1].set_title(r'relaxation: master curve, $v>1$ = cooling (dashed: $2/3$ level)', fontsize=13.5)
     axes[1][1].set_xlabel('metaorder fraction executed $v$')
 
-    present = [m for m in ORDER if any(f'{m}_k_mean' in Z[k].files for k in ('mid_beta', 'mid_decay'))]
+    # The legend must cover every model DRAWN anywhere in the figure. Deriving it from the
+    # mid-trajectory caches alone silently dropped models that exist only in the (newer)
+    # master-curve caches: OW and QR were drawn in the right-hand panels — OW in purple —
+    # with no legend entry at all. Take the union over all four caches.
+    present = [m for m in ORDER
+               if any(f'{m}_k_mean' in Z[k].files for k in ('mid_beta', 'mid_decay'))
+               or any(f'{m}_master' in Z[k].files for k in ('ms_beta', 'ms_relax'))]
     # sample count in every legend entry: how much data is behind each curve, so a
     # noisy-looking baseline can be read as "genuinely no impact" rather than "thin n".
     # build-up and relaxation fleets are separate runs -> show both when they differ.
     handles = []
     for m in present:
         nb, nd = n_of(Z['mid_beta'], m), n_of(Z['mid_decay'], m)
+        if not (nb or nd):   # drawn only in the master-curve panels — take its count from there
+            nb = nd = max(n_of(Z['ms_beta'], m), n_of(Z['ms_relax'], m))
         ns = f'{nb}' if nb == nd else '/'.join(str(v) for v in (nb, nd) if v)
-        handles.append(Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0,
-                              label=f"{m.replace('_', '-')} ($n{{=}}{ns}$)"))
+        lbl = f"{m.replace('_', '-')} ($n{{=}}{ns}$)" if ns else m.replace('_', '-')
+        handles.append(Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0, label=lbl))
     handles.append(Line2D([], [], color=GREY, lw=2.4, ls='--',
                           label=r'reference ($\sqrt{\cdot}$-law, $Y{=}0.5$ range-conv / $2/3$ level)'))
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 5),
