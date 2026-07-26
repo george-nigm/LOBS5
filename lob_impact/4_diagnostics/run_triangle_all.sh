@@ -17,7 +17,7 @@
 set -euo pipefail
 IMPACT_DIR="${IMPACT_DIR:-/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact}"
 NS="${NS:-64}"
-MODELS="${MODELS:-Historic Heuristic CST Hawkes Propagator}"
+MODELS="${MODELS:-Historic Heuristic Propagator OW CST NMZI Hawkes QR S5_120M S5_4k Mamba3 Mamba3_4k GDN}"
 COPY_EXISTING="${COPY_EXISTING:-Mamba3 Mamba3_4k S5_4k}"   # models whose latest docx is reused
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 RES="${IMPACT_DIR}/4_diagnostics/results"

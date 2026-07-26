@@ -32,7 +32,10 @@ MODEL_COLOR = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B
 C_REAL = '#111111'
 
 
-NEURAL = ['Mamba3', 'GDN', 'S5_120M', 'S5', 'Mamba3_4k', 'S5_4k']
+NEURAL = ['S5', 'S5_120M', 'S5_4k', 'Mamba3', 'Mamba3_4k', 'GDN']
+# non-neural models are drawn too (they were silently absent from Fig. 7: only NEURAL was
+# iterated). Canonical order: replay -> mechanical/parametric by complexity -> neural.
+BASELINES = ['Historic', 'Heuristic', 'Propagator', 'OW', 'CST', 'NMZI', 'Hawkes', 'QR']
 
 
 def main():
@@ -57,7 +60,9 @@ def main():
     if args.model_npz:
         M = np.load(args.model_npz, allow_pickle=True)
         all_models = sorted({k[:-2] for k in M.files if k.endswith('_R') and not k.endswith('_Rse')})
-        for m in [x for x in all_models if x in NEURAL] + [x for x in all_models if x not in NEURAL]:
+        # canonical order: replay baselines -> mechanical/parametric by complexity -> neural
+        canon = BASELINES + NEURAL
+        for m in sorted(all_models, key=lambda x: canon.index(x) if x in canon else 99):
             rm, rs = M[f'{m}_R'], M[f'{m}_Rse']
             n_ev, n_run = (int(v) for v in M[f'{m}_n'])
             x = np.arange(1, len(rm) + 1); ok = np.isfinite(rm) & (M[f'{m}_cnt'] >= 100)
