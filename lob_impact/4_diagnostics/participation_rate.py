@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 
 EXECS = (4, 5)
 TARGET = 10.0
-STOCKS = ['EA', 'NVDA', 'AMD']
+STOCKS = os.environ.get('PART_STOCKS', 'EA,NVDA,AMD').split(',')
 MODELS = ['Mamba3', 'Historic']
 METRIC = 'count'    # 'count' (trades, matches eta=10% design) | 'volume' (shares); set in main()
 
