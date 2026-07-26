@@ -16,7 +16,7 @@ ROOT=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact
 FIG="$ROOT/paper/Figures"
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
 DAILY="${DAILY:-$ROOT/2_daily_stats/results/daily_20260708-131449/daily_h_l_all_plus.csv}"
-MODELS="${MODELS:-Historic,Heuristic,Propagator,Hawkes,CST,NMZI,Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k}"
+MODELS="${MODELS:-Historic,Heuristic,Propagator,OW,QR,Hawkes,CST,NMZI,Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k}"
 set +u; source /home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh; conda activate lobs5; set -u
 export JAX_PLATFORMS=cpu
 cd "$ROOT/5_analysis/beta"

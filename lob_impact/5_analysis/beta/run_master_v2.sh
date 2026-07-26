@@ -12,7 +12,7 @@
 set -uo pipefail
 B=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2}"
-MODELS="${MODELS:-Historic,Heuristic,Propagator,Hawkes,CST,NMZI,S5,Mamba3,Mamba3_4k,S5_4k,S5_120M,GDN}"
+MODELS="${MODELS:-Historic,Heuristic,Propagator,OW,QR,Hawkes,CST,NMZI,S5,Mamba3,Mamba3_4k,S5_4k,S5_120M,GDN}"
 STOCK="${STOCK:-EA}"
 # SHAPES lets a rerun redo only the shape that timed out instead of recomputing both
 # (both shapes together overran a 6h wall on GOOG; relaxation alone fits comfortably).
