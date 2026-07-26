@@ -40,11 +40,33 @@ for d in "$NOINS/$STOCK-"*-beta; do
   T="$STAGE/$M/$STOCK/$PERIOD"
   mkdir -p "$T/data_real" "$T/data_gen" "$T/data_cond"
   for sub in data_real data_gen data_cond; do
+    _seen=0
     for f in "$d"/buy/exp_*/"$sub"/*.csv; do
       [ -e "$f" ] || continue
-      ln -sf "$f" "$T/$sub/$(basename "$f")"
+      b=$(basename "$f")
+      if [ "$sub" = data_gen ]; then
+        # GEN_WINDOW/GEN_OFFSET cut a fixed-length slice out of each rollout instead of
+        # scoring it whole. LOB-Bench's own datasets generate 250-500 messages per sample
+        # (bench_data names: c250g250, c500g500, ...), so a full 25k-message free rollout is
+        # 50-100x outside the regime the published scores were calibrated in — and 50x the
+        # compute. GEN_WINDOW=500 GEN_OFFSET=0 reproduces the benchmark's operating point
+        # (and matches the 500-message real side exactly); sweeping GEN_OFFSET over one
+        # rollout measures how the distributions drift as generation runs on.
+        # GEN_MAX_FILES subsamples rollouts — statistics converge long before 16k of them.
+        if [ -n "${GEN_MAX_FILES:-}" ] && [ "$_seen" -ge "$GEN_MAX_FILES" ]; then break; fi
+        _seen=$((_seen+1))
+        if [ -n "${GEN_WINDOW:-}" ]; then
+          _from=$(( ${GEN_OFFSET:-0} + 1 )); _to=$(( ${GEN_OFFSET:-0} + GEN_WINDOW ))
+          sed -n "${_from},${_to}p" "$f" > "$T/$sub/$b"
+          continue
+        fi
+      fi
+      ln -sf "$f" "$T/$sub/$b"
     done
   done
+  if [ -n "${GEN_WINDOW:-}" ]; then
+    echo "  GEN slice: rows $(( ${GEN_OFFSET:-0} + 1 ))..$(( ${GEN_OFFSET:-0} + GEN_WINDOW ))${GEN_MAX_FILES:+, max $GEN_MAX_FILES rollouts}"
+  fi
   # noins runs don't write data_real; the cond windows ARE real LOBSTER data on the
   # same stock/month (and share the message_real_id_{i} naming) — use them as the
   # real side of the gen-vs-real distributional comparison.
