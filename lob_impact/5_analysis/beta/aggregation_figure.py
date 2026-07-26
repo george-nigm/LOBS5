@@ -111,7 +111,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', default='/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2')
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k')
+    ap.add_argument('--models', default='S5_4k,Mamba3,Mamba3_4k')
     ap.add_argument('--paper_model', default='Mamba3')
     ap.add_argument('--out_dir', default=os.path.join(B, 'results', 'aggregation'))
     args = ap.parse_args()

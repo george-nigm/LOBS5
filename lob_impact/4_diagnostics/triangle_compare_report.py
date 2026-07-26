@@ -458,7 +458,7 @@ def build_docx(out_dir, NN, models, emp, hist_spread, out_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k')
+    ap.add_argument('--models', default='S5_4k,Mamba3,Mamba3_4k')
     ap.add_argument('--results_dir', default=os.path.join(HERE, 'results'))
     ap.add_argument('--stock', default='EA')
     ap.add_argument('--out_dir', required=True)

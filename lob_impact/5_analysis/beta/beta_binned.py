@@ -80,7 +80,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,OW,Hawkes,QR,CST,Mamba3,Mamba3_4k')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,CST,Hawkes,QR,Mamba3,Mamba3_4k')
     ap.add_argument('--method', default='parkinson', help='σ estimator, or "none" for σ=1')
     ap.add_argument('--nbins', type=int, default=18)
     ap.add_argument('--kmax', type=int, default=100)

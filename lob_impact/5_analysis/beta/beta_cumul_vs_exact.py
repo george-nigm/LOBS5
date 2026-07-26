@@ -33,7 +33,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,OW,CST,Mamba3,QR')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,CST,QR,Mamba3')
     ap.add_argument('--kmax', type=int, default=100)
     ap.add_argument('--out', default=None)
     args = ap.parse_args()

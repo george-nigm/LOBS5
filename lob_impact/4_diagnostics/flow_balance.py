@@ -26,8 +26,10 @@ import matplotlib.pyplot as plt
 SENT = 2147483647
 TICK = 100
 DATE_RE = re.compile(r'(\d{4}-\d{2}-\d{2})')
-COLORS = {'Real': '#111111', 'Historic': '#C0392B', 'Mamba3': '#2F5DA3', 'GDN': '#D81B60',
-          'S5_120M': '#F06292', 'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
+COLORS = {'Real': '#111111', 'Historic': '#C0392B', 'Heuristic': '#7F8C8D',
+          'Propagator': '#8B5E3C', 'OW': '#6A1B9A', 'CST': '#27AE60', 'NMZI': '#117864',
+          'Hawkes': '#D4AC0D', 'QR': '#00ACC1', 'S5': '#5D6D7E', 'S5_120M': '#F06292',
+          'S5_4k': '#E67E22', 'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'GDN': '#D81B60'}
 LMAX = 300
 FIT_LO, FIT_HI = 2, 40
 
@@ -136,7 +138,7 @@ def main():
     ap.add_argument('--controls', required=True)
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k,Hawkes,CST,NMZI')
+    ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,CST,NMZI,Hawkes,QR,S5_120M,S5_4k,Mamba3,Mamba3_4k,GDN')
     ap.add_argument('--n_files', type=int, default=64)
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))

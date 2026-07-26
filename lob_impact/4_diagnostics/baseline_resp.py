@@ -18,7 +18,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', default='/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2')
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Heuristic,Hawkes,CST')
+    ap.add_argument('--models', default='Historic,Heuristic,CST,Hawkes')
     ap.add_argument('--n_samples', type=int, default=4096)
     ap.add_argument('--out', default=os.path.join(HERE, 'results', 'baseline_resp.json'))
     args = ap.parse_args()

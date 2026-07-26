@@ -65,7 +65,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,Hawkes,QR,CST,NMZI,'
+    ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,CST,NMZI,Hawkes,QR,'
                                         'Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
     ap.add_argument('--method', default='parkinson')
     ap.add_argument('--ks', default='5:100:5')

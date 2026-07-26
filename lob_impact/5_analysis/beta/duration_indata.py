@@ -92,7 +92,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', default='/lus/lfs1aip2/projects/u6gb/lob_impact_grid_v2')
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k,OW,QR')
+    ap.add_argument('--models', default='OW,QR,S5_4k,Mamba3,Mamba3_4k')
     ap.add_argument('--daily', default=os.path.join(B, '..', '..',
                     '2_daily_stats/results/daily_20260618-215656/daily_h_l_all.csv'))
     ap.add_argument('--relax_npz', default=os.path.join(B, 'results', 'master_curve',

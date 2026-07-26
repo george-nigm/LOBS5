@@ -72,7 +72,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', default='EA')
     ap.add_argument('--shape', default='beta', help='grid exp suffix: beta | relaxation')
-    ap.add_argument('--models', default='Historic,Heuristic,OW,Hawkes,QR,CST,Mamba3,Mamba3_4k')
+    ap.add_argument('--models', default='Historic,Heuristic,OW,CST,Hawkes,QR,Mamba3,Mamba3_4k')
     ap.add_argument('--daily', default=None, help='daily H/L CSV; with --per_day_params -> √-law overlay')
     ap.add_argument('--per_day_params', default=None, help='per_day_params_<STOCK>.csv (child/mb/V per day)')
     ap.add_argument('--Y', type=float, default=1.0, help='√-law prefactor  I=Y*sigma*sqrt(Q/V)')

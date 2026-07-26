@@ -104,7 +104,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Historic,Heuristic,Propagator,Hawkes,CST,NMZI,'
+    ap.add_argument('--models', default='Historic,Heuristic,Propagator,CST,NMZI,Hawkes,'
                                         'Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
     ap.add_argument('--m_max', type=int, default=250)
     ap.add_argument('--k_max', type=int, default=12)

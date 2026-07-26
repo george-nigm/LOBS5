@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from pubstyle import apply, style, ref_style, legend_box, savefig_pub
 
 # order models are drawn (hero neural model last so it sits on top)
-DRAW_ORDER = ['CST', 'Historic', 'Heuristic', 'Hawkes', 'Mamba3_4k', 'Mamba3', 'OW', 'QR']
+DRAW_ORDER = ['Historic', 'Heuristic', 'OW', 'CST', 'Hawkes', 'QR', 'Mamba3', 'Mamba3_4k']
 
 
 def models_in(npz):

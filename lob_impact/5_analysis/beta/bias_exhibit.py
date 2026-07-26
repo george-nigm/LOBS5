@@ -68,7 +68,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Historic,Hawkes,QR,Mamba3,GDN,Mamba3_4k,S5_4k,OW')
+    ap.add_argument('--models', default='Historic,OW,Hawkes,QR,S5_4k,Mamba3,Mamba3_4k,GDN')
     ap.add_argument('--nbins', type=int, default=18)
     args = ap.parse_args()
     sig = daily_sigmas(args.daily)

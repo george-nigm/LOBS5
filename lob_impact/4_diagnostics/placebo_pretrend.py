@@ -158,7 +158,7 @@ def main():
     ap.add_argument('--controls', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Historic,Mamba3,GDN,S5_120M,Mamba3_4k,S5_4k')
+    ap.add_argument('--models', default='Historic,S5_120M,S5_4k,Mamba3,Mamba3_4k,GDN')
     ap.add_argument('--m_max', type=int, default=60)
     ap.add_argument('--n_files', type=int, default=200)
     args = ap.parse_args()

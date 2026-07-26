@@ -183,7 +183,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default='Mamba3,Mamba3_4k,S5_4k,Historic,Heuristic,Hawkes,CST')
+    ap.add_argument('--models', default='Historic,Heuristic,CST,Hawkes,S5_4k,Mamba3,Mamba3_4k')
     ap.add_argument('--shapes', default='beta')
     ap.add_argument('--dirs', default='buy,sell')
     ap.add_argument('--n_samples', type=int, default=30)

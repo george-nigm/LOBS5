@@ -93,7 +93,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', default='EA')
     ap.add_argument('--shape', default='beta', help='beta (build-up) | relaxation (build-up+decay)')
-    ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,Hawkes,QR,CST,NMZI,Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
+    ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,CST,NMZI,Hawkes,QR,S5,S5_120M,S5_4k,Mamba3,Mamba3_4k,GDN')
     ap.add_argument('--out', default=None)
     args = ap.parse_args()
     models = [m for m in args.models.split(',') if m]

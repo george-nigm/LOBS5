@@ -29,7 +29,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--npz', required=True)
     ap.add_argument('--stock', default='GOOG')
-    ap.add_argument('--models', default=',OW,QR')
+    ap.add_argument('--models', default='OW,QR,')
     args = ap.parse_args()
     z = np.load(args.npz, allow_pickle=True)
     models = ([m for m in args.models.split(',') if m] or

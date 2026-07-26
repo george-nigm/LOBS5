@@ -51,7 +51,7 @@ MAX_LAG = 200                      # propagator / Hurst lag horizon
 TWO_THIRDS = 2.0 / 3.0
 H_TARGET = 0.70
 
-ALL_MODELS = ['Historic', 'Heuristic', 'Hawkes', 'CST', 'Mamba3', 'Mamba3_4k', 'S5_4k', 'OW', 'QR']
+ALL_MODELS = ['Historic', 'Heuristic', 'OW', 'CST', 'Hawkes', 'QR', 'S5_4k', 'Mamba3', 'Mamba3_4k']
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Hawkes': '#8E44AD', 'CST': '#27AE60',
           'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
 
@@ -442,7 +442,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid', required=True)
     ap.add_argument('--stock', default='EA')
-    ap.add_argument('--models', default=',,OW,QR'.join(ALL_MODELS))
+    ap.add_argument('--models', default='OW,QR,,'.join(ALL_MODELS))
     ap.add_argument('--outdir', default=None)
     ap.add_argument('--max_samples', type=int, default=None,
                     help='cap generated samples read PER SIDE per stat (smoke); default = all')

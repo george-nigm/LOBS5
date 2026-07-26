@@ -25,8 +25,7 @@ from matplotlib.lines import Line2D
 
 # OW (Obizhaeva-Wang exponential-resilience kernel) and QR (queue-reactive) sit with the
 # other mechanical baselines, between Propagator and the point-process models.
-ORDER = ['Historic', 'Heuristic', 'Propagator', 'OW', 'QR', 'Hawkes', 'CST', 'NMZI',
-         'Mamba3', 'GDN', 'S5_120M', 'S5', 'Mamba3_4k', 'S5_4k']
+ORDER = ['Historic', 'Heuristic', 'Propagator', 'OW', 'CST', 'NMZI', 'Hawkes', 'QR', 'S5', 'S5_120M', 'S5_4k', 'Mamba3', 'Mamba3_4k', 'GDN']
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
           'OW': '#6A1B9A', 'QR': '#455A64',
           'Hawkes': '#D4AC0D', 'CST': '#27AE60', 'NMZI': '#117864',

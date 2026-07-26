@@ -59,7 +59,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', default='GOOG')
     ap.add_argument('--method', default='parkinson', choices=['parkinson', 'none'])
-    ap.add_argument('--models', default=',OW,QR')
+    ap.add_argument('--models', default='OW,QR,')
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     outdir = os.path.join(here, 'results', 'bias_exhibit')
