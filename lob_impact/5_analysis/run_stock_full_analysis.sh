@@ -19,9 +19,16 @@ B="$IMPACT/5_analysis/beta"; DEC="$IMPACT/5_analysis/decay"
 export JAX_PLATFORMS=cpu
 mkdir -p "$IMPACT/5_analysis/logs" "$B/results/beta_explorer" "$B/results/beta_cumul_vs_exact" \
          "$B/results/beta_sigma1" "$B/results/beta_grid" "$B/results/mid_impact" "$DEC/results"
+# Pick a daily OHLC table that COVERS the requested stock: the plain daily_h_l_all.csv only has
+# EA/NVDA/GOOG/AMD; MSFT and AAPL live in *_plus.csv. The wrong one is a SILENT failure (every
+# model scores 0 points and the job still exits 0).
 if [ -z "${DAILY:-}" ]; then
-  for f in $(ls -t "$IMPACT"/2_daily_stats/results/*/daily_h_l_all.csv 2>/dev/null); do
-    head -1 "$f" | grep -q open_price && { DAILY="$f"; break; }; done
+  for f in $(ls -t "$IMPACT"/2_daily_stats/results/*/daily_h_l_all_plus.csv \
+                   "$IMPACT"/2_daily_stats/results/*/daily_h_l_all.csv 2>/dev/null); do
+    head -1 "$f" | grep -q open_price || continue
+    grep -q "^${STOCK}," "$f" && { DAILY="$f"; break; }
+    echo "[daily] skip $(basename "$f") — no ${STOCK}" >&2
+  done
 fi
 echo "[$(date)] FULL analysis $STOCK | grid=$GRID | daily=$DAILY | models=$MODELS"
 cd "$B"

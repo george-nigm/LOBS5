@@ -30,9 +30,18 @@ conda activate "${CONDA_ENV:-lobs5}"
 set -u
 
 # newest Action-2 daily CSV that actually carries OHLC (open_price col)
+# Pick a daily OHLC table that COVERS the requested stock(s): the plain daily_h_l_all.csv
+# only has EA/NVDA/GOOG/AMD, MSFT and AAPL live in the *_plus.csv. Choosing the wrong one is a
+# SILENT failure — every model scores "0 points" and the job still exits 0.
 if [ -z "${DAILY:-}" ]; then
-  for f in $(ls -t "${IMPACT_DIR}"/2_daily_stats/results/*/daily_h_l_all.csv 2>/dev/null); do
-    head -1 "$f" | grep -q open_price && { DAILY="$f"; break; }
+  _want="${STOCKS:-${STOCK:-}}"
+  for f in $(ls -t "${IMPACT_DIR}"/2_daily_stats/results/*/daily_h_l_all_plus.csv \
+                   "${IMPACT_DIR}"/2_daily_stats/results/*/daily_h_l_all.csv 2>/dev/null); do
+    head -1 "$f" | grep -q open_price || continue
+    _miss=""
+    for s in $_want; do grep -q "^${s}," "$f" || _miss="$_miss $s"; done
+    [ -z "$_miss" ] && { DAILY="$f"; break; }
+    echo "[daily] skip $(basename "$(dirname "$f")")/$(basename "$f") — missing:$_miss" >&2
   done
 fi
 [ -n "${DAILY:-}" ] || { echo "FATAL: no OHLC daily_h_l_all.csv found (run Action 2 first)" >&2; exit 3; }
