@@ -26,7 +26,8 @@ from vol_estimators import daily_sigmas
 COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
           'Hawkes': '#D4AC0D', 'CST': '#27AE60', 'NMZI': '#117864',
           'Mamba3': '#2F5DA3', 'GDN': '#D81B60', 'S5_120M': '#F06292',
-          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'S5': '#5D6D7E'}
+          'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'S5': '#5D6D7E',
+          'OW': '#827717', 'QR': '#00ACC1'}
 DGRID = np.arange(0.05, 1.51, 0.01)
 NBINS = 18
 MIN_PTS = 200
@@ -80,7 +81,7 @@ def main():
     ap.add_argument('--grid', required=True)
     ap.add_argument('--daily', required=True)
     ap.add_argument('--stock', required=True)
-    ap.add_argument('--models', default='Historic,Heuristic,Propagator,Hawkes,CST,NMZI,'
+    ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,Hawkes,QR,CST,NMZI,'
                                         'Mamba3,GDN,S5_120M,S5,Mamba3_4k,S5_4k')
     ap.add_argument('--ks', default='5:100:5')
     ap.add_argument('--trim', type=float, default=0.0,

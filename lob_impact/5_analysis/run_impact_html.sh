@@ -16,7 +16,7 @@ GRID=/lus/lfs1aip2/projects/u6gb/lob_impact_grid
 DAILY=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/2_daily_stats/results/daily_20260618-215656/daily_h_l_all.csv
 PERDAY=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/1_data_prep/results/per_day_params/per_day_params_EA.csv
 STOCK=EA
-MODELS="${MODELS:-Historic,Heuristic,Hawkes,CST,Mamba3,Mamba3_4k,S5_4k}"
+MODELS="${MODELS:-Historic,Heuristic,OW,Hawkes,QR,CST,Mamba3,Mamba3_4k,S5_4k}"
 mkdir -p "$B/results/mid_impact"
 cd "$B"
 

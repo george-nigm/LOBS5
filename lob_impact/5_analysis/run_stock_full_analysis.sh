@@ -11,7 +11,7 @@
 #   sbatch --dependency=afterok:<gen jobids> run_stock_full_analysis.sh NVDA
 set -uo pipefail
 STOCK="${1:-${STOCK:?need stock}}"
-MODELS="${MODELS:-Historic,Heuristic,CST,Mamba3}"
+MODELS="${MODELS:-Historic,Heuristic,OW,QR,CST,Mamba3}"
 IMPACT=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact
 PY="${PY:-/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python}"
 GRID="${GRID:-/lus/lfs1aip2/projects/u6gb/lob_impact_grid}"
