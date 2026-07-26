@@ -40,8 +40,12 @@ def main():
     for m in ORDER:
         if f'{m}_master' not in z.files or not bool(z[f'{m}_sig']):
             continue
+        # n in the legend: rollouts behind the master curve, so a jagged line
+        # (Hawkes here) is attributable to the model, not to a thin sample.
+        nm = int(np.atleast_1d(z[f'{m}_n']).ravel()[0]) if f'{m}_n' in z.files else 0
+        lab = f"{m.replace('_', '-')} ($n{{=}}{nm}$)" if nm else m.replace('_', '-')
         ax.plot(v[sel], z[f'{m}_master'][sel], color=COLORS.get(m, '#444444'),
-                lw=1.6, alpha=0.85, label=m.replace('_', '-'))
+                lw=1.6, alpha=0.85, label=lab)
 
     # THEORY: sqrt build-up, power-law decay to the 2/3 permanent level
     vv = np.linspace(0.01, args.vmax, 400)

@@ -89,7 +89,13 @@ def main():
     axes[0][0].annotate(r'identifiability floor $0.05$', xy=(0.02, 0.05), xycoords=('axes fraction', 'data'),
                         fontsize=8.6, color='#666666', va='bottom')
 
-    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.8, label=m.replace('_', '-'))
+    # n in the legend = points in the model's (size, impact) cloud, i.e. how much data
+    # the amplitude is read off; the identifiability floor is only meaningful next to it.
+    def _n(m):
+        k = f'{m}_parkinson_cloud_x'
+        return int(np.size(zb[k])) if k in zb.files else 0
+    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.8,
+                      label=f"{m.replace('_', '-')} ($n{{=}}{_n(m)}$)" if _n(m) else m.replace('_', '-'))
                for m in models]
     handles.append(Line2D([], [], color='#444444', lw=1.3, ls='--', label='negative amplitude (adverse drift)'))
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 4),

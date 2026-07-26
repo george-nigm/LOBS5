@@ -107,7 +107,13 @@ def main():
                  fontsize=11)
     ax.set_ylabel(r'$\delta$')
 
-    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.6, label=m.replace('_', '-'))
+    # n in the legend: rollouts behind each model (mid-impact cache `_cnt`), so a wide
+    # estimator spread can be read as a real grey zone rather than a thin sample.
+    def _n(m):
+        c = zk[f'{m}_cnt'] if f'{m}_cnt' in zk.files else None
+        return int(np.atleast_1d(c).ravel()[0]) if c is not None and np.size(c) else 0
+    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=2.6,
+                      label=f"{m.replace('_', '-')} ($n{{=}}{_n(m)}$)" if _n(m) else m.replace('_', '-'))
                for m in models]
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 6),
                fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.005))
