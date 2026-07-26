@@ -27,13 +27,24 @@ source "${CONDA_SH:-/home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh}"
 conda activate "${CONDA_ENV:-lobs5}"
 set -u
 
-# newest Action-2 daily CSV that actually carries OHLC (open_price col)
+# newest Action-2 daily CSV that carries OHLC (open_price col) AND covers every requested stock.
+# The plain daily_h_l_all.csv only has EA/NVDA/GOOG/AMD; MSFT and AAPL live in the *_plus.csv.
+# Picking the wrong one is a SILENT failure: every model reports "0 signed points" and the job
+# still exits 0, so glob the _plus variants too and verify coverage before running anything.
 if [ -z "${DAILY:-}" ]; then
-  for f in $(ls -t "${IMPACT_DIR}"/2_daily_stats/results/*/daily_h_l_all.csv 2>/dev/null); do
-    head -1 "$f" | grep -q open_price && { DAILY="$f"; break; }
+  for f in $(ls -t "${IMPACT_DIR}"/2_daily_stats/results/*/daily_h_l_all_plus.csv \
+                   "${IMPACT_DIR}"/2_daily_stats/results/*/daily_h_l_all.csv 2>/dev/null); do
+    head -1 "$f" | grep -q open_price || continue
+    missing=""
+    for s in $STOCKS; do grep -q "^${s}," "$f" || missing="$missing $s"; done
+    [ -z "$missing" ] && { DAILY="$f"; break; }
+    echo "[daily] skipping $(basename "$(dirname "$f")")/$(basename "$f") — missing:$missing" >&2
   done
 fi
-[ -n "${DAILY:-}" ] || { echo "FATAL: no OHLC daily_h_l_all.csv found (run Action 2 first)" >&2; exit 3; }
+[ -n "${DAILY:-}" ] || { echo "FATAL: no OHLC daily table covering [$STOCKS] (run Action 2 first)" >&2; exit 3; }
+for s in $STOCKS; do
+  grep -q "^${s}," "$DAILY" || { echo "FATAL: $s absent from $DAILY — every model would silently score 0 points" >&2; exit 4; }
+done
 echo "[$(date)] host $(hostname) | grid ${GRID} | daily ${DAILY}"
 
 cd "$IMPACT_DIR"
