@@ -49,8 +49,20 @@ for d in "$NOINS/$STOCK-"*-beta; do
   # same stock/month (and share the message_real_id_{i} naming) — use them as the
   # real side of the gen-vs-real distributional comparison.
   if [ -z "$(ls -A "$T/data_real" 2>/dev/null)" ]; then
-    for f in "$T/data_cond"/*.csv; do [ -e "$f" ] || continue; ln -sf "$(readlink -f "$f")" "$T/data_real/$(basename "$f")"; done
-    echo "REAL=cond-proxy for $M"
+    # The conditioning ORDERBOOK carries n_cond+1 rows (row 0 = the book BEFORE the first
+    # message) while the message file carries n_cond; LOB-Bench requires equal lengths
+    # ("Length mismatch: expected axis has 501 elements, new values have 500"). Symlink the
+    # messages, but write a trimmed copy of each book dropping row 0, so row i is the book
+    # AFTER message i — the LOBSTER convention the scorer assumes.
+    for f in "$T/data_cond"/*.csv; do
+      [ -e "$f" ] || continue
+      b=$(basename "$f")
+      case "$b" in
+        *orderbook*) tail -n +2 "$(readlink -f "$f")" > "$T/data_real/$b" ;;
+        *)           ln -sf "$(readlink -f "$f")" "$T/data_real/$b" ;;
+      esac
+    done
+    echo "REAL=cond-proxy for $M (orderbook rows trimmed by 1 to match message length)"
   fi
   MODELS+=("$M")
   echo "STAGED $M: gen=$ngen real=$(ls "$T/data_real" | wc -l) cond=$(ls "$T/data_cond" | wc -l)"
