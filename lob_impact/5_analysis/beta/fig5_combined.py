@@ -27,6 +27,48 @@ def models_in(z, suffix):
     return [m for m in ORDER if m in ms]
 
 
+def n_of(z, m):
+    """Samples behind model m's curve. `_cnt` is per-k; report the k=0 count (the
+    full fleet) — later k can only lose samples to short runs."""
+    if f'{m}_cnt' in z.files:
+        c = np.atleast_1d(z[f'{m}_cnt']).ravel()
+        if c.size:
+            return int(c[0])
+    if f'{m}_K' in z.files:
+        return int(np.shape(z[f'{m}_K'])[0])
+    return 0
+
+
+def robust_ylim(z, pad=0.10, blowup=20.0):
+    """y-range that survives a pathological model.
+
+    On AMD a handful of NMZI samples run the mid price to -4600 bps, which on a
+    shared axis flattens every other curve onto y=0. Set the limits from the
+    models whose extreme is within `blowup`x the median extreme; the outlier is
+    still drawn (it just runs off the panel) and is named in the annotation, so
+    nothing is silently hidden.
+    """
+    ext, span = {}, {}
+    for m in models_in(z, '_k_mean'):
+        y = np.asarray(z[f'{m}_k_mean'], float)
+        y = y[np.isfinite(y)]
+        if not y.size:
+            continue
+        ext[m] = float(np.max(np.abs(y)))
+        span[m] = (float(np.min(y)), float(np.max(y)))
+    if not ext:
+        return None, []
+    med = float(np.median(list(ext.values())))
+    thr = max(blowup * med, 1e-9)
+    keep = [m for m in ext if ext[m] <= thr]
+    clipped = [m for m in ext if ext[m] > thr]
+    if not keep:
+        return None, []
+    lo = min(span[m][0] for m in keep); hi = max(span[m][1] for m in keep)
+    rng = max(hi - lo, 1e-9)
+    return (lo - pad * rng, hi + pad * rng), clipped
+
+
 def draw_mid(ax, z, n_ins=None, ref=None):
     klen = 0
     for m in models_in(z, '_k_mean'):
@@ -125,6 +167,13 @@ def main():
     fig, axes = plt.subplots(2, 2, figsize=(15.5, 9.5))
     draw_mid(axes[0][0], Z['mid_beta'])
     inset_zoom(axes[0][0], Z['mid_beta'])
+    yl, clipped = robust_ylim(Z['mid_beta'])
+    if yl:
+        axes[0][0].set_ylim(*yl)
+    if clipped:
+        axes[0][0].text(0.98, 0.03, 'off-scale: ' + ', '.join(m.replace('_', '-') for m in clipped),
+                        transform=axes[0][0].transAxes, fontsize=10, color='#888888',
+                        ha='right', va='bottom')
     axes[0][0].set_title('build-up: mid-price impact $I(k)$ (bps, antisymmetrised)', fontsize=13.5)
     axes[0][0].set_ylabel('build-up shape\n$I$, bps')
     draw_master(axes[0][1], Z['ms_beta'], relax=False, zmid=Z['mid_beta'])
@@ -141,7 +190,14 @@ def main():
                       P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(np.clip(vv - 1, 0, None)))))
         theory = (kk, th)
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10, ref=theory)
-    axes[1][0].set_ylim(axes[1][0].get_ylim()[0], axes[1][0].get_ylim()[1] * 1.30)
+    yl, clipped = robust_ylim(Z['mid_decay'])
+    if yl is None:
+        yl = axes[1][0].get_ylim()
+    axes[1][0].set_ylim(yl[0], yl[1] * 1.30 if yl[1] > 0 else yl[1])
+    if clipped:
+        axes[1][0].text(0.98, 0.03, 'off-scale: ' + ', '.join(m.replace('_', '-') for m in clipped),
+                        transform=axes[1][0].transAxes, fontsize=10, color='#888888',
+                        ha='right', va='bottom')
     inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.05, 0.62, 0.38, 0.36), ref=theory)
     axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
@@ -152,8 +208,15 @@ def main():
     axes[1][1].set_xlabel('metaorder fraction executed $v$')
 
     present = [m for m in ORDER if any(f'{m}_k_mean' in Z[k].files for k in ('mid_beta', 'mid_decay'))]
-    handles = [Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0, label=m.replace('_', '-'))
-               for m in present]
+    # sample count in every legend entry: how much data is behind each curve, so a
+    # noisy-looking baseline can be read as "genuinely no impact" rather than "thin n".
+    # build-up and relaxation fleets are separate runs -> show both when they differ.
+    handles = []
+    for m in present:
+        nb, nd = n_of(Z['mid_beta'], m), n_of(Z['mid_decay'], m)
+        ns = f'{nb}' if nb == nd else '/'.join(str(v) for v in (nb, nd) if v)
+        handles.append(Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0,
+                              label=f"{m.replace('_', '-')} ($n{{=}}{ns}$)"))
     handles.append(Line2D([], [], color=GREY, lw=2.4, ls='--',
                           label=r'reference ($\sqrt{\cdot}$-law, $Y{=}0.5$ range-conv / $2/3$ level)'))
     fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 5),
