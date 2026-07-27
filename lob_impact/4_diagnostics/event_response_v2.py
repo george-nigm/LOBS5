@@ -106,7 +106,11 @@ def main():
     model_tr = {}
     if args.model_npz:
         M = np.load(args.model_npz, allow_pickle=True)
-        for m in NEURAL:
+        # This is the panel whose curves become the <model>_Rtr_fig cache the coverage gate reads,
+        # and it iterated NEURAL only — so every baseline was absent from Figure 7 on every stock
+        # even after the plateau list above was fixed to include them. Draw the whole canon, keeping
+        # the neural curves visually heavier.
+        for m in BASELINES + NEURAL:
             if f'{m}_Rtr' not in M.files:
                 continue
             rt, rs, rc = M[f'{m}_Rtr'], M[f'{m}_Rtr_se'], M[f'{m}_Rtr_cnt']
@@ -115,8 +119,11 @@ def main():
             if not okt.any():
                 continue
             c = MODEL_COLOR.get(m, '#444444')
-            axt.errorbar(kk[okt], rt[okt], yerr=2 * rs[okt], fmt='o-', ms=2.6,
-                         color=c, lw=1.2, capsize=0, alpha=0.95)
+            _neural = m in NEURAL
+            axt.errorbar(kk[okt], rt[okt], yerr=2 * rs[okt], fmt='o-',
+                         ms=2.6 if _neural else 2.0, color=c,
+                         lw=1.2 if _neural else 0.9, ls='-' if _neural else '--',
+                         capsize=0, alpha=0.95 if _neural else 0.8)
             axt.annotate(m, (kk[okt][-1], rt[okt][-1]), fontsize=6.4, color=c,
                          va='center', ha='left', xytext=(3, 0), textcoords='offset points')
             model_tr[m] = rt
