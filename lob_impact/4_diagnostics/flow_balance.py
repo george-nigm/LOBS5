@@ -38,9 +38,17 @@ def read_csv(f):
     return np.array([r for r in csv.reader(open(f)) if r], dtype=float)
 
 
+MAX_MSGS = None      # set by --max_msgs: truncate every rollout to its first N messages
+
+
 def signs_and_mid(msg_file, ob_file):
     mm = read_csv(msg_file)
     ob = read_csv(ob_file)
+    if MAX_MSGS:
+        # Stage 0 at the benchmark's own horizon: the same statistics computed on the first
+        # MAX_MSGS messages of each rollout, so gamma_flow / H are read at the window a modeller
+        # actually has at training time rather than at the metaorder horizon.
+        mm, ob = mm[:MAX_MSGS], ob[:MAX_MSGS]
     if mm.ndim != 2 or ob.ndim != 2 or mm.shape[1] < 6 or ob.shape[1] < 4:
         return None
     n = min(len(mm), len(ob))
@@ -140,7 +148,12 @@ def main():
     ap.add_argument('--stock', required=True)
     ap.add_argument('--models', default='Historic,Heuristic,Propagator,OW,CST,NMZI,Hawkes,QR,S5_120M,S5_4k,Mamba3,Mamba3_4k,GDN')
     ap.add_argument('--n_files', type=int, default=64)
+    ap.add_argument('--max_msgs', type=int, default=None,
+                    help='truncate each rollout to its first N messages (500 = LOB-Bench window)')
+    ap.add_argument('--tag', default='', help='output filename suffix, e.g. _w500')
     args = ap.parse_args()
+    global MAX_MSGS
+    MAX_MSGS = args.max_msgs
     here = os.path.dirname(os.path.abspath(__file__))
     outdir = os.path.join(here, 'results', f'causal_{args.stock}')
     os.makedirs(outdir, exist_ok=True)
@@ -214,7 +227,7 @@ def main():
     fig.suptitle(f'{args.stock}: flow persistence vs price diffusivity '
                  r'(balance requires $\beta \approx (1-\gamma)/2$)', y=1.03)
     fig.tight_layout()
-    png = os.path.join(outdir, f'flow_balance_{args.stock}.png')
+    png = os.path.join(outdir, f'flow_balance_{args.stock}{args.tag}.png')
     fig.savefig(png, dpi=150, bbox_inches='tight')
     np.savez_compressed(png.replace('.png', '.npz'), **cache)
     # The two Stage-0 numbers as a table instead of crammed into legend labels: three 14-entry

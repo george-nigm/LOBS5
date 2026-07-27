@@ -42,15 +42,30 @@ def fig_paper(out, data, n_show=300):
     for i in show:
         t = np.arange(len(raw[i]))
         ax1.plot(t[::20], raw[i][::20], color='0.15', lw=0.4, alpha=0.05, zorder=2)
+    # Labels are placed AFTER the axis limits are known. The earlier attempt tested
+    # ax1.get_ylim() inside the plotting loop, where autoscale has not settled yet, so the flip
+    # never triggered and the m_b=308 label kept landing on the panel title. Collect first, set the
+    # limits with headroom, then annotate.
     offs = [(-900, 14), (300, -4), (-900, 14)]
+    pend = []
     for (i, col), (dx, dy) in zip(zip(hi_idx, HI), offs):
         t = np.arange(len(raw[i]))
         end = raw[i][np.isfinite(raw[i])][-1]
         ax1.plot(t[::10], raw[i][::10], color=col, lw=1.5, zorder=3)
         ax1.plot(len(raw[i]) - 1, end, 'o', ms=5, color=col, zorder=4)
+        pend.append((i, col, dx, dy, end))
+
+    y0, y1 = ax1.get_ylim()
+    head = max(e for *_, e in pend)
+    if y1 < head + 0.12 * (y1 - y0):          # guarantee room above the highest endpoint
+        ax1.set_ylim(y0, head + 0.12 * (y1 - y0))
+    y0, y1 = ax1.get_ylim()
+    for i, col, dx, dy, end in pend:
+        dyv = dy if (end + dy) < y1 - 0.05 * (y1 - y0) else -abs(dy)
         ax1.annotate(f'$m_b$={mbs[i]}', xy=(len(raw[i]), end),
-                     xytext=(len(raw[i]) + dx, end + dy), color=col,
+                     xytext=(len(raw[i]) + dx, end + dyv), color=col,
                      fontsize=10, fontweight='bold',
+                     va='bottom' if dyv > 0 else 'top',
                      ha='right' if dx < 0 else 'left')
     ax1.set_xlabel('message step (event time)')
     ax1.set_ylabel('signed mid move (bps)')

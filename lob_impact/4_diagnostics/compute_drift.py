@@ -74,6 +74,13 @@ def main():
                 vals.append(drift_one(f))
         v = np.array(vals, float)
         v = v[np.isfinite(v)]
+        # Book-collapse guard, same rule as the impact curves: a broken book drifts by thousands of
+        # ticks and owns the mean of 64 rollouts (Mamba3-4k first read -335 +- 86 from this).
+        bad = np.abs(v) > 5000.0
+        if bad.any():
+            print(f'  [collapse] {m}: {int(bad.sum())}/{len(v)} прогонов отброшено '
+                  f'(экстремум {v[np.argmax(np.abs(v))]:+.0f} тиков)', flush=True)
+            v = v[~bad]
         if not len(v):
             print(f'{m:11s} нет данных')
             out_lines.append(f'| {m.replace("_", "-")} | n/a | | 0 |')
