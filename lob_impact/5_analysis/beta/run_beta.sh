@@ -53,6 +53,15 @@ for s in $STOCKS; do
   python3.11 5_analysis/beta/beta_binned.py --grid "$GRID" --daily "$DAILY" --stock "$s" --models "$MODELS"
   python3.11 5_analysis/beta/beta_binned.py --grid "$GRID" --daily "$DAILY" --stock "$s" --models "$MODELS" --method none
 done
+# Everything below is labelled "diagnostic only" in its own banner, and none of it has ever
+# completed: every run so far (5x betaOWQR + beta_AAPL, 2026-07-26/27) saved the four headline PNGs
+# and then died at the 12 h wall inside beta_master_curve.py. These three scripts take no --stock,
+# so each job recomputes ALL stocks -- five concurrent per-stock jobs did the same all-stock work
+# five times over. Headline-only is therefore the default; FULL=1 opts back in.
+if [ "${FULL:-0}" != "1" ]; then
+  echo "[$(date)] HEADLINE_DONE (diagnostic stages skipped; FULL=1 to run them)"
+  exit 0
+fi
 echo ">>> beta master curve (Parkinson, intercept estimator) [per-point: E[log I|I>0] biased — diagnostic only]"
 python3.11 5_analysis/beta/beta_master_curve.py --grid "$GRID" --daily "$DAILY"
 echo ">>> beta 5-method (5 sigma estimators + intercept, day-clustered bootstrap CI) [per-point: biased — diagnostic only]"
