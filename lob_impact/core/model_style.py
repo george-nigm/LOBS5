@@ -70,3 +70,24 @@ def load_style(script_file, up=4):
             break
         d = nd
     return {}
+
+
+LEGEND_PER_COL = 3          # entries per column — fixed so every figure's legend has one shape
+LEGEND_FONTSIZE = 9.5
+
+
+def legend_below(fig, handles, labels, per_col=LEGEND_PER_COL, fontsize=LEGEND_FONTSIZE, y=-0.04):
+    """One legend under the figure, `per_col` entries per column, same size everywhere.
+
+    Legends were being placed per-panel or per-figure with whatever ncol and fontsize each script
+    happened to pick, so the same 14 models produced a different block in every figure. matplotlib
+    fills a legend column-major, so ncol = ceil(n / per_col) gives exactly `per_col` rows.
+    """
+    import math
+    n = len(labels)
+    if not n:
+        return None
+    ncol = max(1, math.ceil(n / per_col))
+    return fig.legend(handles, labels, loc='lower center', ncol=ncol, frameon=False,
+                      fontsize=fontsize, bbox_to_anchor=(0.5, y),
+                      handlelength=1.8, columnspacing=1.4, handletextpad=0.6)

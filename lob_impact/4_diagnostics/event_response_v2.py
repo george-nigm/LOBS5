@@ -25,6 +25,25 @@ import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+def _legend_below(fig, handles, labels, y=-0.04):
+    """Shared legend rule (lob_impact/core/model_style.py): 3 entries per column, one size for
+    every figure. Falls back to a plain bottom legend if the module is unreachable."""
+    import os, importlib.util, math
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return m.legend_below(fig, handles, labels, y=y)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=9.5,
+                      ncol=max(1, math.ceil(len(labels) / 3)), bbox_to_anchor=(0.5, y))
+
+
 
 def _canon_palette():
     """Canonical palette from lob_impact/core/model_style.py — see the note there on why the
@@ -187,8 +206,7 @@ def main():
         if base in seen:
             continue
         seen.add(base); H.append(h); L.append(l)
-    fig.legend(H, L, loc='lower center', ncol=4, fontsize=7.5, frameon=False,
-               bbox_to_anchor=(0.5, -0.10))
+    _legend_below(fig, H, L)
     fig.tight_layout(rect=[0, 0.12, 1, 1])
     fig.savefig(args.out, bbox_inches='tight')
     np.savez_compressed(os.path.splitext(args.out)[0] + '.npz',

@@ -23,6 +23,25 @@ import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+def _legend_below(fig, handles, labels, y=-0.04):
+    """Shared legend rule (lob_impact/core/model_style.py): 3 entries per column, one size for
+    every figure. Falls back to a plain bottom legend if the module is unreachable."""
+    import os, importlib.util, math
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return m.legend_below(fig, handles, labels, y=y)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=9.5,
+                      ncol=max(1, math.ceil(len(labels) / 3)), bbox_to_anchor=(0.5, y))
+
+
 # OW (Obizhaeva-Wang exponential-resilience kernel) and QR (queue-reactive) sit with the
 # other mechanical baselines, between Propagator and the point-process models.
 ORDER = ['Historic', 'Heuristic', 'Propagator', 'OW', 'CST', 'NMZI', 'Hawkes', 'QR', 'S5', 'S5_120M', 'S5_4k', 'Mamba3', 'Mamba3_4k', 'GDN']
@@ -120,8 +139,7 @@ def main():
                       label=f"{m.replace('_', '-')} ($n{{=}}{_n(m)}$)" if _n(m) else m.replace('_', '-'))
                for m in models]
     handles.append(Line2D([], [], color='#444444', lw=1.3, ls='--', label='negative amplitude (adverse drift)'))
-    fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 4),
-               fontsize=10.5, frameon=False, bbox_to_anchor=(0.5, -0.075))
+    _legend_below(fig, handles, [h.get_label() for h in handles])
     fig.suptitle(f'{args.stock}: implied $Y(k)$ at the data edge '
                  f'$q_{{\\rm ref}} = {q_ref:.1e}$ (raw-range convention) — the amplitude '
                  f'companion of the exponent grid', fontsize=13.5, y=0.995)

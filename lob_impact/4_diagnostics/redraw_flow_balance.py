@@ -25,6 +25,25 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+def _legend_below(fig, handles, labels, y=-0.04):
+    """Shared legend rule (lob_impact/core/model_style.py): 3 entries per column, one size for
+    every figure. Falls back to a plain bottom legend if the module is unreachable."""
+    import os, importlib.util, math
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return m.legend_below(fig, handles, labels, y=y)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=9.5,
+                      ncol=max(1, math.ceil(len(labels) / 3)), bbox_to_anchor=(0.5, y))
+
+
 
 def _canon():
     import importlib.util
@@ -96,8 +115,7 @@ def main():
     fig.suptitle(f'{args.stock}: flow persistence vs price diffusivity '
                  r'(balance requires $\beta \approx (1-\gamma)/2$)', fontsize=12.5)
     h, l = axes[0].get_legend_handles_labels()
-    fig.legend(h, l, loc='lower center', ncol=min(8, max(5, (len(l) + 1) // 2)),
-               frameon=False, fontsize=9.5, bbox_to_anchor=(0.5, -0.06))
+    _legend_below(fig, h, l, y=-0.06)
     fig.tight_layout(rect=(0, 0.04, 1, 0.90))
 
     out = os.path.join(os.path.dirname(npz), f'flow_balance_{args.stock}.png')

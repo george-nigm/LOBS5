@@ -36,6 +36,25 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+def _legend_below(fig, handles, labels, y=-0.04):
+    """Shared legend rule (lob_impact/core/model_style.py): 3 entries per column, one size for
+    every figure. Falls back to a plain bottom legend if the module is unreachable."""
+    import os, importlib.util, math
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return m.legend_below(fig, handles, labels, y=y)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=9.5,
+                      ncol=max(1, math.ceil(len(labels) / 3)), bbox_to_anchor=(0.5, y))
+
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, 'results', 'lobbench_noins')
 DIR_RE = re.compile(r'scores_(?P<stock>[A-Z0-9]+)_w500_off(?P<off>\d+)$')

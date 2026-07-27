@@ -32,6 +32,25 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+def _legend_below(fig, handles, labels, y=-0.04):
+    """Shared legend rule (lob_impact/core/model_style.py): 3 entries per column, one size for
+    every figure. Falls back to a plain bottom legend if the module is unreachable."""
+    import os, importlib.util, math
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return m.legend_below(fig, handles, labels, y=y)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=9.5,
+                      ncol=max(1, math.ceil(len(labels) / 3)), bbox_to_anchor=(0.5, y))
+
+
 
 def _canon_palette():
     import os as _os
@@ -150,9 +169,7 @@ def main():
 
     fig.suptitle(f'{args.stock}: headline estimator (signed binned, cumulative $\\leq k$) — '
                  'exponent and amplitude', fontsize=13.5)
-    ncol = min(7, max(4, (len(labels) + 1) // 2))
-    fig.legend(handles, labels, loc='lower center', ncol=ncol, frameon=False,
-               fontsize=10, bbox_to_anchor=(0.5, -0.02))
+    _legend_below(fig, handles, labels, y=-0.02)
     fig.tight_layout(rect=(0, 0.10, 1, 0.94))
 
     outdir = os.path.join(here, 'results', 'beta_3x3')

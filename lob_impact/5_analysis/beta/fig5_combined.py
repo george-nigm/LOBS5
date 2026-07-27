@@ -13,6 +13,25 @@ import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+def _legend_below(fig, handles, labels, y=-0.04):
+    """Shared legend rule (lob_impact/core/model_style.py): 3 entries per column, one size for
+    every figure. Falls back to a plain bottom legend if the module is unreachable."""
+    import os, importlib.util, math
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return m.legend_below(fig, handles, labels, y=y)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return fig.legend(handles, labels, loc='lower center', frameon=False, fontsize=9.5,
+                      ncol=max(1, math.ceil(len(labels) / 3)), bbox_to_anchor=(0.5, y))
+
+
 # OW (Obizhaeva-Wang exponential-resilience kernel) and QR (queue-reactive) sit with the
 # other mechanical baselines, between Propagator and the point-process models.
 ORDER = ['Historic', 'Heuristic', 'Propagator', 'OW', 'CST', 'NMZI', 'Hawkes', 'QR', 'S5', 'S5_120M', 'S5_4k', 'Mamba3', 'Mamba3_4k', 'GDN']
@@ -307,8 +326,7 @@ def main():
         handles.append(Line2D([], [], color=COLORS.get(m, '#444444'), lw=3.0, label=lbl))
     handles.append(Line2D([], [], color=GREY, lw=2.4, ls='--',
                           label=r'reference ($\sqrt{\cdot}$-law, $Y{=}0.5$ range-conv / $2/3$ level)'))
-    fig.legend(handles=handles, loc='lower center', ncol=min(len(handles), 5),
-               fontsize=12.5, frameon=False, bbox_to_anchor=(0.5, -0.045))
+    _legend_below(fig, handles, [h.get_label() for h in handles])
     fig.suptitle(f'{args.stock}: metaorder impact — build-up and relaxation, '
                  'raw $k$-clock (left) and normalised master curves (right)',
                  fontsize=15, y=0.99)
