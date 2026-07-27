@@ -45,5 +45,11 @@ echo ">>> Fig 8: 3x3 estimator panel"
 $PY beta_3x3.py --grid "$GRID" --daily "$DAILY" --stock "$STOCK" --models "$MODELS" || rc=$?
 echo ">>> bias exhibit"
 $PY bias_exhibit.py --grid "$GRID" --daily "$DAILY" --stock "$STOCK" --models "$MODELS" || rc=$?
+# Same story as the two above: no launcher ran beta_sigma_grid.py either, so its cache was missing
+# OW and QR on every stock. Three views (le/eq/ge) -- the gate reads the 'eq' one.
+for V in le eq ge; do
+  echo ">>> sigma grid ($V)"
+  $PY beta_sigma_grid.py --grid "$GRID" --daily "$DAILY" --stock "$STOCK" --models "$MODELS" --view "$V" || rc=$?
+done
 echo "[$(date)] ESTFIG_DONE $STOCK rc=$rc"
 exit $rc
