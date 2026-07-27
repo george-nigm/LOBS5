@@ -205,13 +205,31 @@ def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None,
     ins.tick_params(labelsize=8)
 
 
-def draw_master(ax, z, relax, zmid=None, n_end=None):
-    gated_out = []
+def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05):
+    """Master curve = I(v)/I(1). Normalising removes scale, which is the point — and also the
+    hazard: a model whose absolute impact is near zero has its own measurement noise divided by
+    that same near-zero number, so it arrives on the panel as a wildly oscillating line that looks
+    like a finding. On AMD, QR peaks at 0.118 bps against GDN's 7.49 and its point-to-point jitter
+    is 42% of its own signal where every other curve sits at 0.1--0.4% — 15x the smoothest line.
+    It passes the significance gate (3.6 sigma: not zero) but significance is not magnitude.
+
+    Curves whose |peak| falls below `faint_frac` of the panel's largest are therefore drawn thin
+    and semi-transparent and named, with their absolute peak, in a note. Nothing is hidden; the
+    reader is told which shapes are ratios of almost nothing.
+    """
+    gated_out, faint = [], []
+    peaks = {m: abs(float(z[f'{m}_peak'])) for m in models_in(z, '_master') if f'{m}_peak' in z.files}
+    pmax = max(peaks.values()) if peaks else 0.0
     for m in models_in(z, '_master'):
         if not bool(z[f'{m}_sig']):
             gated_out.append(m); continue
         v = z['vgrid']; y = z[f'{m}_master']
         c = COLORS.get(m, '#444444')
+        weak = pmax > 0 and peaks.get(m, pmax) < faint_frac * pmax
+        if weak:
+            faint.append((m, peaks[m]))
+            ax.plot(v, y, color=c, lw=1.0, alpha=0.45)
+            continue
         ax.plot(v, y, color=c, lw=2.0)
         # +-2SE band via delta method: relative SE of the k-clock mean applied
         # to the master line (the k sampling matches the v grid one-to-one)
@@ -233,9 +251,15 @@ def draw_master(ax, z, relax, zmid=None, n_end=None):
         ax.axvline(1.0, color='#999999', lw=1.0, ls=':')
     else:
         ax.plot(v, np.sqrt(np.clip(v, 0, None)), color=GREY, lw=1.4, ls='--')
+    notes = []
     if gated_out:
-        ax.text(0.02, 0.97, 'gate-failed: ' + ', '.join(gated_out), transform=ax.transAxes,
-                fontsize=10, color='#888888', va='top')
+        notes.append('gate-failed: ' + ', '.join(gated_out))
+    if faint:
+        notes.append('near-null impact, ratio is noise: '
+                     + ', '.join(f'{m.replace("_", "-")} (peak {p:.2f} bps)' for m, p in faint))
+    if notes:
+        ax.text(0.02, 0.97, '\n'.join(notes), transform=ax.transAxes,
+                fontsize=9.5, color='#888888', va='top')
     ax.axhline(0, color='#cccccc', lw=0.8)
     ax.margins(x=0)
 
