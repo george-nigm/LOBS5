@@ -210,7 +210,7 @@ def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None,
     ins.tick_params(labelsize=8)
 
 
-def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05):
+def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05, draw_weak=False):
     """Master curve = I(v)/I(1). Normalising removes scale, which is the point — and also the
     hazard: a model whose absolute impact is near zero has its own measurement noise divided by
     that same near-zero number, so it arrives on the panel as a wildly oscillating line that looks
@@ -218,9 +218,10 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05):
     is 42% of its own signal where every other curve sits at 0.1--0.4% — 15x the smoothest line.
     It passes the significance gate (3.6 sigma: not zero) but significance is not magnitude.
 
-    Curves whose |peak| falls below `faint_frac` of the panel's largest are therefore drawn thin
-    and semi-transparent and named, with their absolute peak, in a note. Nothing is hidden; the
-    reader is told which shapes are ratios of almost nothing.
+    Curves whose |peak| falls below `faint_frac` of the panel's largest are therefore DROPPED from
+    the panel and named, with their absolute peak, in the corner note — the same treatment as a
+    gate failure, because the objection is the same: the shape carries no information about the
+    model. `draw_weak=True` keeps them as thin semi-transparent lines instead.
     """
     gated_out, faint = [], []
     peaks = {m: abs(float(z[f'{m}_peak'])) for m in models_in(z, '_master') if f'{m}_peak' in z.files}
@@ -233,6 +234,8 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05):
         weak = pmax > 0 and peaks.get(m, pmax) < faint_frac * pmax
         if weak:
             faint.append((m, peaks[m]))
+            if not draw_weak:          # default: drop it, same as a gate failure
+                continue
             ax.plot(v, y, color=c, lw=1.0, alpha=0.45)
             continue
         ax.plot(v, y, color=c, lw=2.0)
@@ -260,7 +263,8 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05):
     if gated_out:
         notes.append('gate-failed: ' + ', '.join(gated_out))
     if faint:
-        notes.append('near-null impact, ratio is noise: '
+        _verb = 'shown faint' if draw_weak else 'not shown'
+        notes.append(f'near-null impact, ratio is noise ({_verb}): '
                      + ', '.join(f'{m.replace("_", "-")} (peak {p:.2f} bps)' for m, p in faint))
     if notes:
         ax.text(0.02, 0.97, '\n'.join(notes), transform=ax.transAxes,
