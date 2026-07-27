@@ -98,6 +98,20 @@ def draw_mid(ax, z, n_ins=None, ref=None):
     ax.margins(x=0)
 
 
+def stamp_if_empty(ax, z):
+    """A cache with no per-model curves renders as a BLANK panel inside an otherwise complete
+    figure, legend and all — indistinguishable from a plotting glitch and easy to paste into a
+    paper unnoticed (it happened to the GOOG build-up panel after the SHAPE/TAG bug wiped that
+    cache on 2026-07-27). Testing ax.get_lines() does not work: the zero line and the reference
+    curve are lines too. Test the cache."""
+    if not models_in(z, '_k_mean'):
+        ax.text(0.5, 0.5, 'no model curves in this cache', transform=ax.transAxes,
+                ha='center', va='center', fontsize=13, color='#B03A2E',
+                bbox=dict(boxstyle='round', fc='#FDEDEC', ec='#B03A2E', alpha=0.92), zorder=10)
+        return True
+    return False
+
+
 def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None):
     """Zoom inset: the baseline band the neural curves dwarf (means first; bands may clip)."""
     ins = ax.inset_axes(list(rect))
@@ -171,6 +185,7 @@ def main():
 
     plt.rcParams.update({'font.size': 12.5, 'axes.labelsize': 13, 'xtick.labelsize': 11.5, 'ytick.labelsize': 11.5})
     fig, axes = plt.subplots(2, 2, figsize=(15.5, 9.5))
+    stamp_if_empty(axes[0][0], Z['mid_beta'])
     draw_mid(axes[0][0], Z['mid_beta'])
     inset_zoom(axes[0][0], Z['mid_beta'])
     yl, clipped = robust_ylim(Z['mid_beta'])
@@ -195,6 +210,7 @@ def main():
         th = np.where(vv <= 1, P * np.sqrt(np.clip(vv, 0, None)),
                       P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(np.clip(vv - 1, 0, None)))))
         theory = (kk, th)
+    stamp_if_empty(axes[1][0], Z['mid_decay'])
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10, ref=theory)
     yl, clipped = robust_ylim(Z['mid_decay'])
     if yl is None:
