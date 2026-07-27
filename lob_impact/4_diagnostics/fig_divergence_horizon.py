@@ -78,10 +78,13 @@ def main():
     ap.add_argument('--div', default='l1', choices=['l1', 'ks', 'wasserstein'])
     ap.add_argument('--out', default=None)
     ap.add_argument('--copy_to', default=None)
+    ap.add_argument('--tag', default='*', help="restrict to scores_<STOCK>_<tag>/. A long-mode "
+                    "divergence pickle is ~370 MB gzipped and expands to several GB — read those "
+                    "in a batch job only; the windowed ones are <=51 MB.")
     args = ap.parse_args()
 
     latest = {}
-    for p in glob.glob(os.path.join(RES, f'scores_{args.stock}_*', 'scores', 'scores_div_*.pkl')):
+    for p in glob.glob(os.path.join(RES, f'scores_{args.stock}_{args.tag}', 'scores', 'scores_div_*.pkl')):
         mo = NAME_RE.search(os.path.basename(p))
         if not mo or mo.group('stock') != args.stock:
             continue
@@ -93,12 +96,13 @@ def main():
         return 1
 
     fig, ax = plt.subplots(figsize=(11.5, 6.2), dpi=200)
-    plotted, horizon = [], 100
+    plotted, horizon, cached = [], 100, {}
     order = [m for m in CANON if m in latest] + [m for m in latest if m not in CANON and m != 'REAL']
     for m in order:
         ts, path, h = latest[m]
         horizon = h
         y, nmet = curve(path, args.div)
+        cached[m] = y
         if y is None or not np.isfinite(y).any():
             continue
         x = (np.arange(len(y)) + 1) * h
@@ -133,7 +137,7 @@ def main():
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out)
     np.savez_compressed(out.replace('.png', '.npz'),
-                        **{f'{m}_y': curve(latest[m][1], args.div)[0] for m in plotted},
+                        **{f'{m}_y': cached[m] for m in plotted},
                         horizon=horizon, models=np.array(plotted))
     print('saved ->', out, '| models:', ', '.join(plotted))
     if args.copy_to:
