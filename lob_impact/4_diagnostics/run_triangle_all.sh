@@ -34,11 +34,20 @@ for M in $MODELS; do
   OUT="${RES}/triangle_${M}_${RUN_TS}"
   mkdir -p "$OUT"
   echo "[$(date)] building triangle for $M -> $OUT"
-  python -u 4_diagnostics/control_triangle_report.py --model "$M" --n_samples "$NS" --out_dir "$OUT"
+  # control_triangle_report.py needs the 'invisible' regime, which only exists for the models that
+  # can condition on injected flow -- 4 of the 13 on EA. Under `set -e` the first model without it
+  # aborted the WHOLE run (job 5789618 died on OW after Propagator had already succeeded, losing
+  # every model queued behind it). Skip and warn instead, and report the skip list at the end.
+  if ! python -u 4_diagnostics/control_triangle_report.py --model "$M" --n_samples "$NS" --out_dir "$OUT"; then
+    echo "SKIP $M — control_triangle_report failed (usually: no invisible control for this model)" >&2
+    SKIPPED="${SKIPPED:-} $M"
+    continue
+  fi
   python -u 4_diagnostics/make_triangle_docx.py --fig_dir "$OUT" --model "$M" \
       --out "$OUT/Control_Triangle_Report_${M}.docx"
   cp "$OUT/Control_Triangle_Report_${M}.docx" "$ALL_DIR/"
 done
+[ -z "${SKIPPED:-}" ] || echo "TRIANGLE_SKIPPED:${SKIPPED}"
 
 # reuse the newest existing docx for models not rebuilt in this run
 for M in $COPY_EXISTING; do
