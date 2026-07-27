@@ -94,6 +94,11 @@ def robust_ylim(z, pad=0.10, blowup=20.0):
     return (lo - pad * rng, hi + pad * rng), clipped
 
 
+# Bands are +-2 s.e. and deliberately faint: with 13 models overlapping, an alpha that reads well
+# for one curve stacks into an opaque wash. They stay wide for Mamba3-4k and GDN because those
+# distributions are genuinely heavy-tailed — that width is the honest uncertainty of a mean over a
+# fat tail, and it is the reason the collapse threshold is not lowered (dropping the tail would
+# shrink the band by changing the estimand, not by measuring better).
 def draw_mid(ax, z, n_ins=None, ref=None, band_within=None):
     """band_within=(lo,hi): draw the +-2 s.e. ribbon only for curves that live inside that
     range. With --swap_zoom the three runaway curves leave the frame but their ribbons stay,
@@ -111,7 +116,7 @@ def draw_mid(ax, z, n_ins=None, ref=None, band_within=None):
             pk = np.nanmax(np.abs(np.asarray(y, float)))
             inside = pk <= max(abs(band_within[0]), abs(band_within[1]))
         if inside:
-            ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.16, lw=0)
+            ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.07, lw=0)
     if ref is not None:
         ax.plot(ref[0], ref[1], color=GREY, lw=2.2, ls='--')
     elif 'sqrt_x' in z.files and klen:
@@ -192,7 +197,7 @@ def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None,
         x = np.arange(len(y))
         c = COLORS.get(m, '#444444')
         ins.plot(x, y, color=c, lw=1.5)
-        ins.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.15, lw=0)
+        ins.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.07, lw=0)
     if ref is not None:
         ins.plot(ref[0], ref[1], color=GREY, lw=1.8, ls='--')
     elif 'sqrt_x' in z.files:
@@ -239,7 +244,7 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05):
             with np.errstate(all='ignore'):
                 rel = np.abs(ks[:n] / km[:n])
             band = np.abs(y[:n]) * np.clip(rel, 0, 1.5)
-            ax.fill_between(v[:n], y[:n] - 2 * band, y[:n] + 2 * band, color=c, alpha=0.13, lw=0)
+            ax.fill_between(v[:n], y[:n] - 2 * band, y[:n] + 2 * band, color=c, alpha=0.06, lw=0)
     v = z['vgrid']
     if relax:
         # theory: sqrt build-up then power-law decay to the 2/3 permanent level
