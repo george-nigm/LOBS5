@@ -54,10 +54,13 @@ def main():
     ap.add_argument('--stock', required=True)
     ap.add_argument('--family', default='uncond', help='uncond | cond | div | context | time_lagged')
     ap.add_argument('--out', default=None)
+    ap.add_argument('--tag', default='*', help="restrict to scores_<STOCK>_<tag>/ — the long-mode "
+                    "pickles are 2 GB each while a 500-message run is 11 MB, so a tagged run "
+                    "needs a fraction of the memory")
     args = ap.parse_args()
 
     latest = {}
-    for p in glob.glob(os.path.join(RES, f'scores_{args.stock}_*', 'scores', '*.pkl')):
+    for p in glob.glob(os.path.join(RES, f'scores_{args.stock}_{args.tag}', 'scores', '*.pkl')):
         mo = NAME_RE.search(os.path.basename(p))
         if not mo or mo.group('stock') != args.stock or mo.group('fam') != args.family:
             continue
