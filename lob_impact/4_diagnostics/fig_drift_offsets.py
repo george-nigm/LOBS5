@@ -102,7 +102,12 @@ def main():
         print(f'найдено смещений: {offs} — нужно минимум два, жду остальные джобы')
         return 1
 
-    order = [m for m in CANON if m in data] + [m for m in data if m not in CANON]
+    # Only the models actually swept belong on this figure. The rest were scored at offset 0 only
+    # (the sweep ran ONLY_MODELS to keep each job at ~9 min), and drawing them as lone dots made the
+    # right panel read as if a large drift had been MEASURED for them when nothing was.
+    swept = {m for m, v in data.items() if sum(np.isfinite(list(v.values()))) >= 2}
+    skipped = sorted(set(data) - swept)
+    order = [m for m in CANON if m in swept] + [m for m in swept if m not in CANON]
     fig, ax = plt.subplots(1, 2, figsize=(12.4, 5.2), dpi=200)
     ctrl = data.get('Historic', {})
 
@@ -112,9 +117,16 @@ def main():
         if not np.isfinite(y).any():
             continue
         c = COLORS.get(m, '#444444')
-        kw = dict(color=c, lw=2.2 if m in NEURAL else 1.5, marker='o', ms=4,
-                  alpha=1.0 if m in NEURAL else 0.85)
-        ax[0].plot(x, y, label=m.replace('_', '-'), **kw)
+        # Historic is the control the whole argument rests on, and the Heuristic (same replay plus a
+        # price shift) sits exactly on top of it — so draw the control dashed, thick and last-on-top,
+        # or it is invisible under its own twin.
+        ctrl_style = (m == 'Historic')
+        kw = dict(color=c, marker='o', ms=4,
+                  lw=3.0 if ctrl_style else (2.2 if m in NEURAL else 1.5),
+                  ls='--' if ctrl_style else '-',
+                  zorder=5 if ctrl_style else 3,
+                  alpha=1.0 if (ctrl_style or m in NEURAL) else 0.85)
+        ax[0].plot(x, y, label=(m.replace('_', '-') + ' (control)') if ctrl_style else m.replace('_', '-'), **kw)
         # right panel: excess over the replay control at the same offset -- the actual drift
         if ctrl and m != 'Historic':
             base = np.array([ctrl.get(o, np.nan) for o in x])
@@ -130,6 +142,10 @@ def main():
         a.set_xlabel('messages generated before the scored window')
         a.grid(alpha=0.25)
         a.legend(fontsize=8, ncol=2, frameon=True, framealpha=0.8)
+    if skipped:
+        ax[0].text(0.02, 0.02, 'single-offset models not swept: ' + ', '.join(
+            m.replace('_', '-') for m in skipped), transform=ax[0].transAxes,
+            fontsize=7.5, color='#777777', va='bottom')
     fig.tight_layout()
 
     out = args.out or os.path.join(RES, f'drift_offsets_{args.stock}_{args.div}.png')
@@ -139,7 +155,8 @@ def main():
                         offsets=np.array(offs),
                         **{f'{m}_y': np.array([data[m].get(o, np.nan) for o in offs])
                            for m in data})
-    print('saved ->', out, '| смещения:', offs, '| моделей:', len(data))
+    print('saved ->', out, '| смещения:', offs, '| в развёртке:', len(swept),
+          '| только смещение 0 (не рисуются):', ', '.join(skipped) if skipped else '—')
     for m in order:
         v = [data[m].get(o, np.nan) for o in offs]
         print(f'  {m:12s} ' + ' '.join(f'{x:7.3f}' for x in v))
