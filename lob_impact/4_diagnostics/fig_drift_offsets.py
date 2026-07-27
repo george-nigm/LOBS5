@@ -91,6 +91,8 @@ def main():
     ap.add_argument('--div', default='wasserstein', choices=['wasserstein', 'ks', 'l1'])
     ap.add_argument('--out', default=None)
     ap.add_argument('--copy_to', default=None)
+    ap.add_argument('--window', type=int, default=500,
+                    help='scored window width; offsets closer than this are duplicates')
     args = ap.parse_args()
 
     data = collect(args.stock, args.div)
@@ -98,6 +100,23 @@ def main():
         print(f'нет прогонов w500_off* для {args.stock} в {RES}')
         return 1
     offs = sorted({o for v in data.values() for o in v})
+    # Two offsets closer together than the window width are the SAME measurement with different
+    # sampling noise (24,500 and 25,000 with a 500-message window), and plotting both draws that
+    # noise as a feature — a visible zigzag at the right edge. Keep whichever of the pair covers
+    # more models (25,000 exceeds OW's 25,001-message rollouts, so 24,500 is the complete one).
+    W = args.window
+    keep = []
+    for o in offs:
+        if keep and o - keep[-1] <= W:   # ровно W — тоже перекрытие: окна стыкуются встык
+            n_prev = sum(1 for v in data.values() if np.isfinite(v.get(keep[-1], np.nan)))
+            n_here = sum(1 for v in data.values() if np.isfinite(v.get(o, np.nan)))
+            print(f'смещения {keep[-1]} и {o} не дальше ширины окна ({W}) — оставляю '
+                  f'{o if n_here > n_prev else keep[-1]} (моделей {max(n_here, n_prev)})')
+            if n_here > n_prev:
+                keep[-1] = o
+            continue
+        keep.append(o)
+    offs = keep
     if len(offs) < 2:
         print(f'найдено смещений: {offs} — нужно минимум два, жду остальные джобы')
         return 1
