@@ -33,7 +33,29 @@ COLORS = {'Historic': '#C0392B', 'Mamba3': '#2F5DA3', 'GDN': '#D81B60',
 
 
 def read_csv(f):
-    return np.array([r for r in csv.reader(open(f)) if r], dtype=float)
+    """Parse a generated CSV, dropping rows that are not numeric.
+
+    A handful of generated files carry a corrupted field of the form '2147483647.-2147483648' —
+    INT_MAX and INT_MIN concatenated by the decimal point, i.e. a price written from two clipped
+    int32 sentinels. One such row used to abort the entire per-stock run (MSFT and EA died this way
+    on 2026-07-27, taking placebo AND flow balance with them), which is a bad trade: dropping one
+    rollout out of hundreds costs nothing, dropping the stock costs everything.
+    """
+    rows, bad = [], 0
+    for r in csv.reader(open(f)):
+        if not r:
+            continue
+        try:
+            rows.append([float(x) for x in r])
+        except ValueError:
+            bad += 1
+    if bad:
+        print(f'  [WARN] {os.path.basename(f)}: {bad} unparseable row(s) dropped '
+              f'(clipped-int32 sentinel in a numeric field)', flush=True)
+    if not rows:
+        return np.empty((0, 0))
+    w = max(len(r) for r in rows)
+    return np.array([r for r in rows if len(r) == w], dtype=float)
 
 
 def mid_of(ob):
