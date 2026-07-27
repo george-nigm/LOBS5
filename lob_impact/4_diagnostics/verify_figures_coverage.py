@@ -42,6 +42,22 @@ FAMILIES = [
     ('bias exhibit',            f'{BETA}/bias_exhibit/bias_exhibit_{{s}}.npz',                 '_parkinson_ym'),
     ('Fig5 flow balance',       f'{DIAG}/causal_{{s}}/flow_balance_{{s}}.npz',                 '_gamma'),
     ('Fig7 event response',     f'{DIAG}/empresp_curve_{{s}}/event_response_v2_{{s}}.npz',     '_Rtr_fig'),
+    # audited 2026-07-27: the paper includes 25 stock-specific figures but this gate covered only the
+    # 8 above, so the same "model silently absent from the legend" bug could hide in any of the rest.
+    # These four are the remaining caches that carry per-model arrays.
+    ('beta 3views L2',          f'{BETA}/beta_3views_l2/beta_3views_l2_{{s}}.npz',             '_le'),
+    ('beta pipeline steps',     f'{BETA}/bias_exhibit/beta_pipeline_{{s}}.npz',                '_parkinson_l2_profile'),
+    ('sigma grid (eq)',         f'{BETA}/beta_sigma_grid/beta_sigma_grid_{{s}}_eq.npz',        '_none_dbin'),
+    ('placebo pretrend',        f'{DIAG}/causal_{{s}}/placebo_pretrend_{{s}}.npz',             '_placebo_mean'),
+]
+
+# Figures whose npz holds only axes/theory curves -- no per-model arrays at all, so a redesign has to
+# re-read the grid instead of loading the cache. Reported separately: there is nothing to check per
+# model, and silence here would read as "covered".
+NO_MODEL_CACHE = [
+    ('amplitude stability', f'{BETA}/beta_sigma_grid/amplitude_stability_{{s}}.npz'),
+    ('beta 3x3 Y',          f'{BETA}/beta_3x3/beta_3x3_Y_{{s}}.npz'),
+    ('decay protocol',      f'{BETA}/master_curve/decay_protocol_{{s}}.npz'),
 ]
 
 
@@ -85,6 +101,15 @@ def main():
                 print(f'{label:26s} {s:6s} {len(got):>5d}  OK')
     print('-' * 78)
     print('пробелов:', bad)
+
+    thin = [(lbl, s) for lbl, tmpl in NO_MODEL_CACHE for s in stocks
+            if models_in(tmpl.format(s=s), '_XXX') is not None
+            and not any(k.split('_')[0] in CANON for k in np.load(tmpl.format(s=s), allow_pickle=True).files)]
+    if thin:
+        print()
+        print('кэш без модельных массивов (перерисовка потребует чтения сетки):')
+        for lbl, s in thin:
+            print(f'  {lbl:22s} {s}')
     return 1 if bad else 0
 
 
