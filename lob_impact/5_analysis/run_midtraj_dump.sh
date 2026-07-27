@@ -9,7 +9,18 @@
 # mid_trajectory rebuild WITH per-sample k-clock dump (spaghetti exhibit) — grid_v2
 set -uo pipefail
 STOCK="${1:-GOOG}"; SHAPE="${2:-beta}"
-TAG=beta; [ "$SHAPE" = relaxation ] && TAG=decay
+# The grid folders are <stock>-<model>-{beta,relaxation}, but the OUTPUT of the relaxation shape is
+# named "decay" everywhere else, so "decay" is what one naturally types. The old guard was
+#   TAG=beta; [ "$SHAPE" = relaxation ] && TAG=decay
+# which left TAG=beta for SHAPE=decay: mid_trajectory then found no <stock>-<model>-decay folders,
+# printed "no data" for every model, and wrote the resulting EMPTY npz over the good BETA cache --
+# exit 0, no error. That destroyed the beta caches of NVDA/GOOG/AMD/MSFT on 2026-07-27. Accept
+# "decay" as an alias for "relaxation" and refuse anything else.
+case "$SHAPE" in
+  beta)              TAG=beta ;;
+  relaxation|decay)  SHAPE=relaxation; TAG=decay ;;
+  *) echo "FATAL: shape '$SHAPE' is not one of beta|relaxation|decay" >&2; exit 2 ;;
+esac
 export JAX_PLATFORMS=cpu
 PY=/home/s5e/satyamaga.s5e/miniforge3/envs/lobs5/bin/python
 B=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/5_analysis/beta
@@ -21,5 +32,13 @@ cd "$B"
 $PY mid_trajectory.py --grid "$GRID" --stock "$STOCK" --shape "$SHAPE" --models "$MODELS" \
    --daily "$DAILY" --per_day_params "$PDP" --dump_samples \
    --out "$B/results/mid_impact/mid_trajectory_${STOCK}_${TAG}.png"
-$PY fig6_spaghetti.py --npz "$B/results/mid_impact/mid_trajectory_${STOCK}_${TAG}.npz" --stock "$STOCK"
+NPZ="$B/results/mid_impact/mid_trajectory_${STOCK}_${TAG}.npz"
+# Second belt: if the run produced a cache with no per-model curves, say so loudly instead of
+# letting the next stage fail on an assertion nobody reads.
+$PY - "$NPZ" <<'EOP' || { echo "FATAL: $NPZ carries no per-model data — grid folders for shape '$SHAPE' missing?" >&2; exit 3; }
+import sys, numpy as np
+z = np.load(sys.argv[1], allow_pickle=True)
+sys.exit(0 if any(k.endswith('_k_mean') for k in z.files) else 1)
+EOP
+$PY fig6_spaghetti.py --npz "$NPZ" --stock "$STOCK"
 echo "MTD_DONE $STOCK $TAG"
