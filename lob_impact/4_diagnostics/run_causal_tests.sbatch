@@ -9,7 +9,12 @@
 #SBATCH --output=/home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/4_diagnostics/logs/causal_%j.out
 # Placebo + pre-trend + flow-balance causal tests for one stock.
 set -eo pipefail
-STOCK="${1:?stock}"
+# Accept the stock either positionally or via the environment. Submitting with STOCK=NVDA and
+# --export=ALL (the natural thing, and what every other launcher here takes) used to die in one
+# second with "line 12: 1: stock" — five jobs lost that way on 2026-07-27, which is why placebo
+# pretrend and flow balance sat at 0/5 stocks while looking merely "queued".
+STOCK="${1:-${STOCK:-}}"
+[ -n "$STOCK" ] || { echo "FATAL: stock not given (positionally or as \$STOCK)" >&2; exit 2; }
 set +u; source /home/s5e/satyamaga.s5e/miniforge3/etc/profile.d/conda.sh; conda activate lobs5; set -u
 export JAX_PLATFORMS=cpu
 cd /home/u6gb/georgenigm.u6gb/LOBS5/lob_impact/4_diagnostics
