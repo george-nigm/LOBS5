@@ -157,6 +157,7 @@ def main():
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.6))
     cache = {}
+    stats_rows = []   # (модель, gamma_flow, H, H_lo, H_hi) -> таблица рядом с фигурой
     lines = ['| source | runs | trades/run | pairs@100 | buy_share | gamma_flow | H_price | verdict |',
              '|---|---|---|---|---|---|---|---|']
     for name, files in sources.items():
@@ -183,9 +184,13 @@ def main():
         h_lo, h_hi = np.nanpercentile(hs, [2.5, 97.5])
         c = COLORS.get(name, '#444444')
         ok = C > 0
-        axes[0].loglog(ls[ok], C[ok], color=c, lw=1.5, label=f'{name} ($\\gamma$={gamma:.2f})')
-        axes[1].loglog(lv, V, color=c, lw=1.5, label=f'{name} ($H$={H:.2f} [{h_lo:.2f},{h_hi:.2f}])')
-        axes[2].plot(lr, R, color=c, lw=1.5, label=name)
+        # The per-panel legends used to carry the fitted numbers, which made three stacked
+        # 14-entry boxes covering the curves. Numbers now go to a table written next to the figure;
+        # the panels get one shared legend at the bottom with names only.
+        axes[0].loglog(ls[ok], C[ok], color=c, lw=1.5, label=name)
+        axes[1].loglog(lv, V, color=c, lw=1.5)
+        axes[2].plot(lr, R, color=c, lw=1.5)
+        stats_rows.append((name, gamma, H, h_lo, h_hi))
         cache[f'{name}_C'] = C; cache[f'{name}_V'] = V; cache[f'{name}_R'] = R
         cache[f'{name}_gamma'] = gamma; cache[f'{name}_H'] = H
         cache[f'{name}_H_ci'] = np.array([h_lo, h_hi]); cache[f'{name}_gamma_ci'] = np.array([g_lo, g_hi])
@@ -197,11 +202,14 @@ def main():
         print(f'{name}: gamma_flow={gamma:.2f} H_price={H:.2f} runs={len(runs)}', flush=True)
 
     axes[0].set_title('trade-sign autocorrelation $C(\\ell)$\n(long memory: slow power-law decay)', fontsize=10)
-    axes[0].set_xlabel(r'lag $\ell$ (trades)'); axes[0].legend(fontsize=7)
+    axes[0].set_xlabel(r'lag $\ell$ (trades)')
     axes[1].set_title('mid displacement variance vs lag\n(slope $=2H$; efficiency $\\Rightarrow H \\approx 0.5$)', fontsize=10)
-    axes[1].set_xlabel(r'lag $\ell$ (trades)'); axes[1].legend(fontsize=7)
+    axes[1].set_xlabel(r'lag $\ell$ (trades)')
     axes[2].set_title('response $R(\\ell) = E[\\varepsilon_t\\,(m_{t+\\ell}-m_t)]$, ticks', fontsize=10)
-    axes[2].set_xlabel(r'lag $\ell$ (trades)'); axes[2].legend(fontsize=7)
+    axes[2].set_xlabel(r'lag $\ell$ (trades)')
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='lower center', ncol=min(7, max(4, (len(l) + 1) // 2)),
+               frameon=False, fontsize=9.5, bbox_to_anchor=(0.5, -0.03))
     axes[2].axhline(0, color='#cccccc', lw=0.8)
     fig.suptitle(f'{args.stock}: flow persistence vs price diffusivity '
                  r'(balance requires $\beta \approx (1-\gamma)/2$)', y=1.03)
@@ -209,6 +217,17 @@ def main():
     png = os.path.join(outdir, f'flow_balance_{args.stock}.png')
     fig.savefig(png, dpi=150, bbox_inches='tight')
     np.savez_compressed(png.replace('.png', '.npz'), **cache)
+    # The two Stage-0 numbers as a table instead of crammed into legend labels: three 14-entry
+    # boxes used to sit on top of the curves they described.
+    tbl = png.replace('.png', '_stats.md')
+    real = next((r for r in stats_rows if r[0].lower().startswith('real')), None)
+    with open(tbl, 'w') as fh:
+        fh.write(f'| model | $\\gamma_{{flow}}$ | $H$ | 95% CI on $H$ |\n|---|---|---|---|\n')
+        for name, g, H, lo, hi in stats_rows:
+            fh.write(f'| {name} | {g:.2f} | {H:.2f} | [{lo:.2f}, {hi:.2f}] |\n')
+    print('STATS ->', tbl)
+    if real:
+        print(f'  (real stream: gamma={real[1]:.2f}, H={real[2]:.2f} — the target both gates aim at)')
     with open(os.path.join(outdir, f'flow_balance_{args.stock}.md'), 'w') as f:
         f.write('\n'.join(lines) + '\n')
     print('\n'.join(lines), flush=True)
