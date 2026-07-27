@@ -214,6 +214,20 @@ def main():
         p = np.nanpercentile(ends, [1, 50, 99])
         print(f'{exp}: n={len(trajs)}, Lkeep={Lkeep}, end={end:.2f} bps | per-sample end p1/p50/p99 = {p[0]:.1f}/{p[1]:.1f}/{p[2]:.1f}')
         # --- k-clock (executed-volume) aggregation: equal length by construction, plain mean ---
+        # Book-collapse guard. The paper's protocol already says runs that fail the well-formedness
+        # checks are excluded before analysis, but this aggregate never enforced it: on AMD two
+        # NMZI rollouts out of 4054 (0.05%, both 2026-01-15) reached -9.3e6 bps -- a price driven to
+        # nonsense by a collapsed book -- and dragged the plain mean from -0.09 bps to -4592 bps,
+        # which is the wild green line in the relaxation panel. A displacement past COLLAPSE_BPS is
+        # not a market move at any horizon, so those rollouts are dropped and counted. This is NOT
+        # tail trimming: the surviving distribution keeps both tails (AMD NMZI p1/p99 = -16/+16),
+        # so no exponent is biased by it.
+        COLLAPSE_BPS = 2000.0
+        bad = np.nanmax(np.abs(K), axis=1) > COLLAPSE_BPS
+        if bad.any():
+            print(f'  [collapse] {model}: dropped {int(bad.sum())}/{len(K)} rollouts '
+                  f'(|I| > {COLLAPSE_BPS:.0f} bps; worst {np.nanmin(K[bad]):.0f} bps)', flush=True)
+            K = K[~bad]
         kcnt = np.sum(np.isfinite(K), axis=0)
         kmean = np.nanmean(K, axis=0)
         kse = np.nanstd(K, axis=0) / np.sqrt(np.maximum(1, kcnt))
