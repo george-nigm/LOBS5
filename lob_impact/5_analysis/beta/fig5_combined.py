@@ -141,6 +141,26 @@ def stamp_if_empty(ax, z):
 
 
 
+
+def warn_if_unfiltered(ax, z, bound=100.0):
+    """Stamp the panel if a curve carries collapse-level values.
+
+    mid_trajectory.py drops rollouts past 2000 bps at source and fix_collapsed_runs.py repairs
+    caches already written, but a job launched before those fixes rewrites the cache unfiltered —
+    which happened on AMD (a single GDN rollout of +8668 bps lifted the k=96 point from 7.07 to
+    11.23 bps, and two NMZI rollouts put the whole curve at -4592). A mid-price impact past `bound`
+    bps is not a market move, so say so on the figure rather than let it be pasted unnoticed.
+    """
+    bad = [m for m in models_in(z, '_k_mean')
+           if np.isfinite(np.asarray(z[f'{m}_k_mean'], float)).any()
+           and np.nanmax(np.abs(np.asarray(z[f'{m}_k_mean'], float))) > bound]
+    if bad:
+        ax.text(0.5, 0.94, 'UNFILTERED CACHE: ' + ', '.join(bad) + '  — run fix_collapsed_runs.py',
+                transform=ax.transAxes, ha='center', va='top', fontsize=10, color='#B03A2E',
+                bbox=dict(boxstyle='round', fc='#FDEDEC', ec='#B03A2E', alpha=0.95), zorder=12)
+    return bad
+
+
 def zoom_band(z, drop_top=3, pad=1.30):
     """Y-range that shows everything except the `drop_top` largest curves.
 
@@ -242,6 +262,7 @@ def main():
     plt.rcParams.update({'font.size': 12.5, 'axes.labelsize': 13, 'xtick.labelsize': 11.5, 'ytick.labelsize': 11.5})
     fig, axes = plt.subplots(2, 2, figsize=(15.5, 9.5))
     stamp_if_empty(axes[0][0], Z['mid_beta'])
+    warn_if_unfiltered(axes[0][0], Z['mid_beta'])
     draw_mid(axes[0][0], Z['mid_beta'],
              band_within=(zoom_band(Z['mid_beta'], args.drop_top) if args.swap_zoom else None))
     if args.swap_zoom:
@@ -278,6 +299,7 @@ def main():
                       P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(np.clip(vv - 1, 0, None)))))
         theory = (kk, th)
     stamp_if_empty(axes[1][0], Z['mid_decay'])
+    warn_if_unfiltered(axes[1][0], Z['mid_decay'])
     draw_mid(axes[1][0], Z['mid_decay'], n_ins=10, ref=theory,
              band_within=(zoom_band(Z['mid_decay'], args.drop_top) if args.swap_zoom else None))
     yl, clipped = robust_ylim(Z['mid_decay'])

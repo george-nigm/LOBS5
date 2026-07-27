@@ -80,6 +80,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', required=True)
     ap.add_argument('--copy_to', default=None)
+    ap.add_argument('--est', default='l2', choices=['l2', 'binned', 'l1'],
+                    help="estimator. Default l2 — the paper fixes 'direct L2 on unfiltered signed "
+                         "points, cumulative <=k' as the canonical configuration, and the scorecard "
+                         "quotes it, so the body figure must plot the same thing.")
     ap.add_argument('--suffix', default='')
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
@@ -93,23 +97,27 @@ def main():
     q_ref = float(np.exp(zb[f'{rm}_parkinson_xc'][-1]))
 
     ks = z3['ks']
-    models = [m for m in ORDER if f'{m}_binned_le' in z3.files]
+    models = [m for m in ORDER if f'{m}_{args.est}_le' in z3.files]
     if not models:
         print(f'нет моделей в beta_3x3_{args.stock}.npz')
         return 1
 
+    AMP = {'binned': ('ibin', 'dbin'), 'l2': ('al2', 'dl2'), 'l1': ('al1', 'dl1')}
+    akey, dkey = AMP[args.est]
+
     def amplitude(m):
-        ka, kd = f'{m}_parkinson_ibin', f'{m}_parkinson_dbin'
+        ka, kd = f'{m}_parkinson_{akey}', f'{m}_parkinson_{dkey}'
         if ka not in zsg.files or kd not in zsg.files:
             return None
         a = np.asarray(zsg[ka], float)
         d = np.asarray(zsg[kd], float)
-        return np.exp(a) * q_ref ** (d - 0.5) / P2R
+        amp = np.exp(a) if args.est == 'binned' else np.abs(a)
+        return amp * q_ref ** (d - 0.5) / P2R
 
     def identified(m):
         """Same two criteria as the 3x3 body panel: amplitude off zero, and delta off the bounds."""
         Y = amplitude(m)
-        d = np.asarray(z3[f'{m}_binned_le'], float)
+        d = np.asarray(z3[f'{m}_{args.est}_le'], float)
         ok = np.ones(len(d), bool)
         if Y is not None:
             n = min(len(Y), len(ok))
@@ -124,7 +132,7 @@ def main():
     for m in models:
         c = COLORS.get(m, '#444444')
         ok = identified(m)
-        d = np.asarray(z3[f'{m}_binned_le'], float)
+        d = np.asarray(z3[f'{m}_{args.est}_le'], float)
         shown = np.where(ok, d, np.nan)
         ln, = axd.plot(ks, shown, color=c, lw=2.0)
         handles.append(ln)
@@ -167,8 +175,9 @@ def main():
     axy.text(0.985, 0.015, 'dashed: fitted amplitude negative (adverse drift), $|Y|$ shown',
              transform=axy.transAxes, fontsize=8.5, color='#777777', ha='right')
 
-    fig.suptitle(f'{args.stock}: headline estimator (signed binned, cumulative $\\leq k$) — '
-                 'exponent and amplitude', fontsize=13.5)
+    _ESTLAB = {'l2': r'direct $L_2$ (canonical)', 'binned': 'signed binned', 'l1': r'direct $L_1$'}
+    fig.suptitle(f'{args.stock}: {_ESTLAB[args.est]}, cumulative $\\leq k$ — exponent and amplitude',
+                 fontsize=13.5)
     _legend_below(fig, handles, labels, y=-0.02)
     fig.tight_layout(rect=(0, 0.10, 1, 0.94))
 
@@ -177,7 +186,7 @@ def main():
     png = os.path.join(outdir, f'delta_amplitude_body_{args.stock}{args.suffix}.png')
     fig.savefig(png, dpi=200, bbox_inches='tight')
     np.savez_compressed(png.replace('.png', '.npz'), ks=ks,
-                        **{f'{m}_delta': np.asarray(z3[f'{m}_binned_le'], float) for m in models},
+                        **{f'{m}_delta': np.asarray(z3[f'{m}_{args.est}_le'], float) for m in models},
                         **{f'{m}_ok': identified(m) for m in models},
                         **{f'{m}_Y': amplitude(m) for m in models if amplitude(m) is not None})
     print(f'DELTA_AMP_BODY -> {png}  ({len(models)} моделей)')

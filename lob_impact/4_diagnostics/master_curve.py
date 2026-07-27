@@ -43,6 +43,18 @@ def master_curve(side_dir):
     M = np.stack([t[:L] for t in mids])
     C = np.stack([c[:L] for c in collapsed])
     impact = (M - M[:, :1]) / TICK
+    # Book-collapse guard, same rule as mid_trajectory.py. One rollout out of 2080 whose price ran
+    # to +8668 bps lifted a single point of the AMD GDN curve from 7.07 to 11.23 bps and put a
+    # matching spike in the master curve at the same k. A displacement past COLLAPSE_TICKS is not a
+    # market move at any horizon; drop those trajectories and say how many.
+    COLLAPSE_TICKS = 2000.0
+    _bad = np.nanmax(np.abs(impact), axis=1) > COLLAPSE_TICKS
+    if _bad.any():
+        print(f'  [collapse] dropped {int(_bad.sum())}/{len(impact)} trajectories '
+              f'(|I| > {COLLAPSE_TICKS:.0f} ticks; worst {np.nanmax(np.abs(impact[_bad])):.0f})', flush=True)
+        impact = impact[~_bad]
+        M = M[~_bad]
+        C = C[~_bad]
     n = M.shape[0]
     aggr = np.loadtxt(glob.glob(os.path.join(side_dir, '**', 'aggressive_indices.csv'),
                                 recursive=True)[0], dtype=int, ndmin=1)
