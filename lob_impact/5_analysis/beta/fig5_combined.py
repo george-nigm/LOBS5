@@ -75,7 +75,11 @@ def robust_ylim(z, pad=0.10, blowup=20.0):
     return (lo - pad * rng, hi + pad * rng), clipped
 
 
-def draw_mid(ax, z, n_ins=None, ref=None):
+def draw_mid(ax, z, n_ins=None, ref=None, band_within=None):
+    """band_within=(lo,hi): draw the +-2 s.e. ribbon only for curves that live inside that
+    range. With --swap_zoom the three runaway curves leave the frame but their ribbons stay,
+    filling the panel with translucent colour and washing out exactly the curves the zoom was
+    meant to expose."""
     klen = 0
     for m in models_in(z, '_k_mean'):
         y = z[f'{m}_k_mean']; se = z[f'{m}_k_se']
@@ -83,7 +87,12 @@ def draw_mid(ax, z, n_ins=None, ref=None):
         klen = max(klen, len(y))
         c = COLORS.get(m, '#444444')
         ax.plot(x, y, color=c, lw=2.0)
-        ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.16, lw=0)
+        inside = True
+        if band_within is not None and np.isfinite(y).any():
+            pk = np.nanmax(np.abs(np.asarray(y, float)))
+            inside = pk <= max(abs(band_within[0]), abs(band_within[1]))
+        if inside:
+            ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.16, lw=0)
     if ref is not None:
         ax.plot(ref[0], ref[1], color=GREY, lw=2.2, ls='--')
     elif 'sqrt_x' in z.files and klen:
@@ -112,8 +121,32 @@ def stamp_if_empty(ax, z):
     return False
 
 
-def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None):
-    """Zoom inset: the baseline band the neural curves dwarf (means first; bands may clip)."""
+
+def zoom_band(z, drop_top=3, pad=1.30):
+    """Y-range that shows everything except the `drop_top` largest curves.
+
+    The point of the swap is that the three runaway neural curves set the scale and flatten
+    everything else: on AMD the build-up panel spans 0-72 bps while S5-120M peaks at 17 and the
+    baselines sit under 1.5. Excluding the top few by peak leaves a range in which S5-120M, S5-4k,
+    the reference law and the baseline band are all legible; the big picture moves to the inset.
+    """
+    peaks = []
+    for m in models_in(z, '_k_mean'):
+        y = np.asarray(z[f'{m}_k_mean'], float)
+        if np.isfinite(y).any():
+            peaks.append(np.nanmax(np.abs(y)))
+    if not peaks:
+        return None
+    peaks.sort()
+    keep = peaks[:-drop_top] if len(peaks) > drop_top else peaks
+    hi = (keep[-1] if keep else peaks[-1]) * pad
+    lo = -0.18 * hi
+    return (lo, hi)
+
+
+def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None, title=None):
+    """Small axis inside `ax`. Default: the baseline band the neural curves dwarf.
+    With --swap_zoom it carries the full-range view instead and the main axis is the zoom."""
     ins = ax.inset_axes(list(rect))
     for m in models_in(z, '_k_mean'):
         y = z[f'{m}_k_mean']; se = z[f'{m}_k_se']
@@ -129,7 +162,7 @@ def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None)
                  ys, color=GREY, lw=1.8, ls='--')
     ins.set_ylim(*ylim)
     ins.axhline(0, color='#cccccc', lw=0.7)
-    ins.set_title('zoom: baselines & reference (bps)', fontsize=9)
+    ins.set_title(title or 'zoom: baselines & reference (bps)', fontsize=9)
     ins.tick_params(labelsize=8)
 
 
@@ -172,6 +205,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--stock', required=True)
     ap.add_argument('--copy_to', default=None)
+    ap.add_argument('--swap_zoom', action='store_true',
+                    help='main panel = zoomed band, inset = full range (default is the reverse)')
+    ap.add_argument('--drop_top', type=int, default=3,
+                    help='--swap_zoom: how many largest curves the zoomed band may exclude')
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     res = os.path.join(here, 'results')
@@ -186,11 +223,22 @@ def main():
     plt.rcParams.update({'font.size': 12.5, 'axes.labelsize': 13, 'xtick.labelsize': 11.5, 'ytick.labelsize': 11.5})
     fig, axes = plt.subplots(2, 2, figsize=(15.5, 9.5))
     stamp_if_empty(axes[0][0], Z['mid_beta'])
-    draw_mid(axes[0][0], Z['mid_beta'])
-    inset_zoom(axes[0][0], Z['mid_beta'])
+    draw_mid(axes[0][0], Z['mid_beta'],
+             band_within=(zoom_band(Z['mid_beta'], args.drop_top) if args.swap_zoom else None))
+    if args.swap_zoom:
+        # приближение — в большой панели, общий вид — во врезке
+        band = zoom_band(Z['mid_beta'], args.drop_top)
+        full = robust_ylim(Z['mid_beta'])[0]
+        inset_zoom(axes[0][0], Z['mid_beta'], ylim=full, rect=(0.06, 0.55, 0.40, 0.41),
+                   title='full range (bps)')
+        if band:
+            axes[0][0].set_ylim(*band)
+    else:
+        inset_zoom(axes[0][0], Z['mid_beta'])
     yl, clipped = robust_ylim(Z['mid_beta'])
     if yl:
-        axes[0][0].set_ylim(*yl)
+        if not args.swap_zoom:
+            axes[0][0].set_ylim(*yl)
     if clipped:
         axes[0][0].text(0.98, 0.03, 'off-scale: ' + ', '.join(m.replace('_', '-') for m in clipped),
                         transform=axes[0][0].transAxes, fontsize=10, color='#888888',
@@ -211,16 +259,26 @@ def main():
                       P * (2/3 + (1/3) * (np.sqrt(vv) - np.sqrt(np.clip(vv - 1, 0, None)))))
         theory = (kk, th)
     stamp_if_empty(axes[1][0], Z['mid_decay'])
-    draw_mid(axes[1][0], Z['mid_decay'], n_ins=10, ref=theory)
+    draw_mid(axes[1][0], Z['mid_decay'], n_ins=10, ref=theory,
+             band_within=(zoom_band(Z['mid_decay'], args.drop_top) if args.swap_zoom else None))
     yl, clipped = robust_ylim(Z['mid_decay'])
     if yl is None:
         yl = axes[1][0].get_ylim()
-    axes[1][0].set_ylim(yl[0], yl[1] * 1.30 if yl[1] > 0 else yl[1])
+    if not args.swap_zoom:
+        axes[1][0].set_ylim(yl[0], yl[1] * 1.30 if yl[1] > 0 else yl[1])
     if clipped:
         axes[1][0].text(0.98, 0.03, 'off-scale: ' + ', '.join(m.replace('_', '-') for m in clipped),
                         transform=axes[1][0].transAxes, fontsize=10, color='#888888',
                         ha='right', va='bottom')
-    inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.05, 0.62, 0.38, 0.36), ref=theory)
+    if args.swap_zoom:
+        band = zoom_band(Z['mid_decay'], args.drop_top)
+        full = (yl[0], yl[1] * 1.30 if yl[1] > 0 else yl[1])
+        inset_zoom(axes[1][0], Z['mid_decay'], ylim=full, rect=(0.05, 0.60, 0.38, 0.36),
+                   ref=theory, title='full range (bps)')
+        if band:
+            axes[1][0].set_ylim(*band)
+    else:
+        inset_zoom(axes[1][0], Z['mid_decay'], ylim=(-0.8, 0.9), rect=(0.05, 0.62, 0.38, 0.36), ref=theory)
     axes[1][0].set_title('relaxation: $I(k)$ through execution end (dotted)', fontsize=13.5)
     axes[1][0].set_ylabel('relaxation shape\n$I$, bps')
     axes[1][0].set_xlabel('children executed $k$ (then cooling blocks)')
