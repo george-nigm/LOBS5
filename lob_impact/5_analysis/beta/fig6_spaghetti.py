@@ -18,10 +18,30 @@ import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
+
+def _canon_palette():
+    """Canonical palette from lob_impact/core/model_style.py. Merged OVER the local dict, so a
+    local value can never silently disagree with the rest of the paper (QR was #455A64 here and
+    #00ACC1 elsewhere; OW was olive in two scripts and purple in the others)."""
+    import os, importlib.util
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return dict(m.COLORS)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return {}
+
+_LOCAL_COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Propagator': '#8B5E3C',
           'Hawkes': '#D4AC0D', 'CST': '#27AE60', 'NMZI': '#117864',
           'Mamba3': '#2F5DA3', 'GDN': '#D81B60', 'S5': '#E67E22', 'S5_120M': '#F06292',
           'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
+COLORS = {**_LOCAL_COLORS, **_canon_palette()}
 MAX_SPAGHETTI = 400   # per panel; a uniform random subset if more (seeded)
 
 

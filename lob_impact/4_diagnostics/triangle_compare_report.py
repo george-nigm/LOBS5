@@ -22,8 +22,28 @@ from make_triangle_docx import Doc, MODEL_META  # noqa: E402  (sibling module)
 GRID01 = np.linspace(0.0, 1.0, 241)
 
 # palette (project reference set): model identity is constant across every figure
-MODEL_COLOR = {'Mamba3': '#2a78d6', 'Mamba3_4k': '#1baf7a', 'S5_4k': '#eb6834',
+
+def _canon_palette():
+    """Canonical palette from lob_impact/core/model_style.py. Merged OVER the local dict, so a
+    local value can never silently disagree with the rest of the paper (QR was #455A64 here and
+    #00ACC1 elsewhere; OW was olive in two scripts and purple in the others)."""
+    import os, importlib.util
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return dict(m.COLORS)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return {}
+
+_LOCAL_MODEL_COLOR = {'Mamba3': '#2a78d6', 'Mamba3_4k': '#1baf7a', 'S5_4k': '#eb6834',
                'GDN': '#4a3aa7', 'S5_120M': '#eda100'}
+MODEL_COLOR = {**_LOCAL_MODEL_COLOR, **_canon_palette()}
 C_REAL = '#008300'
 C_MECH, C_DRIFT = '#4a3aa7', '#eda100'
 INK, INK2, MUTED = '#0b0b0b', '#52514e', '#898781'
