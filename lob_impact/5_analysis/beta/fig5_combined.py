@@ -116,7 +116,7 @@ def draw_mid(ax, z, n_ins=None, ref=None, band_within=None):
             pk = np.nanmax(np.abs(np.asarray(y, float)))
             inside = pk <= max(abs(band_within[0]), abs(band_within[1]))
         if inside:
-            ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.07, lw=0)
+            ax.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.04, lw=0)
     if ref is not None:
         ax.plot(ref[0], ref[1], color=GREY, lw=2.2, ls='--')
     elif 'sqrt_x' in z.files and klen:
@@ -197,7 +197,7 @@ def inset_zoom(ax, z, ylim=(-4.5, 5.5), rect=(0.06, 0.52, 0.44, 0.44), ref=None,
         x = np.arange(len(y))
         c = COLORS.get(m, '#444444')
         ins.plot(x, y, color=c, lw=1.5)
-        ins.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.07, lw=0)
+        ins.fill_between(x, y - 2 * se, y + 2 * se, color=c, alpha=0.04, lw=0)
     if ref is not None:
         ins.plot(ref[0], ref[1], color=GREY, lw=1.8, ls='--')
     elif 'sqrt_x' in z.files:
@@ -223,17 +223,23 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05, draw_weak=
     gate failure, because the objection is the same: the shape carries no information about the
     model. `draw_weak=True` keeps them as thin semi-transparent lines instead.
     """
+    # 'Near-null' is decided by the curve's own noise, not by relative peak. The peak criterion
+    # (drop below 5% of the panel max) was calibrated on AMD, where it removed exactly QR; on NVDA
+    # the neural peaks are ~45 bps, so 5% = 2.2 bps swept out OW (1.81), Propagator (1.74) and
+    # Hawkes (1.53) — perfectly smooth, informative curves. What actually makes a ratio unreadable
+    # is jitter: mean |step| of the normalised curve. QR sits at ~0.05 where every real curve is
+    # 0.003-0.018, so the cut at 0.03 separates them cleanly on both stocks.
     gated_out, faint = [], []
     peaks = {m: abs(float(z[f'{m}_peak'])) for m in models_in(z, '_master') if f'{m}_peak' in z.files}
-    pmax = max(peaks.values()) if peaks else 0.0
     for m in models_in(z, '_master'):
         if not bool(z[f'{m}_sig']):
             gated_out.append(m); continue
         v = z['vgrid']; y = z[f'{m}_master']
         c = COLORS.get(m, '#444444')
-        weak = pmax > 0 and peaks.get(m, pmax) < faint_frac * pmax
-        if weak:
-            faint.append((m, peaks[m]))
+        yy = np.asarray(y, float); yy = yy[np.isfinite(yy)]
+        jit = float(np.mean(np.abs(np.diff(yy)))) if len(yy) > 3 else 0.0
+        if jit > 0.03:
+            faint.append((m, peaks.get(m, float('nan'))))
             if not draw_weak:          # default: drop it, same as a gate failure
                 continue
             ax.plot(v, y, color=c, lw=1.0, alpha=0.45)
@@ -247,7 +253,7 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05, draw_weak=
             with np.errstate(all='ignore'):
                 rel = np.abs(ks[:n] / km[:n])
             band = np.abs(y[:n]) * np.clip(rel, 0, 1.5)
-            ax.fill_between(v[:n], y[:n] - 2 * band, y[:n] + 2 * band, color=c, alpha=0.06, lw=0)
+            ax.fill_between(v[:n], y[:n] - 2 * band, y[:n] + 2 * band, color=c, alpha=0.03, lw=0)
     v = z['vgrid']
     if relax:
         # theory: sqrt build-up then power-law decay to the 2/3 permanent level
@@ -264,11 +270,16 @@ def draw_master(ax, z, relax, zmid=None, n_end=None, faint_frac=0.05, draw_weak=
         notes.append('gate-failed: ' + ', '.join(gated_out))
     if faint:
         _verb = 'shown faint' if draw_weak else 'not shown'
-        notes.append(f'near-null impact, ratio is noise ({_verb}): '
+        notes.append(f'ratio too noisy ({_verb}): '
                      + ', '.join(f'{m.replace("_", "-")} (peak {p:.2f} bps)' for m, p in faint))
     if notes:
-        ax.text(0.02, 0.97, '\n'.join(notes), transform=ax.transAxes,
-                fontsize=9.5, color='#888888', va='top')
+        # long model lists ran past the right edge of the panel on NVDA — wrap them
+        import textwrap
+        wrapped = []
+        for nline in notes:
+            wrapped += textwrap.wrap(nline, width=58, subsequent_indent='   ')
+        ax.text(0.02, 0.97, '\n'.join(wrapped), transform=ax.transAxes,
+                fontsize=9, color='#888888', va='top')
     ax.axhline(0, color='#cccccc', lw=0.8)
     ax.margins(x=0)
 
@@ -302,7 +313,7 @@ def main():
         # приближение — в большой панели, общий вид — во врезке
         band = zoom_band(Z['mid_beta'], args.drop_top)
         full = robust_ylim(Z['mid_beta'])[0]
-        inset_zoom(axes[0][0], Z['mid_beta'], ylim=full, rect=(0.06, 0.55, 0.40, 0.41),
+        inset_zoom(axes[0][0], Z['mid_beta'], ylim=full, rect=(0.06, 0.47, 0.40, 0.41),   # ниже: заголовок врезки упирался в верх панели и пропадал
                    title='full range (bps)')
         if band:
             axes[0][0].set_ylim(*band)
@@ -347,7 +358,7 @@ def main():
     if args.swap_zoom:
         band = zoom_band(Z['mid_decay'], args.drop_top)
         full = (yl[0], yl[1] * 1.30 if yl[1] > 0 else yl[1])
-        inset_zoom(axes[1][0], Z['mid_decay'], ylim=full, rect=(0.31, 0.60, 0.38, 0.36),   # по центру сверху: у левого края она перекрывала подъём кривых
+        inset_zoom(axes[1][0], Z['mid_decay'], ylim=full, rect=(0.31, 0.53, 0.38, 0.36),   # по центру, чуть ниже верха: заголовок врезки должен быть виден
                    ref=theory, title='full range (bps)')
         if band:
             axes[1][0].set_ylim(*band)
