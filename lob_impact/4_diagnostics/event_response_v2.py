@@ -104,6 +104,7 @@ def main():
     axt.errorbar(ks, Rtr, yerr=2 * Rtr_se, fmt='o-', ms=4, color=C_REAL, lw=1.6,
                  capsize=2, label='real, trade time')
     model_tr = {}
+    _label_ends = []   # (y, x, model, colour) — labels are staggered after the loop
     if args.model_npz:
         M = np.load(args.model_npz, allow_pickle=True)
         # This is the panel whose curves become the <model>_Rtr_fig cache the coverage gate reads,
@@ -124,9 +125,28 @@ def main():
                          ms=2.6 if _neural else 2.0, color=c,
                          lw=1.2 if _neural else 0.9, ls='-' if _neural else '--',
                          capsize=0, alpha=0.95 if _neural else 0.8)
-            axt.annotate(m, (kk[okt][-1], rt[okt][-1]), fontsize=6.4, color=c,
-                         va='center', ha='left', xytext=(3, 0), textcoords='offset points')
+            # Inline labels only for the neural curves: the baselines all sit within a whisker of
+            # zero, so their annotations piled on top of each other (and on Mamba3/GDN, which nearly
+            # coincide). The legend names every model already.
+            if _neural:
+                _label_ends.append((float(rt[okt][-1]), float(kk[okt][-1]), m, c))
             model_tr[m] = rt
+    # Stagger the inline labels: several neural curves end within 0.01-0.03 of one another
+    # (GDN 0.65, Mamba3-4k 0.64, Mamba3 0.62 on NVDA), so a fixed offset leaves them overlapping.
+    # Sort by endpoint and push each one far enough from the previous label to clear the text.
+    if _label_ends:
+        _label_ends.sort(key=lambda t: t[0])
+        _span = max(t[0] for t in _label_ends) - min(t[0] for t in _label_ends) or 1.0
+        _min_gap = 0.055 * _span
+        _placed = []
+        for _y, _x, _m, _c in _label_ends:
+            _yy = _y if not _placed else max(_y, _placed[-1] + _min_gap)
+            _placed.append(_yy)
+            axt.annotate(_m.replace('_', '-'), (_x, _y), xytext=(_x + 0.35, _yy),
+                         fontsize=6.4, color=_c, va='center', ha='left',
+                         arrowprops=dict(arrowstyle='-', color=_c, lw=0.5, alpha=0.6)
+                         if abs(_yy - _y) > 1e-9 else None)
+
     if not model_tr:
         for m, p in sorted(plateaus.items(), key=lambda kv: -kv[1]):
             axt.axhline(p, color=MODEL_COLOR.get(m, '#444444'), lw=1.4, ls=':', alpha=0.9)
