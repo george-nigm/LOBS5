@@ -47,6 +47,7 @@ def main():
     # artefact (the 0.05<->1.5 teleport), not an estimate.
     P2R = np.sqrt(4 * np.log(2.0))
     Y_MIN = 0.05
+    D_LO, D_HI = 0.05, 1.50    # the fit's own search bounds
     try:
         if not args.mask:
             raise RuntimeError('mask disabled by flag')
@@ -68,9 +69,17 @@ def main():
             # the row's own amplitude AND the L2 arbiter must both clear the
             # floor: amplitude-on-zero is estimator-independent physics
             Yo = _Y(m, est, view); Y2 = _Y(m, 'l2', view)
-            if Yo is None or Y2 is None:
-                return np.ones(len(ks), bool)
-            return (Yo >= Y_MIN) & (Y2 >= Y_MIN)
+            base = np.ones(len(ks), bool) if (Yo is None or Y2 is None) else (Yo >= Y_MIN) & (Y2 >= Y_MIN)
+            # SECOND criterion: delta sitting on the search bounds is not an estimate either --
+            # it is the same "0.05<->1.5 teleport" the comment above describes, reached from the
+            # other side. The amplitude test misses it whenever the fit has amplitude but no
+            # curvature, which is exactly QR and Hawkes here: Historic (a replay, so no law by
+            # construction) scatters over [-2.55, +2.77] with 11 of 20 points ON the bound, while
+            # Mamba3, which does have a law, has a per-k spread of 0.03. Drawing a boundary value
+            # as if it were a measurement is what makes these panels look like wild outliers.
+            d = np.asarray(z3[f'{m}_{est}_{view}'], float)
+            on_bound = (~np.isfinite(d)) | (d <= D_LO + 1e-6) | (d >= D_HI - 1e-6)
+            return base & ~on_bound
     except Exception as e:
         print('mask disabled:', e)
         ok_mask = lambda m, est, view: np.ones(len(ks), bool)
