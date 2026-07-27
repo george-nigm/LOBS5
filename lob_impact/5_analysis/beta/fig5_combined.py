@@ -347,7 +347,7 @@ def main():
     if args.swap_zoom:
         band = zoom_band(Z['mid_decay'], args.drop_top)
         full = (yl[0], yl[1] * 1.30 if yl[1] > 0 else yl[1])
-        inset_zoom(axes[1][0], Z['mid_decay'], ylim=full, rect=(0.05, 0.60, 0.38, 0.36),
+        inset_zoom(axes[1][0], Z['mid_decay'], ylim=full, rect=(0.31, 0.60, 0.38, 0.36),   # по центру сверху: у левого края она перекрывала подъём кривых
                    ref=theory, title='full range (bps)')
         if band:
             axes[1][0].set_ylim(*band)
