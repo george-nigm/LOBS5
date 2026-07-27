@@ -28,10 +28,29 @@ TICK = 100
 SENT = 2147483647
 DATE_RE = re.compile(r'(\d{4}-\d{2}-\d{2})')
 DGRID = np.arange(0.05, 1.51, 0.01)
-COLORS = {'Historic': '#C0392B', 'Mamba3': '#2F5DA3', 'GDN': '#D81B60',
+
+def _canon_palette():
+    """Canonical palette from lob_impact/core/model_style.py — see the note there on why the
+    per-script dicts drifted. Falls back to the local dict if that file is not reachable."""
+    import os, importlib.util
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return dict(m.COLORS)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return {}
+
+_LOCAL_COLORS = {'Historic': '#C0392B', 'Mamba3': '#2F5DA3', 'GDN': '#D81B60',
           'S5_120M': '#F06292', 'Mamba3_4k': '#16A085', 'S5_4k': '#E67E22'}
 
 
+COLORS = {**_LOCAL_COLORS, **_canon_palette()}
 def read_csv(f):
     """Parse a generated CSV, dropping rows that are not numeric.
 

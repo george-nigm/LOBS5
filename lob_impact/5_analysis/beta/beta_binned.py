@@ -28,8 +28,27 @@ import matplotlib.pyplot as plt
 from beta_grid import collect
 from vol_estimators import daily_sigmas
 
-COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Hawkes': '#D4AC0D',
+
+def _canon_palette():
+    """Canonical palette from lob_impact/core/model_style.py — see the note there on why the
+    per-script dicts drifted. Falls back to the local dict if that file is not reachable."""
+    import os, importlib.util
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return dict(m.COLORS)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return {}
+
+_LOCAL_COLORS = {'Historic': '#C0392B', 'Heuristic': '#7F8C8D', 'Hawkes': '#D4AC0D',
           'CST': '#27AE60', 'Mamba3': '#2F5DA3', 'Mamba3_4k': '#16A085', 'S5_4k': '#8E44AD', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
+COLORS = {**_LOCAL_COLORS, **_canon_palette()}
 MIN_BINS = 5
 
 

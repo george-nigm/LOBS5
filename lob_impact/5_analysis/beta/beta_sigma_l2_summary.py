@@ -11,9 +11,28 @@ import numpy as np
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-COLORS = {'Historic': '#C0392B', 'Hawkes': '#D4AC0D', 'Mamba3': '#2F5DA3',
+
+def _canon_palette():
+    """Canonical palette from lob_impact/core/model_style.py — see the note there on why the
+    per-script dicts drifted. Falls back to the local dict if that file is not reachable."""
+    import os, importlib.util
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(4):
+        p = os.path.join(d, 'core', 'model_style.py')
+        if os.path.exists(p):
+            sp = importlib.util.spec_from_file_location('_lob_model_style', p)
+            m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+            return dict(m.COLORS)
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return {}
+
+_LOCAL_COLORS = {'Historic': '#C0392B', 'Hawkes': '#D4AC0D', 'Mamba3': '#2F5DA3',
           'GDN': '#D81B60', 'S5_120M': '#F06292', 'Mamba3_4k': '#16A085',
           'S5_4k': '#E67E22', 'S5': '#5D6D7E', 'OW': '#6A1B9A', 'QR': '#00ACC1'}
+COLORS = {**_LOCAL_COLORS, **_canon_palette()}
 SIGMAS = ['none', 'parkinson', 'garman_klass', 'rogers_satchell', 'close_to_close', 'yang_zhang']
 VIEWS = [('le', r'cumulative $\leq k$'), ('eq', r'exact $=k$'), ('ge', r'reverse $\geq k$')]
 
